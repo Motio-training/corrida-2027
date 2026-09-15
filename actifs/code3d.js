@@ -11198,28 +11198,61 @@ function interfaceConsultation3D(){
   });
   e3.appendChild(box);
 
-  /* allure : boutons − et + au-dessus du joystick (même réglage que le curseur Allure de l'ordinateur) */
-  var PAS=[4,6,8,10,12,13,15,18,21,25,30,40,50,70,100,150];
-  var curseur=$e('e3-vitesse'), vit=document.createElement('div'); vit.id='e3-vit-tact';
-  vit.innerHTML='<button type="button" aria-label="Moins vite">−</button><span></span><button type="button" aria-label="Plus vite">+</button>';
-  function majVit(){ vit.children[1].textContent='🏃 '+curseur.value+' km/h'; }
-  function changerVit(sens){
-    var v=+curseur.value, n;
-    if(sens>0){ n=PAS.find(function(p){ return p>v; }); if(n===undefined) n=PAS[PAS.length-1]; }
-    else { n=PAS.slice().reverse().find(function(p){ return p<v; }); if(n===undefined) n=PAS[0]; }
-    curseur.value=n; curseur.dispatchEvent(new Event('input',{bubbles:true})); majVit();
-    dire('Allure : '+n+' km/h');
+  /* allure : toucher la vitesse en haut à gauche ouvre le réglage, Valider le referme
+     (même réglage que le curseur Allure de l'ordinateur) */
+  var curseur=$e('e3-vitesse'), chVit=$e('e3-vit') ? $e('e3-vit').closest('.e3-ch') : null;
+  var PRESETS=[['🚶 Marche',6],['🏃 Footing',10],['🏃 Course',13],['⚡ Rapide',18],['🚲 Vélo',25],['🚗 Voiture',50]];
+  var menuV=document.createElement('div'); menuV.id='e3-vit-menu'; menuV.hidden=true;
+  menuV.innerHTML='<div class="vm-tete"><b>Choisir l’allure</b><button type="button" class="vm-x" aria-label="Fermer">✕</button></div>'+
+    '<div class="vm-val"><button type="button" class="vm-m" aria-label="Moins vite">−</button><span><b>13</b>km/h</span><button type="button" class="vm-p" aria-label="Plus vite">+</button></div>'+
+    '<input type="range" min="4" max="150" step="1" aria-label="Allure en km/h">'+
+    '<div class="vm-pre"></div>'+
+    '<button type="button" class="vm-ok">Valider</button>';
+  var vmVal=menuV.querySelector('.vm-val b'), vmR=menuV.querySelector('input'), vmPre=menuV.querySelector('.vm-pre'), choix=13;
+  function montrerChoix(){
+    vmVal.textContent=choix; vmR.value=choix;
+    [].forEach.call(vmPre.children,function(b){ b.classList.toggle('on', +b.dataset.v===choix); });
   }
-  vit.children[0].onclick=function(){ changerVit(-1); };
-  vit.children[2].onclick=function(){ changerVit(1); };
-  curseur.addEventListener('input',majVit);
-  majVit();
-  e3.appendChild(vit);
-  var sv=document.createElement('style');
-  sv.textContent='#e3-vit-tact{position:absolute;left:12px;bottom:146px;z-index:8;display:flex;align-items:center;gap:4px;padding:4px;border-radius:24px;background:rgba(10,16,26,.62);border:1px solid rgba(255,255,255,.18)}'+
-    '#e3 #e3-vit-tact button{width:40px;height:40px;border-radius:50%;padding:0;font-size:22px;line-height:1}'+
-    '#e3-vit-tact span{min-width:86px;text-align:center;color:#fff;font-size:14px;font-weight:600;white-space:nowrap}'+
-    '@media (orientation:landscape) and (max-height:520px){#e3-vit-tact{bottom:118px;left:10px}#e3 #e3-vit-tact button{width:36px;height:36px;font-size:20px}}';
+  PRESETS.forEach(function(p){
+    var b=document.createElement('button'); b.type='button'; b.dataset.v=p[1]; b.textContent=p[0]+' · '+p[1];
+    b.onclick=function(){ choix=p[1]; montrerChoix(); };
+    vmPre.appendChild(b);
+  });
+  vmR.addEventListener('input',function(){ choix=+vmR.value; montrerChoix(); });
+  menuV.querySelector('.vm-m').onclick=function(){ choix=Math.max(4,choix-1); montrerChoix(); };
+  menuV.querySelector('.vm-p').onclick=function(){ choix=Math.min(150,choix+1); montrerChoix(); };
+  function ouvrirVit(){ choix=+curseur.value; montrerChoix(); menuV.hidden=false; if(chVit) chVit.classList.add('ouvert'); }
+  function fermerVit(){ menuV.hidden=true; if(chVit) chVit.classList.remove('ouvert'); }
+  menuV.querySelector('.vm-x').onclick=fermerVit;
+  menuV.querySelector('.vm-ok').onclick=function(){
+    curseur.value=choix; curseur.dispatchEvent(new Event('input',{bubbles:true}));
+    fermerVit(); dire('Allure : '+choix+' km/h');
+  };
+  if(chVit){
+    chVit.classList.add('e3-ch-vit'); chVit.title='Choisir l’allure';
+    chVit.addEventListener('click',function(){ if(menuV.hidden) ouvrirVit(); else fermerVit(); });
+  }
+  e3.appendChild(menuV);
+  var sv=document.createElement('style'), cm='#e3 #e3-vit-menu ';
+  sv.textContent=[
+    '#e3.consultation .e3-ch-vit{pointer-events:auto;cursor:pointer}',
+    '#e3.consultation .e3-ch-vit::after{content:"▾";margin-left:5px;font-size:11px;opacity:.85}',
+    '#e3.consultation .e3-ch-vit.ouvert{outline:2px solid #F2B33D;outline-offset:1px}',
+    '#e3-vit-menu{position:absolute;left:8px;top:46px;z-index:25;width:min(300px,calc(100vw - 16px));box-sizing:border-box;background:rgba(12,18,28,.95);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:10px 12px;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.5)}',
+    '#e3-vit-menu .vm-tete{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:14px}',
+    cm+'.vm-x{width:32px;height:32px;padding:0;border-radius:50%}',
+    '#e3-vit-menu .vm-val{display:flex;align-items:center;justify-content:space-between;gap:8px}',
+    cm+'.vm-m,'+cm+'.vm-p{width:44px;height:44px;padding:0;border-radius:50%;font-size:22px;line-height:1}',
+    '#e3-vit-menu .vm-val span{font-size:14px;opacity:.9}',
+    '#e3-vit-menu .vm-val b{font-size:30px;margin-right:4px;opacity:1}',
+    '#e3-vit-menu input{width:100%;margin:8px 0;accent-color:#F2B33D}',
+    '#e3-vit-menu .vm-pre{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:8px}',
+    cm+'.vm-pre button{padding:7px 2px;font-size:12px;white-space:nowrap}',
+    cm+'.vm-pre button.on{border-color:#F2B33D;color:#F2B33D}',
+    cm+'.vm-ok{width:100%;padding:10px;font-size:15px;font-weight:700;background:#F2B33D;border-color:#F2B33D;color:#14181f}',
+    '@media (max-width:600px){#e3-vit-menu{top:88px}}',
+    '@media (orientation:landscape) and (max-height:520px){#e3-vit-menu{top:44px;padding:8px 10px}#e3-vit-menu .vm-val b{font-size:24px}'+cm+'.vm-m,'+cm+'.vm-p{width:38px;height:38px}#e3-vit-menu input{margin:4px 0}'+cm+'.vm-pre button{padding:5px 2px}'+cm+'.vm-ok{padding:8px}}'
+  ].join('\n');
   document.head.appendChild(sv);
 
   var T={joy:null, look:{}, pinch:null, apresPince:false};
