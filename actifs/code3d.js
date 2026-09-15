@@ -11198,6 +11198,30 @@ function interfaceConsultation3D(){
   });
   e3.appendChild(box);
 
+  /* allure : boutons − et + au-dessus du joystick (même réglage que le curseur Allure de l'ordinateur) */
+  var PAS=[4,6,8,10,12,13,15,18,21,25,30,40,50,70,100,150];
+  var curseur=$e('e3-vitesse'), vit=document.createElement('div'); vit.id='e3-vit-tact';
+  vit.innerHTML='<button type="button" aria-label="Moins vite">−</button><span></span><button type="button" aria-label="Plus vite">+</button>';
+  function majVit(){ vit.children[1].textContent='🏃 '+curseur.value+' km/h'; }
+  function changerVit(sens){
+    var v=+curseur.value, n;
+    if(sens>0){ n=PAS.find(function(p){ return p>v; }); if(n===undefined) n=PAS[PAS.length-1]; }
+    else { n=PAS.slice().reverse().find(function(p){ return p<v; }); if(n===undefined) n=PAS[0]; }
+    curseur.value=n; curseur.dispatchEvent(new Event('input',{bubbles:true})); majVit();
+    dire('Allure : '+n+' km/h');
+  }
+  vit.children[0].onclick=function(){ changerVit(-1); };
+  vit.children[2].onclick=function(){ changerVit(1); };
+  curseur.addEventListener('input',majVit);
+  majVit();
+  e3.appendChild(vit);
+  var sv=document.createElement('style');
+  sv.textContent='#e3-vit-tact{position:absolute;left:12px;bottom:146px;z-index:8;display:flex;align-items:center;gap:4px;padding:4px;border-radius:24px;background:rgba(10,16,26,.62);border:1px solid rgba(255,255,255,.18)}'+
+    '#e3 #e3-vit-tact button{width:40px;height:40px;border-radius:50%;padding:0;font-size:22px;line-height:1}'+
+    '#e3-vit-tact span{min-width:86px;text-align:center;color:#fff;font-size:14px;font-weight:600;white-space:nowrap}'+
+    '@media (orientation:landscape) and (max-height:520px){#e3-vit-tact{bottom:118px;left:10px}#e3 #e3-vit-tact button{width:36px;height:36px;font-size:20px}}';
+  document.head.appendChild(sv);
+
   var T={joy:null, look:{}, pinch:null, apresPince:false};
   /* les compteurs laissent passer les doigts : on peut pincer ou tourner par-dessus */
   var hud=e3.querySelector('.e3-hud'); if(hud) hud.style.pointerEvents='none';
