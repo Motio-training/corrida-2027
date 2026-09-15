@@ -11354,4 +11354,402 @@ function interfaceConsultation3D(){
 }
 var _brancherZI=brancherInterface;
 brancherInterface=function(){ _brancherZI(); if(window.CONSULTATION) interfaceConsultation3D(); };
+/* =================================================================
+   Zone d'arrivée : arche avec tapis de chronométrage et horloge,
+   tentes (chronométrage, poste de secours, ravitaillement), scène et
+   sono, tables de ravitaillement, mâts d'éclairage, ambulance.
+   Modèles construits ici (aucun téléchargement), posés, déplacés et
+   enregistrés exactement comme les véhicules.
+   Repère des modèles : x = longueur, +z = face avant, y = haut.
+================================================================= */
+var ZA={mats:{}, tex:{}};
+function zaMat(cle,prop){
+  if(!ZA.mats[cle]) ZA.mats[cle]=new THREE.MeshStandardMaterial(prop);
+  return ZA.mats[cle];
+}
+function zaTexture(cle,W,H,dessin){
+  if(ZA.tex[cle]) return ZA.tex[cle];
+  var c=document.createElement('canvas'); c.width=W; c.height=H;
+  dessin(c.getContext('2d'),W,H);
+  var t=new THREE.CanvasTexture(c);
+  if(THREE.SRGBColorSpace) t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=4;
+  ZA.tex[cle]=t;
+  return t;
+}
+/* bandeau de texte : fond, lignes centrées, taille réduite si trop large */
+function zaBandeau(cle,lignes,o){
+  o=o||{};
+  return zaTexture(cle,o.w||512,o.h||128,function(g,W,H){
+    g.fillStyle=o.fond||'#14213d'; g.fillRect(0,0,W,H);
+    if(o.avant) o.avant(g,W,H);
+    g.fillStyle=o.coul||'#ffffff'; g.textAlign='center'; g.textBaseline='middle';
+    var n=lignes.length;
+    lignes.forEach(function(t,i){
+      var taille=(o.tailles && o.tailles[i]) || Math.round(H/n*0.72);
+      g.font='800 '+taille+'px Arial, Helvetica, sans-serif';
+      while(g.measureText(t).width>W*0.9 && taille>8){ taille-=2; g.font='800 '+taille+'px Arial, Helvetica, sans-serif'; }
+      g.fillText(t,W/2,H*(i+0.5)/n+taille*0.04);
+    });
+  });
+}
+function zaBoite(gr,w,h,d,mat,x,y,z){
+  var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
+  m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; gr.add(m); return m;
+}
+function zaCyl(gr,r1,r2,h,mat,x,y,z,seg){
+  var m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,seg||10),mat);
+  m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; gr.add(m); return m;
+}
+function zaPlan(gr,w,h,mat,x,y,z,ry){
+  var m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),mat);
+  m.position.set(x,y,z); m.rotation.y=ry||0; m.receiveShadow=true; gr.add(m); return m;
+}
+function zaMatTexte(cle,tex,lumineux){
+  if(ZA.mats[cle]) return ZA.mats[cle];
+  var p={map:tex, roughness:0.75, metalness:0};
+  if(lumineux){ p.emissive=new THREE.Color(0xffffff); p.emissiveMap=tex; p.emissiveIntensity=lumineux; }
+  return (ZA.mats[cle]=new THREE.MeshStandardMaterial(p));
+}
+var ZAC={
+  alu:function(){ return zaMat('alu',{color:0xb9bec4, metalness:0.6, roughness:0.35}); },
+  noir:function(){ return zaMat('noir',{color:0x1d2026, roughness:0.7}); },
+  blanc:function(){ return zaMat('blanc',{color:0xf1f1ec, roughness:0.85, side:THREE.DoubleSide}); },
+  nappe:function(){ return zaMat('nappe',{color:0xf7f5ef, roughness:0.9}); },
+  or:function(){ return zaMat('or',{color:0xf2b33d, roughness:0.55, metalness:0.1}); },
+  marine:function(){ return zaMat('marine',{color:0x1b2d52, roughness:0.8, side:THREE.DoubleSide}); },
+  orange:function(){ return zaMat('orange',{color:0xe8772e, roughness:0.8, side:THREE.DoubleSide}); },
+  rouge:function(){ return zaMat('rouge',{color:0xc62828, roughness:0.6}); },
+  gomme:function(){ return zaMat('gomme',{color:0x25272b, roughness:0.95}); },
+  plateau:function(){ return zaMat('plateau',{color:0x2e3238, roughness:0.8}); },
+  led:function(){ return zaMat('led',{color:0xfffbea, emissive:0xfff2cc, emissiveIntensity:2.2, roughness:0.4}); },
+  vitre:function(){ return zaMat('vitre',{color:0x1b2530, roughness:0.15, metalness:0.5}); },
+  ecran:function(){ return zaMat('ecranbleu',{color:0x0d1a2e, emissive:0x3a7bd5, emissiveIntensity:0.9, roughness:0.3}); },
+  bleuGyro:function(){ return zaMat('gyro',{color:0x1e4fff, emissive:0x2a5cff, emissiveIntensity:2.5, roughness:0.3}); },
+  eau:function(){ return zaMat('eau',{color:0x8fc7ff, roughness:0.15, metalness:0.05, transparent:true, opacity:0.75}); },
+  gobelet:function(){ return zaMat('gobelet',{color:0xf4f4f4, roughness:0.5}); },
+  caisse:function(){ return zaMat('caisse',{color:0x2f6d3a, roughness:0.8}); },
+  chaise:function(){ return zaMat('chaise',{color:0x39414c, roughness:0.7}); }
+};
+
+/* ---------- toit de barnum en croupe (à quatre pentes) ---------- */
+function zaToit(L,W,y0,y1,mat){
+  var r=Math.max(0,(L-W)/2), c1=[-L/2,y0,-W/2], c2=[L/2,y0,-W/2], c3=[L/2,y0,W/2], c4=[-L/2,y0,W/2], r1=[-r,y1,0], r2=[r,y1,0];
+  var tris=[c1,c2,r2, c1,r2,r1, c3,c4,r1, c3,r1,r2, c2,c3,r2, c4,c1,r1], pos=[];
+  tris.forEach(function(p){ pos.push(p[0],p[1],p[2]); });
+  var geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  geo.computeVertexNormals();
+  var m=new THREE.Mesh(geo,mat); m.castShadow=true; m.receiveShadow=true;
+  return m;
+}
+/* barnum pliant : pieds, lambrequin avec inscription, toit, murs */
+function zaTente(L,W,matToile,texLambrequin,murs){
+  var g=new THREE.Group(), h=2.1, alu=ZAC.alu();
+  var xs=L>4 ? [-L/2,0,L/2] : [-L/2,L/2];
+  xs.forEach(function(x){ [-W/2,W/2].forEach(function(z){ zaCyl(g,0.028,0.028,h+0.25,alu,x,(h+0.25)/2,z,8); }); });
+  zaBoite(g,L,0.04,0.04,alu,0,h+0.2,W/2); zaBoite(g,L,0.04,0.04,alu,0,h+0.2,-W/2);
+  zaBoite(g,0.04,0.04,W,alu,L/2,h+0.2,0); zaBoite(g,0.04,0.04,W,alu,-L/2,h+0.2,0);
+  var t=zaToit(L+0.1,W+0.1,h+0.28,h+0.28+Math.min(W,L)*0.26,matToile);
+  g.add(t);
+  /* lambrequins : avant et arrière avec l'inscription, côtés unis */
+  var ml=zaMatTexte('lamb:'+texLambrequin.uuid,texLambrequin);
+  zaPlan(g,L,0.3,ml,0,h+0.13,W/2+0.03,0);
+  zaPlan(g,L,0.3,ml,0,h+0.13,-W/2-0.03,Math.PI);
+  zaPlan(g,W,0.3,matToile,L/2+0.03,h+0.13,0,Math.PI/2);
+  zaPlan(g,W,0.3,matToile,-L/2-0.03,h+0.13,0,-Math.PI/2);
+  /* murs : 1 = fond, 3 = fond et côtés */
+  if(murs>=1) zaPlan(g,L,h,matToile,0,h/2,-W/2+0.01,0);
+  if(murs>=3){ zaPlan(g,W,h,matToile,L/2-0.01,h/2,0,-Math.PI/2); zaPlan(g,W,h,matToile,-L/2+0.01,h/2,0,Math.PI/2); }
+  /* lests aux pieds */
+  xs.forEach(function(x){ [-W/2,W/2].forEach(function(z){ zaBoite(g,0.28,0.12,0.28,ZAC.noir(),x,0.06,z); }); });
+  return g;
+}
+function zaTable(g,L,x,z,ry,nappe){
+  var t=new THREE.Group();
+  zaBoite(t,L,0.04,0.76,nappe ? ZAC.nappe() : ZAC.plateau(),0,0.74,0);
+  if(nappe) zaBoite(t,L,0.5,0.01,ZAC.nappe(),0,0.47,0.38);
+  [[-L/2+0.1,-0.3],[L/2-0.1,-0.3],[-L/2+0.1,0.3],[L/2-0.1,0.3]].forEach(function(p){ zaCyl(t,0.02,0.02,0.72,ZAC.alu(),p[0],0.36,p[1],6); });
+  t.position.set(x,0,z); t.rotation.y=ry||0; g.add(t);
+  return t;
+}
+function zaChaise(g,x,z,ry){
+  var c=new THREE.Group(), m=ZAC.chaise();
+  zaBoite(c,0.44,0.04,0.42,m,0,0.45,0); zaBoite(c,0.44,0.42,0.04,m,0,0.68,-0.2);
+  [[-0.19,-0.18],[0.19,-0.18],[-0.19,0.18],[0.19,0.18]].forEach(function(p){ zaCyl(c,0.015,0.015,0.45,ZAC.alu(),p[0],0.22,p[1],5); });
+  c.position.set(x,0,z); c.rotation.y=ry||0; g.add(c);
+}
+/* gobelets et bouteilles alignés sur une table (repère de la table) */
+function zaRavitoSur(t,L){
+  for(var i=0;i<Math.floor((L-0.2)/0.16);i++){
+    for(var j=0;j<2;j++) zaCyl(t,0.036,0.028,0.1,ZAC.gobelet(),-L/2+0.18+i*0.16,0.81,0.18+j*0.12,8);
+  }
+  for(var k=0;k<Math.floor((L-0.3)/0.3);k++){
+    var b=zaCyl(t,0.045,0.045,0.26,ZAC.eau(),-L/2+0.25+k*0.3,0.89,-0.18,8);
+    b.castShadow=false;
+    zaCyl(t,0.02,0.02,0.04,ZAC.bleuGyro(),-L/2+0.25+k*0.3,1.04,-0.18,6).material=zaMat('bouchon',{color:0x1f5fbf, roughness:0.5});
+  }
+}
+
+/* ---------- textures ---------- */
+function zaTexHorloge(){
+  return zaTexture('horloge',512,160,function(g,W,H){
+    g.fillStyle='#050608'; g.fillRect(0,0,W,H);
+    g.fillStyle='#ff3b2f'; g.textAlign='center'; g.textBaseline='middle';
+    g.font='700 118px "Courier New", monospace'; g.fillText('00:38:52',W/2,H/2+6);
+  });
+}
+function zaTexTapis(){
+  return zaTexture('tapis',512,64,function(g,W,H){
+    g.fillStyle='#232528'; g.fillRect(0,0,W,H);
+    g.fillStyle='#f2b33d'; g.fillRect(0,0,W,5); g.fillRect(0,H-5,W,5);
+    g.fillStyle='#3a3d42'; for(var x=12;x<W;x+=24) g.fillRect(x,14,12,H-28);
+  });
+}
+function zaTexCroix(fond){
+  return zaTexture('croix:'+fond,256,256,function(g,W,H){
+    g.fillStyle=fond; g.fillRect(0,0,W,H);
+    g.fillStyle='#d32f2f'; g.fillRect(W*0.38,H*0.14,W*0.24,H*0.72); g.fillRect(W*0.14,H*0.38,W*0.72,H*0.24);
+  });
+}
+function zaTexResultats(){
+  return zaTexture('resultats',512,300,function(g,W,H){
+    g.fillStyle='#0b1628'; g.fillRect(0,0,W,H);
+    g.fillStyle='#f2b33d'; g.fillRect(0,0,W,46);
+    g.fillStyle='#0b1628'; g.font='800 30px Arial'; g.textAlign='left'; g.fillText('CORRIDA 2027 · RÉSULTATS',16,33);
+    g.font='600 24px Arial'; g.fillStyle='#e8eef8';
+    ['1  00:31:48  ENSOA','2  00:32:05  ENSOA','3  00:32:40  ENSOA','4  00:33:12','5  00:33:30','6  00:33:58'].forEach(function(t,i){ g.fillText(t,20,84+i*36); });
+  });
+}
+function zaTexAmbulance(){
+  return zaTexture('ambulance',512,200,function(g,W,H){
+    g.fillStyle='#fbfbf8'; g.fillRect(0,0,W,H);
+    for(var x=0;x<W;x+=40){ g.fillStyle=(x/40)%2 ? '#1f5fbf' : '#ffd21f'; g.fillRect(x,H*0.52,40,H*0.2); }
+    g.fillStyle='#c62828'; g.fillRect(0,H*0.46,W,H*0.05);
+    g.fillStyle='#1f5fbf'; g.font='800 46px Arial'; g.textAlign='center'; g.fillText('AMBULANCE',W*0.5,H*0.34);
+    g.save(); g.translate(W*0.86,H*0.24); g.fillStyle='#1f5fbf';
+    for(var k=0;k<3;k++){ g.rotate(Math.PI/3); g.fillRect(-7,-26,14,52); }
+    g.restore();
+  });
+}
+
+/* ---------- modèles ---------- */
+function construireArche(){
+  var g=new THREE.Group(), l=8.0, h=4.7, r=0.45;
+  var mMar=zaMat('arche-marine',{color:0x16264a, roughness:0.6});
+  var tArr=zaBandeau('arche-arrivee',['ARRIVÉE'],{w:1024,h:128,fond:'#16264a',coul:'#f2b33d',
+    avant:function(c,W,H){ c.fillStyle='#f2b33d'; c.fillRect(0,0,W,6); c.fillRect(0,H-6,W,6); }});
+  var tCol=zaBandeau('arche-colonne',['CORRIDA','2027','ENSOA'],{w:128,h:512,fond:'#16264a',coul:'#ffffff',tailles:[34,54,34]});
+  [-l/2,l/2].forEach(function(x){
+    zaCyl(g,r,r*1.08,h,mMar,x,h/2,0,20);
+    zaCyl(g,r*1.25,r*1.25,0.18,ZAC.noir(),x,0.09,0,16);
+    var mc=zaMatTexte('arche-col-mat',tCol);
+    zaPlan(g,0.62,2.5,mc,x,2.3,r+0.02,0); zaPlan(g,0.62,2.5,mc,x,2.3,-r-0.02,Math.PI);
+  });
+  zaBoite(g,l+2*r,0.95,0.95,mMar,0,h+0.47,0);
+  var ma=zaMatTexte('arche-arr-mat',tArr);
+  zaPlan(g,l,0.8,ma,0,h+0.47,0.49,0); zaPlan(g,l,0.8,ma,0,h+0.47,-0.49,Math.PI);
+  /* horloge de course au sommet, lisible des deux côtés */
+  zaBoite(g,2.3,0.78,0.36,ZAC.noir(),0,h+1.35,0);
+  var mh=zaMatTexte('horloge-mat',zaTexHorloge(),1.6);
+  zaPlan(g,2.1,0.62,mh,0,h+1.35,0.19,0); zaPlan(g,2.1,0.62,mh,0,h+1.35,-0.19,Math.PI);
+  /* tapis de chronométrage (ligne de départ-arrivée et tapis de sécurité) et boîtiers d'antenne */
+  var mt=zaMatTexte('tapis-mat',zaTexTapis());
+  [-0.55,0.55].forEach(function(z){
+    var tp=zaPlan(g,l-0.4,0.9,mt,0,0.025,z,0); tp.rotation.x=-Math.PI/2;
+    zaBoite(g,0.35,0.25,0.9,ZAC.gomme(),-l/2+0.35,0.12,z); zaBoite(g,0.35,0.25,0.9,ZAC.gomme(),l/2-0.35,0.12,z);
+  });
+  /* ligne blanche peinte */
+  var ligne=zaPlan(g,l-0.4,0.12,zaMat('ligne',{color:0xffffff, roughness:0.6}),0,0.03,0,0); ligne.rotation.x=-Math.PI/2;
+  return g;
+}
+function construireTenteChrono(){
+  var tex=zaBandeau('lamb-chrono',['CHRONOMÉTRAGE'],{w:512,h:64,fond:'#1b2d52',coul:'#f2b33d'});
+  var g=zaTente(3,3,ZAC.marine(),tex,1);
+  zaTable(g,1.8,0,0.35,0,false);
+  zaChaise(g,-0.5,-0.3,0); zaChaise(g,0.5,-0.3,0);
+  [-0.45,0.45].forEach(function(x){
+    zaBoite(g,0.34,0.02,0.24,ZAC.noir(),x,0.77,0.35);
+    var e=zaBoite(g,0.34,0.22,0.015,ZAC.ecran(),x,0.9,0.24); e.rotation.x=-0.25;
+  });
+  zaBoite(g,0.3,0.18,0.25,ZAC.noir(),0,0.85,0.55);
+  /* écran des résultats tourné vers la ligne */
+  zaCyl(g,0.03,0.03,1.6,ZAC.alu(),1.2,0.8,1.2,8);
+  zaBoite(g,1.1,0.66,0.06,ZAC.noir(),1.2,1.85,1.2);
+  zaPlan(g,1.0,0.58,zaMatTexte('resultats-mat',zaTexResultats(),0.9),1.2,1.85,1.235,0);
+  return g;
+}
+function construireTenteMedicale(){
+  var tex=zaBandeau('lamb-secours',['POSTE DE SECOURS'],{w:1024,h:64,fond:'#ffffff',coul:'#c62828'});
+  var g=zaTente(6,3,ZAC.blanc(),tex,3);
+  var croix=zaMatTexte('croix-mat',zaTexCroix('#ffffff'));
+  zaPlan(g,1.1,1.1,croix,0,1.3,-1.5-0.02,Math.PI);
+  zaPlan(g,1.1,1.1,croix,3.02,1.3,0,Math.PI/2); zaPlan(g,1.1,1.1,croix,-3.02,1.3,0,-Math.PI/2);
+  /* lits de camp et brancard */
+  [-1.8,0,1.8].forEach(function(x,i){
+    var lit=new THREE.Group();
+    zaBoite(lit,0.7,0.06,1.9,zaMat('toile-lit',{color:0x3f6e4f, roughness:0.85}),0,0.42,0);
+    [[-0.3,-0.85],[0.3,-0.85],[-0.3,0.85],[0.3,0.85]].forEach(function(p){ zaCyl(lit,0.02,0.02,0.4,ZAC.alu(),p[0],0.2,p[1],5); });
+    if(i<2) zaBoite(lit,0.55,0.12,0.35,ZAC.blanc(),0,0.51,-0.7);
+    lit.position.set(x,0,-0.3); g.add(lit);
+  });
+  zaTable(g,1.2,2.2,1.05,0,true);
+  zaBoite(g,0.45,0.3,0.3,ZAC.rouge(),2.0,0.93,1.05);
+  zaBoite(g,0.3,0.35,0.2,zaMat('oxy',{color:0x2f8f4a, roughness:0.5}),2.5,0.94,1.05);
+  /* fanion croix rouge */
+  zaCyl(g,0.025,0.025,3.4,ZAC.alu(),3.35,1.7,1.6,6);
+  zaPlan(g,0.8,0.8,zaMatTexte('croix-fanion',zaTexCroix('#ffffff')),3.75,3.0,1.6,0).material.side=THREE.DoubleSide;
+  return g;
+}
+function construireTenteRavito(){
+  var tex=zaBandeau('lamb-ravito',['RAVITAILLEMENT'],{w:1024,h:64,fond:'#e8772e',coul:'#14213d'});
+  var g=zaTente(6,3,ZAC.orange(),tex,1);
+  [-1.6,1.6].forEach(function(x){ var t=zaTable(g,2.8,x,0.9,0,true); zaRavitoSur(t,2.8); });
+  /* caisses et packs d'eau à l'arrière */
+  for(var i=0;i<4;i++){ zaBoite(g,0.55,0.32,0.38,ZAC.caisse(),-2.2+i*1.4,0.16,-1.0); zaBoite(g,0.55,0.32,0.38,ZAC.caisse(),-2.2+i*1.4,0.48,-1.0); }
+  for(var k=0;k<3;k++){ var pk=zaBoite(g,0.36,0.3,0.26,ZAC.eau(),-0.5+k*0.45,0.15,-0.4); pk.castShadow=false; }
+  return g;
+}
+function construireSono(){
+  var g=new THREE.Group(), L=4, W=3, hp=0.6;
+  zaBoite(g,L,hp,W,ZAC.plateau(),0,hp/2,0);
+  var jupe=zaBandeau('sono-jupe',['CORRIDA 2027 · ENSOA'],{w:1024,h:128,fond:'#16264a',coul:'#f2b33d'});
+  zaPlan(g,L,hp-0.04,zaMatTexte('sono-jupe-mat',jupe),0,hp/2,W/2+0.01,0);
+  /* marches à l'arrière */
+  for(var s=0;s<3;s++) zaBoite(g,1.0,0.2*(s+1),0.3,ZAC.plateau(),-1.2,0.1*(s+1),-W/2-0.15-(2-s)*0.3);
+  /* tours de sonorisation avec enceintes suspendues */
+  [-L/2+0.25,L/2-0.25].forEach(function(x,i){
+    zaBoite(g,0.3,3.6,0.3,ZAC.alu(),x,hp+1.8,-0.9);
+    for(var k=0;k<4;k++){
+      var e=zaBoite(g,0.62,0.34,0.5,ZAC.noir(),x,hp+3.2-k*0.36,-0.55);
+      e.rotation.x=0.05*k; e.rotation.y=(i ? -1 : 1)*0.18;
+    }
+    zaBoite(g,0.75,0.6,0.7,ZAC.noir(),x+(i ? -0.3 : 0.3),hp+0.3,1.0);
+  });
+  /* banderole de fond, table de mixage, micro */
+  var fond=zaBandeau('sono-fond',['CORRIDA 2027','ENSOA · COURSE NOCTURNE'],{w:1024,h:400,fond:'#16264a',coul:'#ffffff',tailles:[150,70],
+    avant:function(c,W,H){ c.fillStyle='#f2b33d'; c.fillRect(0,H-26,W,26); }});
+  zaBoite(g,L-0.6,0.05,0.05,ZAC.alu(),0,hp+2.6,-1.35);
+  zaPlan(g,L-0.8,1.6,zaMatTexte('sono-fond-mat',fond),0,hp+1.75,-1.33,0);
+  var t=zaTable(g,1.2,0.6,-0.6,0,false); t.position.y=hp;
+  zaBoite(t,0.8,0.1,0.45,ZAC.noir(),0,0.82,0);
+  zaCyl(g,0.015,0.015,1.5,ZAC.noir(),-0.3,hp+0.75,1.0,6);
+  zaCyl(g,0.03,0.02,0.12,ZAC.alu(),-0.3,hp+1.55,1.0,8);
+  return g;
+}
+function construireTableRavito(){
+  var g=new THREE.Group();
+  var t=zaTable(g,1.8,0,0,0,true); zaRavitoSur(t,1.8);
+  zaBoite(g,0.55,0.32,0.38,ZAC.caisse(),-0.45,0.16,-0.1); zaBoite(g,0.55,0.32,0.38,ZAC.caisse(),0.3,0.16,-0.1);
+  return g;
+}
+function construireEclairage(){
+  var g=new THREE.Group(), jaune=zaMat('remorque',{color:0xd9a21b, roughness:0.6, metalness:0.2});
+  zaBoite(g,1.5,0.55,0.95,jaune,0,0.62,0);
+  zaBoite(g,0.9,0.06,0.06,jaune,1.1,0.42,0);
+  [-0.5,0.5].forEach(function(z){ var rw=zaCyl(g,0.3,0.3,0.18,ZAC.gomme(),0,0.3,z*1.1,14); rw.rotation.x=Math.PI/2; });
+  [[-0.65,-0.65],[0.65,-0.65],[-0.65,0.65],[0.65,0.65]].forEach(function(p){ zaCyl(g,0.03,0.03,0.4,ZAC.alu(),p[0],0.2,p[1],6); });
+  zaCyl(g,0.09,0.06,6.4,ZAC.alu(),0,4.1,0,10);
+  zaBoite(g,1.6,0.08,0.08,ZAC.alu(),0,7.3,0);
+  [-0.55,-0.18,0.18,0.55].forEach(function(x){
+    var p=new THREE.Group();
+    zaBoite(p,0.34,0.26,0.08,ZAC.noir(),0,0,0);
+    zaBoite(p,0.3,0.22,0.01,ZAC.led(),0,0,0.045);
+    p.position.set(x,7.1,0.12); p.rotation.x=0.55; g.add(p);
+  });
+  g.userData.lumiereZA={x:0, y:7.0, z:2.5};
+  return g;
+}
+function construireAmbulance(){
+  var g=new THREE.Group(), blanc=zaMat('carrosserie',{color:0xfbfbf8, roughness:0.45, metalness:0.15});
+  var tx=zaMatTexte('ambulance-flanc',zaTexAmbulance());
+  zaBoite(g,3.9,2.25,2.05,blanc,-0.8,1.55,0);
+  zaPlan(g,3.8,1.6,tx,-0.8,1.55,1.035,0); zaPlan(g,3.8,1.6,tx,-0.8,1.55,-1.035,Math.PI);
+  zaBoite(g,1.5,1.35,2.0,blanc,1.9,1.12,0);
+  var capot=zaBoite(g,0.7,0.5,1.95,blanc,2.72,0.95,0); capot.rotation.z=-0.28;
+  var pb=zaBoite(g,0.06,0.7,1.8,ZAC.vitre(),2.55,1.62,0); pb.rotation.z=0.45;
+  [-1.0,1.0].forEach(function(z){ zaPlan(g,0.9,0.55,ZAC.vitre(),2.0,1.55,z*1.005,z>0 ? 0 : Math.PI); });
+  zaBoite(g,5.6,0.3,2.1,zaMat('bas-caisse',{color:0x3a3f47, roughness:0.7}),0.1,0.5,0);
+  [[-2.0,1],[-2.0,-1],[1.95,1],[1.95,-1]].forEach(function(p){ var r=zaCyl(g,0.38,0.38,0.26,ZAC.gomme(),p[0],0.38,p[1]*0.93,16); r.rotation.x=Math.PI/2; });
+  zaBoite(g,0.35,0.14,1.4,ZAC.bleuGyro(),1.95,1.86,0);
+  zaBoite(g,0.2,0.12,0.5,ZAC.bleuGyro(),-2.7,2.72,0.7); zaBoite(g,0.2,0.12,0.5,ZAC.bleuGyro(),-2.7,2.72,-0.7);
+  zaBoite(g,0.05,0.22,0.5,zaMat('phare',{color:0xffffff, emissive:0xfff6d8, emissiveIntensity:1.2}),2.95,0.8,0.7);
+  zaBoite(g,0.05,0.22,0.5,zaMat('phare',{}),2.95,0.8,-0.7);
+  return g;
+}
+VEH_DEF.arche={construire:construireArche, nom:'Arche d’arrivée', icone:'🏁'};
+VEH_DEF.tente_chrono={construire:construireTenteChrono, nom:'Tente chronométrage', icone:'⏱'};
+VEH_DEF.tente_medicale={construire:construireTenteMedicale, nom:'Poste de secours', icone:'⛑'};
+VEH_DEF.tente_ravito={construire:construireTenteRavito, nom:'Tente ravitaillement', icone:'🥤'};
+VEH_DEF.sono={construire:construireSono, nom:'Scène et sono', icone:'🔊'};
+VEH_DEF.table_ravito={construire:construireTableRavito, nom:'Table de ravitaillement', icone:'🍌'};
+VEH_DEF.eclairage={construire:construireEclairage, nom:'Mât d’éclairage', icone:'💡'};
+VEH_DEF.ambulance={construire:construireAmbulance, nom:'Ambulance', icone:'🚑'};
+
+/* mâts d'éclairage : une vraie lumière la nuit (8 au plus, sans ombre) */
+var ZA_LUM=[];
+function majLumieresZA(){
+  var nuitActive=(typeof nuit!=='undefined') && !!nuit, n=0;
+  VM.objs.forEach(function(o,v){
+    if(v.t!=='eclairage') return;
+    var L=o.userData.lumZA;
+    if(nuitActive && n<8){
+      if(!L){
+        /* un mât LED de chantier éclaire bien plus qu'un lampadaire (55) */
+        L=new THREE.PointLight(0xfff1d6, window.CONSULTATION ? 160 : 260, 45, 2);
+        L.position.set(0,6.6,2.4); L.castShadow=false;
+        o.add(L); o.userData.lumZA=L;
+      }
+      L.visible=true; n++;
+    } else if(L) L.visible=false;
+  });
+}
+var _majVeh3DZJ=majVehicules3D;
+majVehicules3D=function(){ _majVeh3DZJ(); majLumieresZA(); };
+if(typeof appliquerCiel==='function'){
+  var _cielZJ=appliquerCiel;
+  appliquerCiel=function(){ var r=_cielZJ.apply(this,arguments); try{ majLumieresZA(); }catch(e){} return r; };
+}
+
+var _prepVehZJ=preparerModeleVehicule;
+preparerModeleVehicule=function(t){
+  var D=VEH_DEF[t];
+  if(!D || !D.construire) return _prepVehZJ(t);
+  return new Promise(function(ok,ko){
+    try{
+      var corps=D.construire(), pivot=new THREE.Group();
+      pivot.add(corps); pivot.updateMatrixWorld(true);
+      var bb=new THREE.Box3().setFromObject(pivot), dim=bb.getSize(new THREE.Vector3());
+      VM.modeles[t]={gabarit:pivot, L:Math.max(dim.x,dim.z), W:Math.min(dim.x,dim.z)};
+      ok();
+    }catch(e){ ko(e); }
+  });
+};
+
+/* une arche posée près de l'arrivée remplace le portique rouge et l'étiquette ARRIVÉE d'origine */
+function archeProcheZA(p){
+  try{ return (CARTE.vehicules()||[]).some(function(v){ return v.t==='arche' && Math.hypot(pX(v.lo)-p[0],pZ(v.la)-p[1])<15; }); }
+  catch(e){ return false; }
+}
+construireBornes=function(groupe){
+  var tas=new Tas(8192), n=Math.floor(LONGUEUR/1000), k;
+  for(k=1;k<=n;k++){
+    var p=pointSur(k*1000), y=hauteur(p[0],p[1]);
+    boiteQuad(tas,[p[0]-0.11,p[1]-0.11],[p[0]+0.11,p[1]-0.11],[p[0]+0.11,p[1]+0.11],[p[0]-0.11,p[1]+0.11],
+              y,y+1.5,teinte(0xF2B33D),teinte(0xfff0c8),1);
+    var e=etiquette(k+' km','rgba(30,22,6,0.92)','#F2B33D','#F2B33D',0,0.95);
+    e.position.set(p[0],y+1.5,p[1]);
+    groupe.add(e);
+  }
+  var d=pointSur(0), a=pointSur(LONGUEUR);
+  portique(tas,d,capSur(0),teinte(0x2f8f4a));
+  var ed=etiquette('DÉPART','rgba(10,40,20,0.94)','#4ade80','#dcfce7',0,1.1);
+  ed.position.set(d[0],hauteur(d[0],d[1])+5.2,d[1]); groupe.add(ed);
+  if(!archeProcheZA(a)){
+    portique(tas,a,capSur(LONGUEUR),teinte(0xc0392b));
+    var ea=etiquette('ARRIVÉE','rgba(44,10,10,0.94)','#fca5a5','#fee2e2',0,1.1);
+    ea.position.set(a[0],hauteur(a[0],a[1])+5.2,a[1]); groupe.add(ea);
+  }
+  groupe.add(new THREE.Mesh(tas.geo(),MAT.perso));
+};
 })();
