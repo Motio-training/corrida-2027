@@ -11752,4 +11752,230 @@ construireBornes=function(groupe){
   }
   groupe.add(new THREE.Mesh(tas.geo(),MAT.perso));
 };
+/* =================================================================
+   Zone de départ : arche DÉPART, tente accueil et dossards, consigne,
+   toilettes, panneaux de sas (mêmes mécanismes que la zone d'arrivée).
+   Zones sans voitures : aucune voiture garée ni en circulation dans les
+   routes fermées et parkings réquisitionnés du parcours en cours
+   (clé zones_sans_voiture, fournie par CARTE.zonesSansVoiture).
+================================================================= */
+function zkTexHorloge(txt){
+  return zaTexture('horloge:'+txt,512,160,function(g,W,H){
+    g.fillStyle='#050608'; g.fillRect(0,0,W,H);
+    g.fillStyle='#ff3b2f'; g.textAlign='center'; g.textBaseline='middle';
+    g.font='700 118px "Courier New", monospace'; g.fillText(txt,W/2,H/2+6);
+  });
+}
+function construireArcheTexte(texte,coul,horloge){
+  var g=new THREE.Group(), l=8.0, h=4.7, r=0.45, cle='arche:'+texte;
+  var mMar=zaMat('arche-marine',{color:0x16264a, roughness:0.6});
+  var tTxt=zaBandeau(cle,[texte],{w:1024,h:128,fond:'#16264a',coul:coul,
+    avant:function(c,W,H){ c.fillStyle=coul; c.fillRect(0,0,W,6); c.fillRect(0,H-6,W,6); }});
+  var tCol=zaBandeau('arche-colonne',['CORRIDA','2027','ENSOA'],{w:128,h:512,fond:'#16264a',coul:'#ffffff',tailles:[34,54,34]});
+  var mc=zaMatTexte('arche-col-mat',tCol);
+  [-l/2,l/2].forEach(function(x){
+    zaCyl(g,r,r*1.08,h,mMar,x,h/2,0,20);
+    zaCyl(g,r*1.25,r*1.25,0.18,ZAC.noir(),x,0.09,0,16);
+    zaPlan(g,0.62,2.5,mc,x,2.3,r+0.02,0); zaPlan(g,0.62,2.5,mc,x,2.3,-r-0.02,Math.PI);
+  });
+  zaBoite(g,l+2*r,0.95,0.95,mMar,0,h+0.47,0);
+  var ma=zaMatTexte(cle+'-mat',tTxt);
+  zaPlan(g,l,0.8,ma,0,h+0.47,0.49,0); zaPlan(g,l,0.8,ma,0,h+0.47,-0.49,Math.PI);
+  zaBoite(g,2.3,0.78,0.36,ZAC.noir(),0,h+1.35,0);
+  var mh=zaMatTexte('horloge-mat:'+horloge,zkTexHorloge(horloge),1.6);
+  zaPlan(g,2.1,0.62,mh,0,h+1.35,0.19,0); zaPlan(g,2.1,0.62,mh,0,h+1.35,-0.19,Math.PI);
+  var mt=zaMatTexte('tapis-mat',zaTexTapis());
+  [-0.55,0.55].forEach(function(z){
+    var tp=zaPlan(g,l-0.4,0.9,mt,0,0.025,z,0); tp.rotation.x=-Math.PI/2;
+    zaBoite(g,0.35,0.25,0.9,ZAC.gomme(),-l/2+0.35,0.12,z); zaBoite(g,0.35,0.25,0.9,ZAC.gomme(),l/2-0.35,0.12,z);
+  });
+  var ligne=zaPlan(g,l-0.4,0.12,zaMat('ligne',{color:0xffffff, roughness:0.6}),0,0.03,0,0); ligne.rotation.x=-Math.PI/2;
+  return g;
+}
+function construireTenteAccueil(){
+  var tex=zaBandeau('lamb-accueil',['ACCUEIL · RETRAIT DES DOSSARDS'],{w:1024,h:64,fond:'#1b2d52',coul:'#ffffff'});
+  var g=zaTente(6,3,ZAC.marine(),tex,1), carton=zaMat('carton',{color:0xb08a5a, roughness:0.9});
+  [-1.5,1.5].forEach(function(x){ zaTable(g,2.6,x,0.9,0,true); zaChaise(g,x-0.6,0.2,0); zaChaise(g,x+0.6,0.2,0); });
+  [-2.3,-1.5,0.7,1.5].forEach(function(x){ zaBoite(g,0.38,0.14,0.26,carton,x,0.83,0.9); });
+  for(var i=0;i<6;i++) zaBoite(g,0.42,0.3,0.32,carton,-2.25+i*0.9,0.15,-1.05);
+  var az=zaBandeau('accueil-az',['A → L','M → Z'],{w:512,h:256,fond:'#f2b33d',coul:'#14213d'});
+  zaPlan(g,1.3,0.65,zaMatTexte('accueil-az-mat',az),0,1.65,-1.47,0);
+  return g;
+}
+function construireTenteConsigne(){
+  var tex=zaBandeau('lamb-consigne',['CONSIGNE · SACS'],{w:1024,h:64,fond:'#f2b33d',coul:'#14213d'});
+  var g=zaTente(6,3,zaMat('toile-or',{color:0xf2b33d, roughness:0.8, side:THREE.DoubleSide}),tex,3);
+  zaTable(g,5.0,0,1.05,0,true);
+  var cols=[0xc62828,0x1f5fbf,0x2f8f4a,0x2a2a2a];
+  [-1.8,0,1.8].forEach(function(x,j){
+    zaBoite(g,1.5,0.04,0.5,ZAC.alu(),x,0.5,-0.95); zaBoite(g,1.5,0.04,0.5,ZAC.alu(),x,1.1,-0.95);
+    for(var k=0;k<4;k++){
+      [0.68,1.28].forEach(function(y,e){ var c=cols[(k+j+e)%4]; zaBoite(g,0.3,0.32,0.3,zaMat('sac'+c,{color:c, roughness:0.85}),x-0.54+k*0.36,y,-0.95); });
+    }
+  });
+  return g;
+}
+function construireWC(){
+  var g=new THREE.Group(), coque=zaMat('wc-coque',{color:0x2f6fd6, roughness:0.55}), toit=zaMat('wc-toit',{color:0xf1f1ec, roughness:0.6}), porte=zaMat('wc-porte',{color:0x24549f, roughness:0.6});
+  var sig=zaMatTexte('wc-sigle-mat',zaBandeau('wc-sigle',['WC'],{w:128,h:128,fond:'#ffffff',coul:'#1f5fbf'}));
+  for(var i=0;i<4;i++){
+    var x=-1.8+i*1.2;
+    zaBoite(g,1.1,2.25,1.2,coque,x,1.125,0);
+    zaBoite(g,1.16,0.08,1.26,toit,x,2.29,0);
+    zaPlan(g,0.8,1.9,porte,x,1.0,0.605,0);
+    zaPlan(g,0.3,0.3,sig,x,2.02,0.61,0);
+  }
+  return g;
+}
+function construirePanneauSas(n,couleur,sous){
+  var g=new THREE.Group();
+  var m=zaMatTexte('sas'+n+'-mat',zaBandeau('sas'+n,['SAS '+n,sous],{w:512,h:256,fond:couleur,coul:'#ffffff',tailles:[120,50]}));
+  [-1.0,1.0].forEach(function(x){ zaCyl(g,0.04,0.04,3.1,ZAC.alu(),x,1.55,0,8); zaBoite(g,0.36,0.08,0.36,ZAC.noir(),x,0.04,0); });
+  zaBoite(g,2.2,1.05,0.05,ZAC.noir(),0,2.55,0);
+  zaPlan(g,2.1,0.95,m,0,2.55,0.03,0); zaPlan(g,2.1,0.95,m,0,2.55,-0.03,Math.PI);
+  return g;
+}
+VEH_DEF.arche_depart={construire:function(){ return construireArcheTexte('DÉPART','#4ade80','00:00:00'); }, nom:'Arche de départ', icone:'🚦'};
+VEH_DEF.tente_accueil={construire:construireTenteAccueil, nom:'Accueil et dossards', icone:'🎫'};
+VEH_DEF.tente_consigne={construire:construireTenteConsigne, nom:'Consigne', icone:'🎒'};
+VEH_DEF.wc={construire:construireWC, nom:'Toilettes', icone:'🚻'};
+VEH_DEF.sas_1={construire:function(){ return construirePanneauSas(1,'#c62828','MOINS DE 40 MIN'); }, nom:'Panneau SAS 1', icone:'🟥'};
+VEH_DEF.sas_2={construire:function(){ return construirePanneauSas(2,'#1f5fbf','40 À 50 MIN'); }, nom:'Panneau SAS 2', icone:'🟦'};
+VEH_DEF.sas_3={construire:function(){ return construirePanneauSas(3,'#2f8f4a','PLUS DE 50 MIN'); }, nom:'Panneau SAS 3', icone:'🟩'};
+
+/* arches posées : elles remplacent le portique et l'étiquette d'origine (départ comme arrivée) */
+function archeTypeProche(type,p){
+  try{ return (CARTE.vehicules()||[]).some(function(v){ return v.t===type && Math.hypot(pX(v.lo)-p[0],pZ(v.la)-p[1])<15; }); }
+  catch(e){ return false; }
+}
+construireBornes=function(groupe){
+  var tas=new Tas(8192), n=Math.floor(LONGUEUR/1000), k;
+  for(k=1;k<=n;k++){
+    var p=pointSur(k*1000), y=hauteur(p[0],p[1]);
+    boiteQuad(tas,[p[0]-0.11,p[1]-0.11],[p[0]+0.11,p[1]-0.11],[p[0]+0.11,p[1]+0.11],[p[0]-0.11,p[1]+0.11],
+              y,y+1.5,teinte(0xF2B33D),teinte(0xfff0c8),1);
+    var e=etiquette(k+' km','rgba(30,22,6,0.92)','#F2B33D','#F2B33D',0,0.95);
+    e.position.set(p[0],y+1.5,p[1]);
+    groupe.add(e);
+  }
+  var d=pointSur(0), a=pointSur(LONGUEUR);
+  if(!archeTypeProche('arche_depart',d)){
+    portique(tas,d,capSur(0),teinte(0x2f8f4a));
+    var ed=etiquette('DÉPART','rgba(10,40,20,0.94)','#4ade80','#dcfce7',0,1.1);
+    ed.position.set(d[0],hauteur(d[0],d[1])+5.2,d[1]); groupe.add(ed);
+  }
+  if(!archeTypeProche('arche',a)){
+    portique(tas,a,capSur(LONGUEUR),teinte(0xc0392b));
+    var ea=etiquette('ARRIVÉE','rgba(44,10,10,0.94)','#fca5a5','#fee2e2',0,1.1);
+    ea.position.set(a[0],hauteur(a[0],a[1])+5.2,a[1]); groupe.add(ea);
+  }
+  groupe.add(new THREE.Mesh(tas.geo(),MAT.perso));
+};
+
+/* mâts : la lumière va aux 8 mâts les plus proches de la caméra */
+majLumieresZA=function(){
+  var nuitActive=(typeof nuit!=='undefined') && !!nuit, L=[];
+  VM.objs.forEach(function(o,v){ if(v.t==='eclairage') L.push(o); });
+  var cx=camera ? camera.position.x : 0, cz=camera ? camera.position.z : 0;
+  L.sort(function(a,b){ return Math.hypot(a.position.x-cx,a.position.z-cz)-Math.hypot(b.position.x-cx,b.position.z-cz); });
+  L.forEach(function(o,i){
+    var lu=o.userData.lumZA;
+    if(nuitActive && i<8){
+      if(!lu){ lu=new THREE.PointLight(0xfff1d6, window.CONSULTATION ? 160 : 260, 45, 2); lu.position.set(0,6.6,2.4); lu.castShadow=false; o.add(lu); o.userData.lumZA=lu; }
+      lu.visible=true;
+    } else if(lu) lu.visible=false;
+  });
+};
+var tLumZK=0, _animZK=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _animZK(dt,cx,cz);
+  tLumZK-=dt;
+  if(tLumZK<=0){ tLumZK=2; if(typeof nuit!=='undefined' && nuit) majLumieresZA(); }
+};
+
+/* ---------------- zones sans voitures ---------------- */
+var ZSV3={polys:[], cle:null};
+function lireZSV(forcer){
+  var L=[];
+  try{ L=(window.CARTE && CARTE.zonesSansVoiture) ? (CARTE.zonesSansVoiture()||[]) : []; }catch(e){}
+  var cle=JSON.stringify(L);
+  if(!forcer && cle===ZSV3.cle) return false;
+  ZSV3.cle=cle;
+  ZSV3.polys=L.map(function(f){
+    var p=[], x0=1e9, x1=-1e9, z0=1e9, z1=-1e9;
+    for(var i=0;i+1<f.length;i+=2){
+      var x=pX(+f[i+1]), z=pZ(+f[i]);
+      p.push(x,z);
+      if(x<x0) x0=x; if(x>x1) x1=x; if(z<z0) z0=z; if(z>z1) z1=z;
+    }
+    return {p:p, x0:x0, x1:x1, z0:z0, z1:z1};
+  });
+  return true;
+}
+function dansZSV(x,z){
+  for(var k=0;k<ZSV3.polys.length;k++){
+    var P=ZSV3.polys[k];
+    if(x<P.x0 || x>P.x1 || z<P.z0 || z>P.z1) continue;
+    var p=P.p, n=p.length/2, dedans=false;
+    for(var i=0,j=n-1;i<n;j=i++){
+      var xi=p[i*2], zi=p[i*2+1], xj=p[j*2], zj=p[j*2+1];
+      if(((zi>z)!==(zj>z)) && (x<(xj-xi)*(z-zi)/((zj-zi)||1e-9)+xi)) dedans=!dedans;
+    }
+    if(dedans) return true;
+  }
+  return false;
+}
+var _m4ZK=new THREE.Matrix4(), _zeroZK=new THREE.Matrix4().makeScale(0,0,0);
+/* les voitures garées sont gardées dans userData.toutes (u3_m) et recopiées autour de la caméra :
+   on vide celles des zones dans cette réserve (copie d'origine conservée), puis on force la recopie */
+function appliquerZSVGarees(){
+  if(typeof VOIT==='undefined' || !VOIT.ims) return;
+  VOIT.ims.forEach(function(im){
+    var A=im.userData.toutes, tot=im.userData.total||0;
+    if(!A) return;
+    if(!im.userData.toutesZSV) im.userData.toutesZSV=new Float32Array(A);
+    var o=im.userData.toutesZSV;
+    for(var k=0;k<tot;k++){
+      var b=k*16, j;
+      if(dansZSV(o[b+12],o[b+14])){ for(j=0;j<16;j++) A[b+j]=0; A[b+12]=1e7; A[b+14]=1e7; }
+      else for(j=0;j<16;j++) A[b+j]=o[b+j];
+    }
+  });
+  VOIT.cx=1e9;
+}
+function compterGareesZSV(){
+  var tot=0, vides=0;
+  if(typeof VOIT!=='undefined') VOIT.ims.forEach(function(im){ var o=im.userData.toutesZSV, n=im.userData.total||0; if(!o) return; for(var k=0;k<n;k++){ tot++; if(dansZSV(o[k*16+12],o[k*16+14])) vides++; } });
+  return [tot,vides];
+}
+function marquerVoiesZSV(){
+  if(typeof TRAF==='undefined' || !TRAF.voies) return;
+  TRAF.voies.forEach(function(v){
+    if(!v) return;
+    var n=0, t=0;
+    if(ZSV3.polys.length) for(var s=0;s<=v.tot;s+=8){ var q=pointVoie(v.p,v.len,s); t++; if(dansZSV(q[0],q[1])) n++; }
+    v.zsv=t>0 && n/t>=0.34;
+  });
+}
+var _accZK=accessibleCirc;
+accessibleCirc=function(v){ return _accZK(v) && !(v && v.zsv); };
+var _prepVoiesZK=preparerVoiesCirc;
+preparerVoiesCirc=function(){ _prepVoiesZK(); lireZSV(true); marquerVoiesZSV(); };
+var _avZK=avancerVoiture;
+avancerVoiture=function(c,dt){
+  var ok=_avZK(c,dt);
+  if(ok && ZSV3.polys.length){ var q=cibleVoiture(c); if(dansZSV(q.x,q.z)) return false; }
+  return ok;
+};
+function majZSV(forcer){
+  if(lireZSV(forcer) || forcer){ appliquerZSVGarees(); marquerVoiesZSV(); }
+}
+ETAPES.forEach(function(e,i){ if(e[0]==='Voitures stationnées et mobilier urbain') ETAPES.splice(i+1,0,['Routes fermées',function(){ majZSV(true); }]); });
+var _signalerZK=window.ESPACE3D.signaler;
+window.ESPACE3D.signaler=function(t){
+  _signalerZK(t);
+  if(t==='equip' || t==='parcours' || t==='route'){
+    setTimeout(function(){ try{ if(construit) majZSV(false); }catch(e){ console.error('Zones sans voitures',e); } },200);
+  }
+};
 })();
