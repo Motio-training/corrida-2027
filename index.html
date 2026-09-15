@@ -2237,11 +2237,19 @@ button.mini{
     <div id="e3-vtxt">Préparation…</div>
   </div>
 </div>
+<script>window.SYNCHRO={url:"https://zijhxsistjzxkfiwczjr.supabase.co",cle:"sb_publishable_AnYIIkUsbbl5cKE-tAbkYQ_W2laEcyc"};</script>
 <script>window.VERSION_AMIS=true;window.ETAT_EMBARQUE={"format":"corrida-2027-travail","courant":{
   "barrieres": [],
   "denivele_m": 125,
   "distance_m": 9316,
   "jalons": [
+    [
+      46.415397,
+      -0.200002,
+      "r",
+      null,
+      null
+    ],
     [
       46.415029,
       -0.201009,
@@ -2705,7 +2713,7 @@ button.mini{
       "g"
     ]
   ],
-  "maj": "2026-09-15T15:02:32.064Z",
+  "maj": "2026-09-15T19:00:12.361Z",
   "modes": "rrrddddddddddddddddddddddddrddddddddddddddddrrrrrrrrrrrrrddddddrrrrddrrrrdddrddd",
   "nb_points": 81,
   "parcours": {
@@ -214020,7 +214028,10 @@ const WPMODES="rrrrddddrrrrrdddddddddddddrrrrddddrrrrrrrrrrdddddrddddddddd";
 /* Mode consultation : téléphone ou petite tablette (écran tactile et petit écran),
    ou adresse avec ?consultation=1 ; ?edition=1 force le mode édition. */
 window.CONSULTATION=(function(){
-  if(window.VERSION_AMIS) return true;
+  if(window.VERSION_AMIS){
+    try{ if(/edition=1/.test(String(location.search||'')+String(location.hash||''))) return false; }catch(e){}
+    return true;
+  }
   try{
     var q=String(location.search||'')+String(location.hash||'');
     if(/edition=1/.test(q)) return false;
@@ -217320,13 +217331,148 @@ if(HORS_LIGNE){
   var emb=window.ETAT_EMBARQUE;
   if(emb && emb.courant && emb.courant.maj && (!depart || emb.courant.maj>depart.courant.maj)){ depart=emb; origine='embarque'; }
   if(depart && chargerTravail(depart)){
-    if(window.VERSION_AMIS) dire('Corrida 2027 ENSOA : touche « Vue 3D » pour parcourir le tracé, « ℹ Infos » pour les détails.','ok');
+    if(window.VERSION_AMIS && window.CONSULTATION) dire('Corrida 2027 ENSOA : touche « Vue 3D » pour parcourir le tracé, « ℹ Infos » pour les détails.','ok');
     else dire(origine==='local'
       ? 'Dernier enregistrement fait sur cet ordinateur chargé ('+jolieDate(depart.courant.maj)+'). « Ouvrir… » pour prendre un autre fichier.'
       : 'Travail du '+jolieDate(depart.courant.maj)+' chargé. « Ouvrir… » pour prendre ton fichier de travail.','ok');
   } else remplirVersionsFichier();
   var barB=document.getElementById('brouillon'), brB=lireBrouillon();
   if(barB && !barB.hidden && (!brB || !brB.maj || brB.maj<=dernierEnregistre)) barB.hidden=true;
+}
+
+/* ---------------------------------------------------------------
+   Base partagée (lien public) : l'état courant et les versions vivent
+   dans une base Supabase. Tout le monde lit ; seul le détenteur du code
+   secret enregistre (fonction enregistrer_corrida côté base).
+   Téléphones et pages en consultation : relecture toutes les 30 s et au
+   retour sur la page, les changements s'appliquent sans recharger.
+   Page claude.ai : bandeau rappelant qu'elle ne met plus les téléphones à jour.
+--------------------------------------------------------------- */
+if(window.SYNCHRO && window.SYNCHRO.url){
+  (function(){
+    var S=window.SYNCHRO, CLE_CODE='corrida-code-secret', derniereMaj=dernierEnregistre||'';
+    function api(chemin,opt){
+      opt=opt||{};
+      var h={apikey:S.cle};
+      if(opt.body) h['Content-Type']='application/json';
+      return fetch(S.url+'/rest/v1/'+chemin,{method:opt.method||'GET', headers:h, body:opt.body?JSON.stringify(opt.body):undefined, cache:'no-store'})
+        .then(function(r){
+          return r.text().then(function(t){
+            var j=null; try{ j=t ? JSON.parse(t) : null; }catch(e){}
+            if(!r.ok){ var err=new Error((j && (j.message||j.hint)) || ('HTTP '+r.status)); err.status=r.status; err.code=j && j.code; throw err; }
+            return j;
+          });
+        });
+    }
+    function appliquer(d){
+      if(!d || !d.maj || d.maj<=derniereMaj) return false;
+      if(!chargerTravail(d)) return false;
+      derniereMaj=d.maj;
+      try{ signaler3D('pois'); signaler3D('piste'); }catch(e){}
+      if(!window.CONSULTATION) remplirVersionsBase();
+      return true;
+    }
+    function lireEtat(){
+      return api('etat?id=eq.courant&select=maj,data').then(function(rows){ return rows && rows[0] ? rows[0].data : null; });
+    }
+
+    /* versions de la base */
+    function remplirVersionsBase(){
+      return api('versions?select=maj,distance_m:data->distance_m,nb_points:data->nb_points&order=maj.desc&limit=80').then(function(rows){
+        VERSIONS=(rows||[]).map(function(r){ return {id:r.maj, d:{maj:r.maj, distance_m:+r.distance_m||0, nb_points:r.nb_points}}; });
+        listeVersions.innerHTML='';
+        if(!VERSIONS.length){
+          var o=document.createElement('option'); o.textContent='aucun enregistrement'; o.value='';
+          listeVersions.appendChild(o); listeVersions.disabled=true; return;
+        }
+        listeVersions.disabled=false;
+        VERSIONS.forEach(function(v,i){
+          var o=document.createElement('option'); o.value=String(i);
+          o.textContent=jolieDate(v.d.maj)+'  ·  '+(v.d.distance_m/1000).toFixed(2).replace('.',',')+' km  ·  '+(v.d.nb_points||'?')+' pts';
+          listeVersions.appendChild(o);
+        });
+      }).catch(function(){});
+    }
+
+    if(window.CONSULTATION){
+      /* consultation : on suit la base */
+      var verifier=function(){
+        if(document.visibilityState==='hidden') return;
+        api('etat?id=eq.courant&select=maj').then(function(rows){
+          var m=rows && rows[0] && rows[0].maj;
+          if(!m || m<=derniereMaj) return;
+          return lireEtat().then(function(d){ if(appliquer(d)) dire('Parcours mis à jour ('+jolieDate(d.maj)+').','ok'); });
+        }).catch(function(){});
+      };
+      lireEtat().then(function(d){ appliquer(d); }).catch(function(){});
+      setInterval(verifier,30000);
+      document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='visible') verifier(); });
+      return;
+    }
+
+    /* édition : lecture au démarrage, enregistrement protégé par le code secret */
+    lireEtat().then(function(d){
+      if(appliquer(d)) dire('Travail du '+jolieDate(d.maj)+' chargé depuis la base partagée.','ok');
+    }).catch(function(){ dire('Base partagée injoignable : le travail embarqué est affiché.','err'); });
+    remplirVersionsBase();
+
+    function lireCode(){ try{ return localStorage.getItem(CLE_CODE)||''; }catch(e){ return ''; } }
+    function garderCode(c){ try{ localStorage.setItem(CLE_CODE,c); }catch(e){} }
+    function oublierCode(){ try{ localStorage.removeItem(CLE_CODE); }catch(e){} }
+    enregistrer=function(){
+      var code=lireCode();
+      if(!code){
+        code=(window.prompt('Code secret pour enregistrer (demandé une seule fois sur cet ordinateur) :')||'').trim();
+        if(!code) return Promise.reject({code:'annule'});
+      }
+      dire('Enregistrement…','');
+      var p=paquet();
+      return api('rpc/enregistrer_corrida',{method:'POST', body:{code:code, p:p, courant:true}}).then(function(){
+        garderCode(code);
+        derniereMaj=p.maj; dernierEnregistre=p.maj;
+        oublierBrouillon(); marquerEnregistre(); remplirVersionsBase();
+        dire('Enregistré : les téléphones seront à jour dans moins d’une minute.','ok');
+      }).catch(function(err){
+        if(err && (err.code==='28000' || /code refus/i.test(err.message||''))){ oublierCode(); dire('Code secret refusé : rien n’a été enregistré.','err'); }
+        else dire('Échec de l’enregistrement ('+((err && err.message)||'réseau')+'). Le brouillon reste gardé sur cet ordinateur.','err');
+        throw err;
+      });
+    };
+    document.getElementById('b-version').onclick=function(){
+      var i=parseInt(listeVersions.value,10);
+      if(isNaN(i) || !VERSIONS[i]) return;
+      api('versions?maj=eq.'+encodeURIComponent(VERSIONS[i].id)+'&select=data').then(function(rows){
+        var d=rows && rows[0] && rows[0].data;
+        if(!d) throw new Error('vide');
+        var avant=instantane();
+        if(!chargerWaypoints(d.waypoints, d.modes)){ dire('Cette version ne se recharge pas sur la carte actuelle.','err'); return; }
+        hist.push(avant); if(hist.length>60) hist.shift(); futur.length=0; majBoutons();
+        tout(); cadrerTrace();
+        marquerModifie(); dire('Version du '+jolieDate(d.maj)+' chargée. Enregistre si tu veux la garder.','ok');
+      }).catch(function(){ dire('Cette version ne se lit pas.','err'); });
+    };
+    var credit=listeVersions.parentNode.querySelector('.credit');
+    if(credit) credit.textContent='Chaque Enregistrer met à jour la base partagée (téléphones compris) et ajoute une version. Charger une version ancienne ne l’écrase pas.';
+    /* sauvegarde fichier pour la clé USB */
+    var save=document.getElementById('b-save');
+    if(save && !document.getElementById('b-exporter')){
+      var bx=document.createElement('button');
+      bx.id='b-exporter'; bx.textContent='Exporter'; bx.title='Télécharger le travail dans un fichier .json, pour la version hors ligne';
+      bx.onclick=function(){ telechargerTexte(texteFichier(paquet(),[])); dire('Fichier de travail téléchargé.','ok'); };
+      save.parentNode.insertBefore(bx,save);
+    }
+  })();
+} else if(window.claude && window.claude.use && !window.VERSION_AMIS){
+  /* page claude.ai : copie de secours */
+  (function(){
+    var b=document.createElement('div');
+    b.textContent='Copie de secours : ce qui est enregistré ici n’arrive pas sur les téléphones. Pour modifier, utilise le lien public avec ?edition=1.';
+    b.style.cssText='position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:60;background:#5a1f1f;color:#fff;border:1px solid #c0504d;border-radius:10px;padding:8px 14px;font-size:13px;max-width:92vw;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.4)';
+    var x=document.createElement('button'); x.textContent='✕'; x.style.cssText='margin-left:10px;background:none;border:none;color:#fff;cursor:pointer';
+    x.onclick=function(){ b.remove(); };
+    b.appendChild(x);
+    document.body.appendChild(b);
+  })();
 }
 })();
 </script>
