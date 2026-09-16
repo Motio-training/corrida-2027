@@ -11978,4 +11978,76 @@ window.ESPACE3D.signaler=function(t){
     setTimeout(function(){ try{ if(construit) majZSV(false); }catch(e){ console.error('Zones sans voitures',e); } },200);
   }
 };
+/* =================================================================
+   Jalonneurs vus à plusieurs passages : la pose suit le passage du
+   coureur (CARTE.progression) ; le panneau montre les passages et
+   règle la consigne du passage choisi (CARTE.modifierRole).
+================================================================= */
+var tRolesZL=0, syncZLprevu=false, _animZL=animerDecor;
+function syncJalonneursPlusTard(){
+  if(syncZLprevu) return;
+  syncZLprevu=true;
+  setTimeout(function(){ syncZLprevu=false; try{ syncJalonneurs(); }catch(e){ console.error(e); } },0);
+}
+animerDecor=function(dt,cx,cz){
+  _animZL(dt,cx,cz);
+  tRolesZL-=dt;
+  if(tRolesZL>0 || !window.CARTE || !CARTE.progression || !J) return;
+  tRolesZL=0.4;
+  if(CARTE.progression(J.d)) syncJalonneursPlusTard();
+};
+function rolesPanneau(){
+  var o=SELECTION, box=$e('e3-jp-pass');
+  if(!box){
+    var ref=document.querySelector('#e3-jp .e3-jp-lbl');
+    if(!ref) return;
+    box=document.createElement('div'); box.id='e3-jp-pass';
+    ref.parentNode.insertBefore(box,ref);
+    box.addEventListener('click',function(ev){
+      var b=ev.target.closest('button');
+      if(!b || !SELECTION) return;
+      if(b.dataset.k!==undefined){ CARTE.forcerPassage(SELECTION.j,+b.dataset.k); syncJalonneurs(); }
+      else if(b.dataset.a==='commun'){ CARTE.modifierRole(SELECTION.j,{commun:true}); dire('Même consigne à chaque passage.'); }
+      b.blur();
+    });
+  }
+  if(!o || !CARTE.passagesJalon){ box.hidden=true; return; }
+  var P=CARTE.passagesJalon(o.j);
+  if(P.km.length<2){ box.hidden=true; box.__h=''; return; }
+  box.hidden=false;
+  var h='<div class="e3-jp-lbl">Passages des coureurs devant lui</div><div class="e3-jp-ligne e3-seg">'+
+    P.km.map(function(km,k){ return '<button type="button" data-k="'+k+'" class="'+(k===P.actif?'on':'')+'" title="Voir et régler sa consigne à ce passage">'+(k+1)+'<sup>'+(k?'e':'er')+'</sup> · km '+km.toFixed(2).replace('.',',')+'</button>'; }).join('')+'</div>'+
+    '<p class="e3-jp-aide">'+(P.p2>=0
+      ? 'Consigne propre au '+(P.p2+1)+(P.p2?'e':'er')+' passage. <button type="button" data-a="commun" class="e3-lien">Même consigne partout</button>'
+      : 'Même consigne à chaque passage. Choisis le '+(P.km.length>1?'2e':'')+' passage puis règle le regard ou les bras pour lui donner sa propre consigne.')+'</p>';
+  if(box.__h!==h){ box.innerHTML=h; box.__h=h; }
+  var ba=$e('e3-jp-auto');
+  if(ba && P.p2>=0 && P.actif===P.p2) ba.textContent=(o.j.p2 && (o.j.p2.az===undefined || o.j.p2.az===null)) ? 'Orientation automatique (tout droit s’il continue droit)' : 'Remettre en automatique';
+}
+var _majPanZL=majPanneauJalon;
+majPanneauJalon=function(){ _majPanZL(); try{ rolesPanneau(); }catch(e){ console.error(e); } };
+var _deselZL=deselectionner;
+deselectionner=function(){
+  var o=SELECTION;
+  _deselZL();
+  if(o && window.CARTE && CARTE.forcerPassage){ CARTE.forcerPassage(o.j,null); syncJalonneursPlusTard(); }
+};
+var _branchZL=brancherInterface;
+brancherInterface=function(){
+  _branchZL();
+  if(!window.CARTE || !CARTE.modifierRole) return;
+  function role(ch){ if(SELECTION) CARTE.modifierRole(SELECTION.j,ch); }
+  ['g','d','n','x'].forEach(function(b){ var e=$e('e3-jp-'+b); if(e) e.onclick=function(){ role({bras:b}); }; });
+  $e('e3-jp-moins').onclick=function(){ if(SELECTION) role({az:SELECTION.az-15}); };
+  $e('e3-jp-plus').onclick=function(){ if(SELECTION) role({az:SELECTION.az+15}); };
+  $e('e3-jp-auto').onclick=function(){ role({auto:true}); dire('Orientation recalculée pour ce passage.'); };
+  var az=$e('e3-jp-az'), az2=az.cloneNode(true);
+  az.parentNode.replaceChild(az2,az);
+  az2.addEventListener('input',function(){
+    var o=SELECTION; if(!o) return;
+    o.az=+az2.value; o.lod.rotation.y=-capDeAz(o.az);
+    $e('e3-jp-azv').textContent=Math.round(o.az)+'° '+pointCardinal(o.az);
+  });
+  az2.addEventListener('change',function(){ role({az:+az2.value}); az2.blur(); });
+};
 })();
