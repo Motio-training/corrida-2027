@@ -10315,7 +10315,8 @@ construireBatis=function(bats){
   NB_TYPES={};
   BAT={ murs:[], rdc:[], rdcC:new Tas(8192), mursS:new Tas(16384), mursEg:new Tas(8192), mursI:new Tas(16384),
         annexes:new Tas(16384), toits:new Tas(65536), toits2:new Tas(32768), toitsA:new Tas(16384), toitsM:new Tas(8192),
-        plats:new Tas(16384), deco:new Tas(4096), corn:new Tas(65536), zinc:new Tas(65536), chem:new Tas(32768) };
+        plats:new Tas(16384), deco:new Tas(4096), corn:new Tas(65536), zinc:new Tas(65536), chem:new Tas(32768),
+        bronze:new Tas(16384), taille:new Tas(32768) };
   for(var f=0;f<NB_FAM;f++){ BAT.murs.push(new Tas(32768)); BAT.rdc.push(new Tas(32768)); }
   var brique=teinte(0xb08a72), gris=teinte(0xe6e8ea), clair=teinte(0xf4f0e6), blanc=teinte(0xffffff);
   for(var i=0;i<bats.length;i++){
@@ -10432,6 +10433,9 @@ construireBatis=function(bats){
     if(type==='M') drapeau(cx,cz,ang,top+(riseMairie||0.4));
     marquerPoly(p);
   }
+  /* les deux monuments relevés en photo, bâtis dans les mêmes tas */
+  try{ porteChalon(); }catch(e){ console.warn('Porte Chalon :',e); }
+  try{ monumentDenfert(); }catch(e){ console.warn('monument :',e); }
   return BAT;
 };
 
@@ -10469,6 +10473,17 @@ function etapeBatisRiche(){
   ajouter(b.toitsA,MAT.toitsA,true,true); ajouter(b.toitsM,MAT.toitsM,true,true);
   ajouter(b.plats,MAT.plats,true,true);   ajouter(b.deco,MAT.deco,true,true);
   ajouter(b.zinc,MAT.zinc,true,false);    ajouter(b.chem,MAT.chem,true,true);
+  /* bronze patiné du lion et de la statue du monument : sombre, un peu
+     métallique, comme sur les photos */
+  MAT.bronze=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.52, metalness:0.45});
+  ajouter(b.bronze,MAT.bronze,true,true);
+  /* pierre de taille des monuments : MAT.deco n'a aucune texture, la Porte
+     Chalon en sortait d'un gris parfaitement plat. Assises de calcaire, et
+     la photo Poly Haven par-dessus quand elle est là. */
+  var ctai=toile(256,256); fondPierre(ctai.getContext('2d'),256,256);
+  MAT.taille=matTexture(ctai,2.0,{rugo:0.86});
+  phAppliquer(MAT.taille,'white_sandstone_blocks_02',0.5,0.5,1.0);
+  ajouter(b.taille,MAT.taille,true,true);
 }
 ETAPES.forEach(function(e){ if(e[1]===etapeBatis){ e[1]=etapeBatisRiche; e[0]='Bâtiments : façades, toitures, cheminées'; } });
 /* =================================================================
@@ -12313,5 +12328,555 @@ rdcRiche=function(f){
     encadr:'rgba(222,220,212,0.95)', encW:4, menuis:'#707880', appui:'#c9c7c0', bois:true, carreaux:3}));
   return {c:c, v:vit};
 };
+
+/* =================================================================
+   Détails relevés sur les photos du 17 septembre 2026.
+
+   Trois choses que la 3D ne savait pas, et qui font qu'on reconnaît une
+   ville : ses monuments, ses statues, et ce qui est écrit sur ses murs.
+
+   - La Porte Chalon, relevée sur deux photos : deux pavillons à
+     balustrade, deux murs concaves qui les relient à une arche en plein
+     cintre, un tympan en ferronnerie, le drapeau au-dessus. Sa position
+     n'est pas devinée : les deux pavillons existent dans les emprises
+     OpenStreetMap (#1136 et #1769), l'arche est posée à leur milieu et
+     l'axe de la composition est la droite qui les joint.
+
+   - Le monument à Denfert-Rochereau, place de l'esplanade : socle en
+     pyramide tronquée cannelée, lion de bronze couché, statue en capote
+     et képi, bornes reliées par des chaînes. Sa position est triangulée
+     par les caps de deux photos prises de part et d'autre — 28 m depuis
+     l'une, 52 m depuis l'autre, qui se croisent à un mètre près.
+
+   - Les enseignes : HUMAN immobilier, ORPI VINET, PROMAN intérim, maison
+     blanche, HÔTEL, FEMINA, la plaque SALONS DE L'HÔTEL DE VILLE de la
+     mairie, et les listes de noms gravées du mémorial. Chacune est un
+     panneau texturé posé devant son mur, à sa place relevée.
+================================================================= */
+
+/* ---------- quadrilatère texturé, coins dans l'ordre ---------- */
+function quadT(tas,A,B,C,D,uv,col){
+  var nn=nrm(A,B,C);
+  tas.tri(A[0],A[1],A[2], B[0],B[1],B[2], C[0],C[1],C[2], nn[0],nn[1],nn[2],
+          [uv[0],uv[1], uv[2],uv[3], uv[4],uv[5]], col);
+  tas.tri(A[0],A[1],A[2], C[0],C[1],C[2], D[0],D[1],D[2], nn[0],nn[1],nn[2],
+          [uv[0],uv[1], uv[4],uv[5], uv[6],uv[7]], col);
+}
+/* le même, mais la normale forcée : utile pour un panneau mince */
+function quadN(tas,A,B,C,D,n,uv,col){
+  tas.tri(A[0],A[1],A[2], B[0],B[1],B[2], C[0],C[1],C[2], n[0],n[1],n[2],
+          [uv[0],uv[1], uv[2],uv[3], uv[4],uv[5]], col);
+  tas.tri(A[0],A[1],A[2], C[0],C[1],C[2], D[0],D[1],D[2], n[0],n[1],n[2],
+          [uv[0],uv[1], uv[4],uv[5], uv[6],uv[7]], col);
+}
+
+/* Un panneau texturé porte sa propre image, donc son propre matériau : on
+   le pose comme un maillage à part plutôt que dans un tas partagé. Une
+   dizaine de panneaux dans toute la ville, l'appel de dessin est sans
+   conséquence.
+
+   Deux pièges, et j'y suis tombé dans les deux :
+
+   1. Le sens horizontal. Un observateur qui regarde le panneau avance dans
+      la direction -n ; sa droite vaut alors (n.z, 0, -n.x). J'avais pris
+      l'opposé, ce qui retourne l'enroulement des triangles : les panneaux
+      étaient éliminés comme faces arrière, donc invisibles — sauf celui
+      qu'on apercevait par derrière, en miroir et à l'envers.
+
+   2. Le sens vertical. Une CanvasTexture a flipY à vrai : la coordonnée
+      v = 0 tombe sur le bas de l'image telle qu'elle est dessinée. Les
+      coins du bas doivent donc porter v = 0, et non v = 1.
+
+   D'où PANNEAU_UV et droiteDe(), partagés par tout ce qui porte une image
+   posée sur un mur. */
+var PANNEAU_UV=[0,0, 1,0, 1,1, 0,1];
+function droiteDe(n){ return [n[2],0,-n[0]]; }
+function panneau(A,B,C,D,n,toileP,opts){
+  var o=opts||{};
+  var tas=new Tas(64);
+  quadN(tas,A,B,C,D,n,PANNEAU_UV,teinte(0xffffff));
+  var m=new THREE.MeshStandardMaterial({vertexColors:true, map:textureDe(toileP,1,1),
+    roughness:(o.rugo===undefined?0.85:o.rugo), metalness:o.metal||0,
+    transparent:!!o.transparent, alphaTest:o.transparent?0.35:0, side:o.double?THREE.DoubleSide:THREE.FrontSide});
+  return ajouter(tas,m,false,true);
+}
+
+/* ---------- textures des détails ---------- */
+/* Une enseigne : fond, lettres, et de quoi la lire de loin. Les polices du
+   navigateur suffisent, le panneau fait 20 cm par pixel au plus. */
+function texEnseigne(o){
+  var W=512, H=Math.max(64,Math.round(512*o.ht/o.l)), c=toile(W,H), g=c.getContext('2d');
+  g.fillStyle=o.fond||'#1b7cb0'; g.fillRect(0,0,W,H);
+  if(o.bord){ g.strokeStyle=o.bord; g.lineWidth=Math.max(2,H*0.05); g.strokeRect(0,0,W,H); }
+  g.textAlign='center'; g.textBaseline='middle';
+  var t=o.texte||'', sous=o.sous||'';
+  g.fillStyle=o.encre||'#ffffff';
+  var taille=Math.round(H*(sous?0.42:0.56));
+  g.font='600 '+taille+'px '+(o.police||'"Oswald",Impact,sans-serif');
+  /* l'espacement des lettres ne se règle pas sur une toile : on écrit
+     lettre par lettre quand l'enseigne l'exige */
+  if(o.espace){
+    var pas=W*0.92/Math.max(1,t.length);
+    for(var i=0;i<t.length;i++) g.fillText(t[i], W*0.04+pas*(i+0.5), H*(sous?0.38:0.5));
+  } else g.fillText(t, W/2, H*(sous?0.38:0.5));
+  if(sous){
+    g.font='400 '+Math.round(H*0.26)+'px "Barlow",sans-serif';
+    g.fillStyle=o.encre2||o.encre||'#ffffff';
+    g.fillText(sous, W/2, H*0.74);
+  }
+  grain(g,W,H,Math.round(W*H/420),0.10,'#ffffff','#000000');
+  return c;
+}
+/* Une plaque gravée : lettres en creux sur la pierre */
+function texPlaque(lignes,fond){
+  var W=512, H=256, c=toile(W,H), g=c.getContext('2d');
+  g.fillStyle=fond||'#cfc7b4'; g.fillRect(0,0,W,H);
+  grain(g,W,H,3000,0.18,'#ffffff','#8d8575');
+  g.textAlign='center'; g.textBaseline='middle';
+  var n=lignes.length, taille=Math.round(H*0.62/n);
+  for(var i=0;i<n;i++){
+    var y=H*(i+0.5)/n;
+    g.font='600 '+taille+'px "Barlow",serif';
+    g.fillStyle='rgba(255,255,255,0.55)'; g.fillText(lignes[i],W/2+1.5,y+1.5);
+    g.fillStyle='#4a4436'; g.fillText(lignes[i],W/2,y);
+  }
+  return c;
+}
+/* Les listes de noms du mémorial : des colonnes de lignes fines, gravées.
+   On ne prétend pas écrire les vrais noms — ce serait inventer des morts.
+   On rend la trame : des colonnes de texte serré, lisibles comme telles. */
+function texListeNoms(){
+  var W=512, H=1024, c=toile(W,H), g=c.getContext('2d');
+  g.fillStyle='#c9c2b2'; g.fillRect(0,0,W,H);
+  grain(g,W,H,6000,0.16,'#ffffff','#8b8474');
+  g.textAlign='center';
+  var col=2, larg=W/col;
+  for(var k=0;k<col;k++){
+    var x=larg*(k+0.5), y=26;
+    g.fillStyle='#4a4436'; g.font='600 19px "Barlow",serif';
+    g.fillText(['1914-1918','1939-1945'][k]||'', x, y); y+=26;
+    g.font='400 13px "Barlow",serif';
+    while(y<H-18){
+      /* une ligne de nom : trait plein irrégulier, pas de nom inventé */
+      var l=larg*(0.34+Math.random()*0.40);
+      g.fillStyle='rgba(74,68,54,'+(0.55+Math.random()*0.3)+')';
+      g.fillRect(x-l/2, y-4, l, 2.2);
+      y+=15;
+    }
+  }
+  return c;
+}
+/* La face d'un pavillon de la Porte Chalon : deux niveaux de hautes
+   fenêtres à petits carreaux, un garde-corps de fer forgé devant celles du
+   premier, encadrements de pierre, et le refend des assises. Relevé sur le
+   recadrage « arche et fronton » : les baies montent presque jusqu'au
+   bandeau, et le balconnet ne fait qu'une trentaine de centimètres. */
+function texPavillon(){
+  var W=512, H=616, c=toile(W,H), g=c.getContext('2d');
+  fondPierre(g,W,H);
+  /* refend : des joints horizontaux plus marqués que ceux du fond */
+  g.strokeStyle='rgba(120,112,96,0.30)'; g.lineWidth=2;
+  for(var y=44;y<H;y+=44){ g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
+  function baie(x,y,w,h,garde){
+    /* encadrement */
+    g.fillStyle='rgba(232,226,210,0.92)'; g.fillRect(x-11,y-13,w+22,h+24);
+    g.fillStyle='rgba(0,0,0,0.13)'; g.fillRect(x-11,y+h+9,w+22,3);
+    /* vitrage */
+    var vg=g.createLinearGradient(x,y,x+w*0.5,y+h);
+    vg.addColorStop(0,'#9fb0be'); vg.addColorStop(0.45,'#5d7386');
+    vg.addColorStop(0.7,'#33414e'); vg.addColorStop(1,'#1e262d');
+    g.fillStyle=vg; g.fillRect(x,y,w,h);
+    /* meneaux : deux vantaux, quatre carreaux chacun */
+    g.strokeStyle='#e7e2d6'; g.lineWidth=3.2;
+    g.strokeRect(x+1.6,y+1.6,w-3.2,h-3.2);
+    g.beginPath();
+    g.moveTo(x+w/2,y); g.lineTo(x+w/2,y+h);
+    for(var k=1;k<4;k++){ g.moveTo(x,y+h*k/4); g.lineTo(x+w,y+h*k/4); }
+    g.stroke();
+    /* appui */
+    g.fillStyle='#ddd7c6'; g.fillRect(x-14,y+h+10,w+28,7);
+    g.fillStyle='rgba(0,0,0,0.20)'; g.fillRect(x-14,y+h+17,w+28,3);
+    if(garde){
+      /* balconnet : barreaux fins et une lisse */
+      g.strokeStyle='#2f2f2c'; g.lineWidth=2.2;
+      g.beginPath(); g.moveTo(x-10,y+h-30); g.lineTo(x+w+10,y+h-30); g.stroke();
+      g.lineWidth=1.7;
+      for(var b=x-6;b<x+w+8;b+=8){ g.beginPath(); g.moveTo(b,y+h-30); g.lineTo(b,y+h+9); g.stroke(); }
+    }
+  }
+  [0.27,0.73].forEach(function(u){
+    baie(Math.round(W*u-52), 96, 104, 172, true);     /* premier niveau */
+    baie(Math.round(W*u-52), 352, 104, 156, false);   /* rez */
+  });
+  /* bandeau d'entablement en haut */
+  g.fillStyle='rgba(226,219,202,0.95)'; g.fillRect(0,0,W,30);
+  g.fillStyle='rgba(0,0,0,0.18)'; g.fillRect(0,30,W,5);
+  /* soubassement plus sombre, comme la pierre salie du pied */
+  var sg=g.createLinearGradient(0,H-70,0,H);
+  sg.addColorStop(0,'rgba(120,112,96,0)'); sg.addColorStop(1,'rgba(96,90,76,0.38)');
+  g.fillStyle=sg; g.fillRect(0,H-70,W,70);
+  return c;
+}
+/* Le tympan en ferronnerie de la Porte Chalon : volutes et armoiries,
+   sur fond transparent pour laisser voir le ciel à travers */
+function texFerronnerie(){
+  var W=512, H=256, c=toile(W,H), g=c.getContext('2d');
+  g.clearRect(0,0,W,H);
+  g.strokeStyle='#2b2a26'; g.lineCap='round';
+  /* rayons et volutes, en demi-cercle */
+  var cx=W/2, cy=H, R=H*0.94;
+  g.lineWidth=5;
+  g.beginPath(); g.arc(cx,cy,R,PI,2*PI); g.stroke();
+  g.beginPath(); g.arc(cx,cy,R*0.62,PI,2*PI); g.stroke();
+  g.lineWidth=3.4;
+  for(var i=1;i<12;i++){
+    var a=PI+PI*i/12;
+    g.beginPath();
+    g.moveTo(cx+Math.cos(a)*R*0.62, cy+Math.sin(a)*R*0.62);
+    g.lineTo(cx+Math.cos(a)*R, cy+Math.sin(a)*R);
+    g.stroke();
+  }
+  /* volutes */
+  g.lineWidth=3;
+  for(var k=0;k<7;k++){
+    var b=PI+PI*(k+0.5)/7, rr=R*0.78;
+    g.beginPath();
+    g.arc(cx+Math.cos(b)*rr, cy+Math.sin(b)*rr, R*0.10, 0, 2*PI);
+    g.stroke();
+  }
+  /* armoiries au centre */
+  g.fillStyle='#4a4640';
+  g.beginPath();
+  g.moveTo(cx-26,cy-R*0.80); g.lineTo(cx+26,cy-R*0.80);
+  g.lineTo(cx+26,cy-R*0.56); g.lineTo(cx,cy-R*0.40); g.lineTo(cx-26,cy-R*0.56);
+  g.closePath(); g.fill();
+  g.strokeStyle='#8f8a7e'; g.lineWidth=2; g.stroke();
+  return c;
+}
+
+/* ---------- la Porte Chalon ----------
+   Dimensions relevées sur les photos, à l'échelle des emprises OSM :
+   pavillons de 11 × 9 m et 11 m de haut, balustrade de 1,1 m, murs
+   concaves de 7,2 m, arche de 4,6 m d'ouverture sous un entablement à
+   12,4 m. La pierre est un calcaire pâle, plus sombre au pied.          */
+var PORTE={
+  /* Centres des deux pavillons, tels qu'ils sont dans les emprises OSM. Ils
+     encadrent le point « Porte Chalon » à dix mètres de part et d'autre,
+     exactement : ce sont bien eux, et l'arche est à leur milieu.
+     Écart mesuré : 19,8 m — la composition entière fait donc une trentaine
+     de mètres, et non les quarante que j'avais d'abord estimés d'après la
+     perspective des photos. Tout est dimensionné sur cet écart. */
+  pavA:{la:46.413171, lo:-0.205419},
+  pavB:{la:46.413089, lo:-0.205648}
+};
+function porteChalon(){
+  if(!BAT || !BAT.taille) return;
+  var pierre=teinte(0xd7cfbc), pierreO=teinte(0xbdb5a2), corniche=teinte(0xe2dbca);
+  var ax=pX(PORTE.pavA.lo), az=pZ(PORTE.pavA.la);
+  var bx=pX(PORTE.pavB.lo), bz=pZ(PORTE.pavB.la);
+  var dx=bx-ax, dz=bz-az, D=Math.hypot(dx,dz);
+  if(D<4) return;
+  var ux=dx/D, uz=dz/D;          /* le long de la composition */
+  var nx=-uz, nz=ux;             /* perpendiculaire */
+  /* la face doit regarder vers le nord : c'est de là que viennent les
+     deux photos, et la rue passe sous l'arche */
+  if(nz>0){ nx=-nx; nz=-nz; }
+  var mx=(ax+bx)/2, mz=(az+bz)/2;
+  var sol=Math.min(hauteur(ax,az),hauteur(bx,bz),hauteur(mx,mz))-0.15;
+
+  function P(u,v){ return [mx+ux*u+nx*v, mz+uz*u+nz*v]; }
+
+  var PAV=Math.min(4.4, D*0.22);                /* demi-largeur d'un pavillon */
+  /* --- les deux pavillons --- */
+  [-1,1].forEach(function(cote){
+    var cu=cote*D/2, L=PAV, P2=4.2;             /* demi-largeurs */
+    var q=[P(cu-L,-P2),P(cu+L,-P2),P(cu+L,P2),P(cu-L,P2)];
+    boiteQuad(BAT.taille,q[0],q[1],q[2],q[3],sol,sol+10.6,pierre,pierre,1.6);
+    /* corniche débordante */
+    var e=0.45, qe=[P(cu-L-e,-P2-e),P(cu+L+e,-P2-e),P(cu+L+e,P2+e),P(cu-L-e,P2+e)];
+    boiteQuad(BAT.taille,qe[0],qe[1],qe[2],qe[3],sol+10.6,sol+11.3,corniche,corniche,1.2);
+    /* balustrade : un bandeau bas et une file de balustres */
+    var qb=[P(cu-L,-P2),P(cu+L,-P2),P(cu+L,P2),P(cu-L,P2)];
+    boiteQuad(BAT.taille,qb[0],qb[1],qb[2],qb[3],sol+11.3,sol+11.55,corniche,corniche,1);
+    var n=Math.round(L*2/0.6);
+    for(var i=0;i<=n;i++){
+      var pu=cu-L+2*L*i/n;
+      [-P2,P2].forEach(function(pv){
+        var p=P(pu,pv);
+        tube(BAT.taille,p[0],sol+11.55,p[1],p[0],sol+12.25,p[1],0.10,0.075,6,corniche,false,true);
+      });
+    }
+    var qh=[P(cu-L,-P2),P(cu+L,-P2),P(cu+L,P2),P(cu-L,P2)];
+    boiteQuad(BAT.taille,qh[0],qh[1],qh[2],qh[3],sol+12.25,sol+12.5,corniche,corniche,1);
+    /* La face avant reçoit les fenêtres. Attention au signe : dans ce
+       repère P(u,v) avance de v le long de la normale, donc l'avant est
+       en v = +P2. Je les avais posées en -P2, c'est-à-dire derrière. */
+    var rdp=droiteDe([nx,0,nz]);
+    var fg=P(cu-L,P2+0.06), fd=P(cu+L,P2+0.06);
+    /* on remet les coins dans l'ordre vu de face */
+    var og=((fd[0]-fg[0])*rdp[0]+(fd[1]-fg[1])*rdp[2])>0 ? [fg,fd] : [fd,fg];
+    panneau([og[0][0],sol+0.2,og[0][1]],[og[1][0],sol+0.2,og[1][1]],
+            [og[1][0],sol+10.5,og[1][1]],[og[0][0],sol+10.5,og[0][1]],
+            [nx,0,nz], texPavillon(), {rugo:0.84});
+  });
+
+  /* --- les deux murs concaves --- */
+  /* La courbe part du pavillon et rentre vers l'arche : on l'approche par
+     huit panneaux verticaux, la flèche relevée est d'environ 2 m. */
+  [-1,1].forEach(function(cote){
+    var u0=cote*(D/2-PAV), u1=cote*3.3, n=8, fl=1.2;
+    var prec=null;
+    for(var i=0;i<=n;i++){
+      var t=i/n, u=u0+(u1-u0)*t;
+      var v=-fl*Math.sin(PI*t)*0.5 - 0.2;       /* creux vers l'arrière */
+      var p=P(u,v);
+      if(prec){
+        var h0=sol+7.4, hb=sol+7.9;
+        boiteQuad(BAT.taille,prec,p,[p[0]+nx*0.7,p[1]+nz*0.7],[prec[0]+nx*0.7,prec[1]+nz*0.7],
+                  sol,h0,pierre,pierre,1.6);
+        boiteQuad(BAT.taille,[prec[0]-nx*0.14,prec[1]-nz*0.14],[p[0]-nx*0.14,p[1]-nz*0.14],
+                  [p[0]+nx*0.84,p[1]+nz*0.84],[prec[0]+nx*0.84,prec[1]+nz*0.84],
+                  h0,hb,corniche,corniche,1.2);
+      }
+      prec=p;
+    }
+    /* garde-corps en losanges au pied du mur, sur son socle */
+    var g0=P(cote*(D/2-PAV+0.3),-1.3), g1=P(cote*3.6,-1.3);
+    var gx=g1[0]-g0[0], gz=g1[1]-g0[1], GL=Math.hypot(gx,gz), fer=teinte(0x3a3a36);
+    boiteQuad(BAT.taille,[g0[0]-nx*0.2,g0[1]-nz*0.2],[g1[0]-nx*0.2,g1[1]-nz*0.2],
+              [g1[0]+nx*0.2,g1[1]+nz*0.2],[g0[0]+nx*0.2,g0[1]+nz*0.2],
+              sol,sol+0.55,pierreO,pierreO,1);
+    tube(BAT.zinc,g0[0],sol+1.45,g0[1],g1[0],sol+1.45,g1[1],0.035,0.035,4,fer,true,true);
+    var np=Math.max(2,Math.round(GL/1.1));
+    for(var k=0;k<=np;k++){
+      var t2=k/np, px=g0[0]+gx*t2, pz2=g0[1]+gz*t2;
+      tube(BAT.zinc,px,sol+0.55,pz2,px,sol+1.45,pz2,0.028,0.028,4,fer,false,false);
+      if(k<np){
+        /* le losange entre deux montants */
+        var t3=(k+1)/np, qx=g0[0]+gx*t3, qz=g0[1]+gz*t3;
+        var cxm=(px+qx)/2, czm=(pz2+qz)/2;
+        tube(BAT.zinc,px,sol+0.62,pz2,cxm,sol+1.38,czm,0.018,0.018,3,fer,false,false);
+        tube(BAT.zinc,cxm,sol+1.38,czm,qx,sol+0.62,qz,0.018,0.018,3,fer,false,false);
+        tube(BAT.zinc,px,sol+1.38,pz2,cxm,sol+0.62,czm,0.018,0.018,3,fer,false,false);
+        tube(BAT.zinc,cxm,sol+0.62,czm,qx,sol+1.38,qz,0.018,0.018,3,fer,false,false);
+      }
+    }
+  });
+
+  /* --- l'arche centrale --- */
+  var OUV=2.00, EP=2.0, HP=6.2, HT=11.4;        /* demi-ouverture, épaisseur */
+  [-1,1].forEach(function(cote){
+    var u0=cote*OUV, u1=cote*(OUV+1.3);
+    var q=[P(u0,-EP/2),P(u1,-EP/2),P(u1,EP/2),P(u0,EP/2)];
+    boiteQuad(BAT.taille,q[0],q[1],q[2],q[3],sol,sol+HP,pierre,pierre,1.6);
+  });
+  /* le plein cintre : des claveaux posés en arc */
+  var NA=14;
+  for(var i=0;i<NA;i++){
+    var a0=PI*i/NA, a1=PI*(i+1)/NA;
+    var u0=-Math.cos(a0)*OUV, u1=-Math.cos(a1)*OUV;
+    var y0=sol+HP+Math.sin(a0)*OUV, y1=sol+HP+Math.sin(a1)*OUV;
+    var e0=-Math.cos(a0)*(OUV+0.85), e1=-Math.cos(a1)*(OUV+0.85);
+    var g0=sol+HP+Math.sin(a0)*(OUV+0.85), g1=sol+HP+Math.sin(a1)*(OUV+0.85);
+    var A=P(u0,-EP/2), B=P(u1,-EP/2), C=P(e1,-EP/2), Dd=P(e0,-EP/2);
+    [-1,1].forEach(function(f){
+      var s=f*EP/2;
+      var Aa=P(u0,s), Bb=P(u1,s), Cc=P(e1,s), Dd2=P(e0,s);
+      quadT(BAT.taille,[Aa[0],y0,Aa[1]],[Bb[0],y1,Bb[1]],[Cc[0],g1,Cc[1]],[Dd2[0],g0,Dd2[1]],
+            [0,0,0.7,0,0.7,0.7,0,0.7],pierre);
+    });
+    /* l'intrados */
+    var A1=P(u0,-EP/2), A2=P(u0,EP/2), B1=P(u1,-EP/2), B2=P(u1,EP/2);
+    quadT(BAT.taille,[A1[0],y0,A1[1]],[A2[0],y0,A2[1]],[B2[0],y1,B2[1]],[B1[0],y1,B1[1]],
+          [0,0,1.6,0,1.6,0.5,0,0.5],pierreO);
+  }
+  /* entablement au-dessus de l'arche */
+  var qe=[P(-(OUV+1.3),-EP/2-0.3),P(OUV+1.3,-EP/2-0.3),P(OUV+1.3,EP/2+0.3),P(-(OUV+1.3),EP/2+0.3)];
+  boiteQuad(BAT.taille,qe[0],qe[1],qe[2],qe[3],sol+HP+OUV+0.5,sol+HT,corniche,corniche,1.4);
+  var qf=[P(-(OUV+1.7),-EP/2-0.5),P(OUV+1.7,-EP/2-0.5),P(OUV+1.7,EP/2+0.5),P(-(OUV+1.7),EP/2+0.5)];
+  boiteQuad(BAT.taille,qf[0],qf[1],qf[2],qf[3],sol+HT,sol+HT+0.6,corniche,corniche,1.2);
+
+  /* le tympan en ferronnerie, juste sous le cintre : à claire-voie, on
+     doit voir le ciel entre les volutes */
+  var t0=P(-OUV,0), t1=P(OUV,0);
+  /* les coins dans l'ordre vu de face : bas-gauche, bas-droite, haut-droite,
+     haut-gauche — « gauche » et « droite » au sens de droiteDe(n) */
+  var rd=droiteDe([nx,0,nz]);
+  var tg=[mx-rd[0]*OUV, mz-rd[2]*OUV], td=[mx+rd[0]*OUV, mz+rd[2]*OUV];
+  panneau([tg[0],sol+HP,tg[1]],[td[0],sol+HP,td[1]],
+          [td[0],sol+HP+OUV,td[1]],[tg[0],sol+HP+OUV,tg[1]],
+          [nx,0,nz], texFerronnerie(), {transparent:true, double:true, rugo:0.55, metal:0.3});
+  /* le drapeau au faîte */
+  drapeau(mx+nx*0.2, mz+nz*0.2, Math.atan2(nz,nx), sol+HT+0.6);
+
+  /* la plaque « PAVILLON MUNICIPAL » sur le pavillon de gauche */
+  var l=1.5, hh=0.62;
+  var pc=P(-D/2+1.2,-4.30);
+  var pg=[pc[0]-rd[0]*l/2, pc[1]-rd[2]*l/2], pd=[pc[0]+rd[0]*l/2, pc[1]+rd[2]*l/2];
+  panneau([pg[0],sol+3.3,pg[1]],[pd[0],sol+3.3,pd[1]],
+          [pd[0],sol+3.3+hh,pd[1]],[pg[0],sol+3.3+hh,pg[1]],
+          [nx,0,nz], texPlaque(['PAVILLON','MUNICIPAL'],'#e6e2d6'), {rugo:0.9});
+}
+
+/* ---------- le monument à Denfert-Rochereau ----------
+   Position triangulée par les caps de libre-001 (130°, à 28 m) et
+   libre-002 (219°, à 52 m) : les deux rayons se croisent à x=762, z=-167.
+   Socle en pyramide tronquée à cannelures, lion de bronze couché contre
+   la face avant, statue en capote et képi au sommet, bornes et chaînes.  */
+var MONUMENT={la:46.415199, lo:-0.199738, az:130};
+function monumentDenfert(){
+  if(!BAT || !BAT.taille) return;
+  var mx=pX(MONUMENT.lo), mz=pZ(MONUMENT.la), sol=hauteur(mx,mz);
+  var a=MONUMENT.az*PI/180, nx=Math.sin(a), nz=-Math.cos(a);   /* la face */
+  var ux=-nz, uz=nx;                                            /* le long */
+  var pierre=teinte(0xd9d2c2), pierreO=teinte(0xc2bbaa), bronze=teinte(0x4a5347);
+
+  function P(u,v){ return [mx+ux*u+nx*v, mz+uz*u+nz*v]; }
+  function carre(r,y0,y1,col){
+    boiteQuad(BAT.taille,P(-r,-r),P(r,-r),P(r,r),P(-r,r),y0,y1,col,col,1.2);
+  }
+  /* deux degrés de base */
+  carre(4.2, sol, sol+0.35, pierreO);
+  carre(3.5, sol+0.35, sol+0.95, pierre);
+
+  /* pyramide tronquée : huit assises qui rétrécissent */
+  var n=8, r0=2.9, r1=1.35, y0=sol+0.95, hy=5.4;
+  for(var i=0;i<n;i++){
+    var t0=i/n, t1=(i+1)/n;
+    var ra=r0+(r1-r0)*t0, rb=r0+(r1-r0)*t1;
+    var ya=y0+hy*t0, yb=y0+hy*t1;
+    /* quatre faces trapézoïdales */
+    for(var f=0;f<4;f++){
+      var s=[[1,0],[0,1],[-1,0],[0,-1]][f], q=[[0,1],[-1,0],[0,-1],[1,0]][f];
+      var A=P(s[0]*ra+q[0]*ra, s[1]*ra+q[1]*ra);
+      var B=P(s[0]*ra-q[0]*ra, s[1]*ra-q[1]*ra);
+      var C=P(s[0]*rb-q[0]*rb, s[1]*rb-q[1]*rb);
+      var Dd=P(s[0]*rb+q[0]*rb, s[1]*rb+q[1]*rb);
+      quadT(BAT.taille,[A[0],ya,A[1]],[B[0],ya,B[1]],[C[0],yb,C[1]],[Dd[0],yb,Dd[1]],
+            [0,0,1.4,0,1.4,0.6,0,0.6], i>n-4?pierre:pierreO);
+    }
+  }
+  /* cannelures du haut : des nervures verticales, comme sur la photo */
+  var rc=r0+(r1-r0)*0.60, yc=y0+hy*0.60;
+  for(var k=0;k<28;k++){
+    var an=2*PI*k/28;
+    var p=P(Math.cos(an)*rc*1.02, Math.sin(an)*rc*1.02);
+    tube(BAT.taille,p[0],yc,p[1],p[0],yc+1.5,p[1],0.055,0.045,4,pierre,false,true);
+  }
+  /* dé du sommet, qui porte la statue */
+  carre(1.35, y0+hy, y0+hy+0.9, pierre);
+  carre(1.05, y0+hy+0.9, y0+hy+1.05, pierreO);
+
+  /* bandeau de l'inscription, sur la face avant */
+  var rdm=droiteDe([nx,0,nz]);
+  var ic=P(0,r1*1.55), yi=y0+hy-0.80;
+  var ig=[ic[0]-rdm[0]*1.15, ic[1]-rdm[2]*1.15], id=[ic[0]+rdm[0]*1.15, ic[1]+rdm[2]*1.15];
+  panneau([ig[0],yi,ig[1]],[id[0],yi,id[1]],
+          [id[0],yi+0.5,id[1]],[ig[0],yi+0.5,ig[1]],
+          [nx,0,nz], texPlaque(['A DENFERT-ROCHEREAU'],'#d5cdba'), {rugo:0.92});
+
+  /* Le lion couché contre la face avant. À 2,6 m de l'axe il était pris
+     dans la pyramide, dont le rayon vaut 2,9 m à sa base : il s'assoit
+     maintenant sur la plinthe, devant elle. */
+  var lx=mx+nx*3.45, lz=mz+nz*3.45, ly=sol+1.05;
+  boule(BAT.bronze,lx,ly+0.30,lz,0.95,0.62,10,bronze);                   /* corps */
+  boule(BAT.bronze,lx+nx*1.05,ly+0.62,lz+nz*1.05,0.46,0.95,10,bronze);   /* tête */
+  boule(BAT.bronze,lx+nx*1.28,ly+0.50,lz+nz*1.28,0.22,0.9,8,bronze);     /* museau */
+  [-1,1].forEach(function(c){
+    var px=lx+ux*c*0.42, pz=lz+uz*c*0.42;
+    tube(BAT.bronze,px+nx*0.55,ly+0.18,pz+nz*0.55,px+nx*1.45,ly-0.02,pz+nz*1.45,
+         0.16,0.11,7,bronze,true,true);                                   /* pattes avant */
+    tube(BAT.bronze,px-nx*0.55,ly+0.22,pz-nz*0.55,px-nx*0.95,ly-0.02,pz-nz*0.95,
+         0.20,0.13,7,bronze,true,true);                                   /* pattes arrière */
+  });
+  tube(BAT.bronze,lx-nx*0.9,ly+0.30,lz-nz*0.9,lx-nx*1.5+ux*0.5,ly+0.05,lz-nz*1.5+uz*0.5,
+       0.08,0.05,6,bronze,false,true);                                    /* queue */
+
+  /* la statue : capote longue, képi, sabre pointé vers le bas */
+  var sy=y0+hy+1.05, sx=mx, sz=mz;
+  tube(BAT.bronze,sx,sy,sz,sx,sy+1.05,sz,0.26,0.30,10,bronze,true,false);      /* capote basse */
+  tube(BAT.bronze,sx,sy+1.05,sz,sx,sy+1.72,sz,0.30,0.24,10,bronze,false,false);/* buste */
+  boule(BAT.bronze,sx,sy+1.86,sz,0.145,1,10,bronze);                            /* tête */
+  tube(BAT.bronze,sx,sy+1.94,sz,sx,sy+2.03,sz,0.165,0.17,10,bronze,false,true); /* képi */
+  /* bras droit le long du corps, main sur le sabre */
+  tube(BAT.bronze,sx+ux*0.26,sy+1.60,sz+uz*0.26,sx+ux*0.34,sy+0.98,sz+uz*0.34,
+       0.075,0.065,6,bronze,false,true);
+  /* le sabre, incliné vers l'avant-bas */
+  tube(BAT.bronze,sx+ux*0.34,sy+1.02,sz+uz*0.34,
+       sx+ux*0.30+nx*0.55,sy+2.30,sz+uz*0.30+nz*0.55,0.022,0.012,4,bronze,false,true);
+  /* bras gauche replié */
+  tube(BAT.bronze,sx-ux*0.26,sy+1.58,sz-uz*0.26,sx-ux*0.40+nx*0.22,sy+1.20,sz-uz*0.40+nz*0.22,
+       0.072,0.062,6,bronze,false,true);
+
+  /* bornes de pierre reliées par des chaînes */
+  var R=6.4, NB=12, prec=null, fonte=teinte(0x4b4d4a);
+  for(var b=0;b<=NB;b++){
+    var ab=2*PI*b/NB;
+    var p2=P(Math.cos(ab)*R, Math.sin(ab)*R);
+    var s2=hauteur(p2[0],p2[1]);
+    tube(BAT.taille,p2[0],s2,p2[1],p2[0],s2+0.72,p2[1],0.115,0.095,8,pierreO,false,true);
+    boule(BAT.taille,p2[0],s2+0.76,p2[1],0.10,0.9,8,pierreO);
+    if(prec && b>0){
+      /* la chaîne pend : trois segments suffisent à la lire */
+      var m1=[(prec[0]*2+p2[0])/3,(prec[1]*2+p2[1])/3];
+      var m2=[(prec[0]+p2[0]*2)/3,(prec[1]+p2[1]*2)/3];
+      var yb=Math.min(hauteur(prec[0],prec[1]),s2)+0.58, yc2=yb-0.14;
+      tube(BAT.zinc,prec[0],yb,prec[1],m1[0],yc2,m1[1],0.022,0.022,4,fonte,false,false);
+      tube(BAT.zinc,m1[0],yc2,m1[1],m2[0],yc2,m2[1],0.022,0.022,4,fonte,false,false);
+      tube(BAT.zinc,m2[0],yc2,m2[1],p2[0],yb,p2[1],0.022,0.022,4,fonte,false,false);
+    }
+    prec=p2;
+  }
+}
+
+/* ---------- les enseignes relevées ----------
+   Position : le point où le rayon de la photo touche le mur, et la normale
+   sortante de ce mur — tous deux calculés sur les emprises OSM par
+   outils/relever_batiments.js, donc pas devinés. « dec » décale le long du
+   mur, « bas » donne la hauteur du bord inférieur.                       */
+var ENSEIGNES=[
+  {la:46.414651, lo:-0.201840, az:152, dec:0,    bas:3.30, l:6.0, ht:1.15,
+   texte:'HUMAN', sous:'immobilier', fond:'#1b7cb0', encre:'#ffffff'},
+  {la:46.414651, lo:-0.201840, az:152, dec:-9.5, bas:3.30, l:4.2, ht:1.00,
+   texte:'ORPI', sous:'VINET', fond:'#f2f2ef', encre:'#14539e', encre2:'#5a6472'},
+  {la:46.414825, lo:-0.201839, az:150, dec:0,    bas:6.10, l:4.0, ht:1.10,
+   texte:'HOTEL', espace:true, fond:'#e9e4d6', encre:'#1b4f96'},
+  {la:46.414000, lo:-0.203690, az:156, dec:0,    bas:3.55, l:5.5, ht:0.95,
+   texte:'PROMAN', sous:'intérim • recrutement', fond:'#f4f4f2', encre:'#123f88', encre2:'#123f88'},
+  {la:46.413495, lo:-0.205524, az:161, dec:0,    bas:3.10, l:4.6, ht:0.88,
+   texte:'maison blanche', fond:'#1b1b1d', encre:'#f0efe9', police:'"Barlow",sans-serif'},
+  /* la plaque gravée de la mairie */
+  {la:46.413161, lo:-0.203402, az:78, dec:1.6, bas:2.70, l:1.7, ht:0.62,
+   plaque:['SALONS DE','L’HÔTEL DE VILLE']},
+  /* les deux panneaux de noms du mémorial */
+  {la:46.412908, lo:-0.202068, az:342, dec:-1.95, bas:1.45, l:1.05, ht:3.30, noms:true},
+  {la:46.412908, lo:-0.202068, az:342, dec:1.95,  bas:1.45, l:1.05, ht:3.30, noms:true}
+];
+function poserEnseignes(){
+  ENSEIGNES.forEach(function(e){
+    var a=e.az*PI/180, n=[Math.sin(a),0,-Math.cos(a)];
+    var rd=droiteDe(n);
+    var x=pX(e.lo)+rd[0]*(e.dec||0)+n[0]*0.07, z=pZ(e.la)+rd[2]*(e.dec||0)+n[2]*0.07;
+    var sol=hauteur(x,z);
+    var A=[x-rd[0]*e.l/2, sol+e.bas, z-rd[2]*e.l/2];
+    var B=[x+rd[0]*e.l/2, sol+e.bas, z+rd[2]*e.l/2];
+    var C=[B[0], sol+e.bas+e.ht, B[2]];
+    var Dd=[A[0], sol+e.bas+e.ht, A[2]];
+    var nx=n[0], nz=n[2];
+    var toileE=e.noms?texListeNoms():(e.plaque?texPlaque(e.plaque):texEnseigne(e));
+    panneau(A,B,C,Dd,[nx,0,nz],toileE,{rugo:(e.noms||e.plaque)?0.92:0.55});
+  });
+}
+
+/* les enseignes sont posées après les bâtiments : elles portent chacune sa
+   propre image, donc son propre maillage */
+(function(){
+  for(var i=0;i<ETAPES.length;i++) if(ETAPES[i][1]===etapeBatisRiche){
+    ETAPES.splice(i+1,0,['Monuments et enseignes relevés en photo',function(){
+      try{ poserEnseignes(); }catch(e){ console.warn('enseignes :',e); }
+    }]);
+    break;
+  }
+})();
 
 })();
