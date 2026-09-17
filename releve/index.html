@@ -88,12 +88,24 @@ button.action.discret{font-size:13px;padding:11px;color:var(--creme-dim)}
   border-radius:2px;padding:2px 7px;font-family:"Roboto Mono",monospace;font-size:9.5px;
   letter-spacing:.12em;text-transform:uppercase;color:var(--creme-dim);
 }
-/* le panorama : une bande cylindrique qui part du nord et fait le tour.
-   Elle défile avec la boussole, donc l'écran montre ce qu'on a devant. */
-.pano{position:absolute;inset:0;overflow:hidden}
-.pano-bande{
-  position:absolute;inset:0;background-repeat:repeat-x;background-size:auto 100%;
-  background-position:0 center;
+/* Le panorama : une bande cylindrique qui part du nord et fait le tour.
+   Elle tourne au doigt, et seulement au doigt.
+   touch-action:none est indispensable — sans lui le navigateur prend le
+   glissement pour un défilement de page, s'approprie le geste et envoie un
+   pointercancel : la bande se bloque au premier mouvement rapide.
+   La piste porte trois copies de l'image et se déplace en translate3d, donc
+   le défilement est composité par le GPU et reste fluide. */
+.pano{position:absolute;inset:0;overflow:hidden;touch-action:none;cursor:grab;
+  user-select:none;-webkit-user-select:none}
+.pano.tire{cursor:grabbing}
+.pano-piste{position:absolute;top:0;bottom:0;left:0;display:flex;
+  will-change:transform;transform:translate3d(0,0,0)}
+.pano-piste img{height:100%;width:auto;display:block;pointer-events:none;-webkit-user-drag:none}
+.pano-viser{
+  position:absolute;right:8px;bottom:26px;background:rgba(11,16,25,.86);
+  border:1px solid var(--frontale);border-radius:3px;color:var(--frontale);
+  font-family:"Roboto Mono",monospace;font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;padding:5px 9px;cursor:pointer;
 }
 /* la mire : le milieu de l'écran, c'est-à-dire droit devant */
 .pano-mire{
@@ -111,10 +123,11 @@ button.action.discret{font-size:13px;padding:11px;color:var(--creme-dim)}
   border:5px solid transparent;border-top-color:var(--frontale);
 }
 .pano-cap{
-  position:absolute;left:0;right:0;bottom:0;height:15px;
-  background:rgba(11,16,25,.72);border-top:1px solid var(--trait);
-  font-family:"Roboto Mono",monospace;font-size:9px;letter-spacing:.1em;color:var(--creme-dim);
+  position:absolute;left:0;right:0;bottom:0;height:18px;padding:0 8px;
+  background:rgba(11,16,25,.78);border-top:1px solid var(--trait);
+  font-family:"Roboto Mono",monospace;font-size:9px;letter-spacing:.08em;color:var(--creme-dim);
   display:flex;align-items:center;justify-content:center;pointer-events:none;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .visuel-bar{display:flex;border-top:1px solid var(--trait)}
 .visuel-bar button{
@@ -191,7 +204,7 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 <header>
   <div>
     <strong>Relevé photo</strong>
-    <div class="chapo">Corrida 2027 · Saint-Maixent</div>
+    <div class="chapo">Corrida 2027 · <span id="version">v?</span></div>
   </div>
   <div class="gps">
     <span class="pastille" id="pastille"></span>
@@ -224,10 +237,13 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
     <div class="visuel-img">
       <img id="v-img" alt="">
       <div class="pano" id="v-pano" hidden>
-        <div class="pano-bande" id="v-bande"></div>
+        <div class="pano-piste" id="v-piste">
+          <img id="v-p1" alt=""><img id="v-p2" alt=""><img id="v-p3" alt="">
+        </div>
         <div class="pano-mire"></div>
         <div class="pano-cible" id="v-pcible" hidden></div>
         <div class="pano-cap" id="v-pcap"></div>
+        <button class="pano-viser" id="v-pviser" type="button">↑ recentrer</button>
       </div>
       <div class="visuel-vide" id="v-vide">vue 3D indisponible</div>
       <span class="visuel-etiq" id="v-etiq">3D</span>
@@ -333,6 +349,10 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
    Rien ne part sur le réseau : le téléphone travaille seul.
 ================================================================= */
 'use strict';
+/* Affiché en haut de l'écran : à monter à chaque mise à jour. C'est ce qui
+   permet de dire au premier coup d'œil si le téléphone a bien la dernière
+   version ou une copie en cache. */
+var VERSION='v5 · 360 au doigt';
 var $=function(s){ return document.querySelector(s); };
 var PLAN=null, POS=null, CAP=null, CIBLE=null, FAIT=lireFait(), BASE=null;
 /* vues 3D de référence : une par photo à prendre, rendues hors ligne par
@@ -473,6 +493,7 @@ function suivrePosition(){
     dire('Sans position je ne peux pas te guider : autorise la localisation dans les réglages du navigateur.');
   },{enableHighAccuracy:true, maximumAge:2000, timeout:20000});
 }
+var tCap=0;
 function brancherBoussole(){
   function lire(e){
     var c=null;
@@ -480,7 +501,11 @@ function brancherBoussole(){
     else if(e.absolute && e.alpha!==null) c=(360-e.alpha)%360;
     if(c===null) return;
     CAP=c;
-    if(QUOI==='360'){ majPano(); }
+    /* les capteurs émettent jusqu'à 60 fois par seconde : redessiner le
+       cadran et la carte à chaque fois affamait le suivi du doigt. */
+    var t=performance.now();
+    if(t-tCap<90) return;
+    tCap=t;
     dessiner(); redessiner();
   }
   window.addEventListener('deviceorientationabsolute',lire,true);
@@ -879,7 +904,7 @@ function brancherCarte(){
   });
   window.addEventListener('resize',function(){
     dimensionner(); redessiner();
-    if(QUOI==='360') majPano();
+    if(QUOI==='360'){ mesurerPano(); placerPano(); }
   });
 }
 function legendeCarte(){
@@ -896,7 +921,11 @@ function legendeCarte(){
    correspond à l'azimut x / largeur × 360. On la décale pour mettre le cap
    de la boussole au milieu de l'écran ; le repère orange montre alors où
    se trouve la direction à viser, et il suffit de tourner jusqu'à lui. */
-var PANOS=null, panoNom=null, panoLibre=null, panoDim=null;
+var PANOS=null, panoNom=null;
+/* panoVue : l'azimut affiché au milieu de l'écran. panoW : largeur utile
+   d'un tour complet, en pixels. panoVit : vitesse de l'élan, en degrés
+   par seconde. */
+var panoVue=0, panoW=0, panoVit=0, panoAnim=0;
 
 function chargerPanos(){
   return fetch('vues/360/index.json',{cache:'no-store'}).then(function(r){
@@ -916,74 +945,101 @@ function panoDispo(a){
   var n=nomPano(a);
   return !!(n && PANOS && PANOS.dispo[n]);
 }
+/* la largeur utile dépend de la hauteur affichée, qui vaut zéro tant que le
+   cadre est masqué : on la mesure quand on en a besoin */
+function mesurerPano(){
+  var im=$('#v-p1');
+  panoW=(im && im.clientWidth) ? im.clientWidth : 0;
+  return panoW;
+}
 function poserPano(a){
-  var n=nomPano(a), bande=$('#v-bande');
+  var n=nomPano(a);
   if(panoNom!==n){
-    panoNom=n; panoLibre=null; panoDim=null;
-    bande.style.backgroundImage='url("vues/360/'+n+'")';
-    var im=new Image();
-    im.onload=function(){
-      if(panoNom!==n) return;
-      panoDim=[im.naturalWidth,im.naturalHeight];
-      majPano();
-    };
-    im.src='vues/360/'+n;
+    panoNom=n; panoW=0; arreterElan();
+    ['#v-p1','#v-p2','#v-p3'].forEach(function(sel){
+      var im=$(sel);
+      im.onload=function(){ if(panoNom===n){ mesurerPano(); placerPano(); } };
+      im.src='vues/360/'+n;
+    });
+    /* on ouvre face à la direction à viser */
+    panoVue=viser(a,nbFait(a));
   }
-  majPano();
+  if(!panoW) mesurerPano();
+  placerPano();
 }
-/* La bande est mise à la hauteur du cadre, donc sa largeur utile dépend de
-   la hauteur affichée — qui vaut zéro tant que le cadre est masqué. On la
-   recalcule à chaque fois plutôt qu'une seule, sinon un aller-retour par
-   un autre onglet laisserait un panorama vide. */
-function largeurPano(){
-  if(!panoDim) return 0;
-  var h=$('#v-pano').clientHeight;
-  if(!h) return 0;
-  return panoDim[0]*(h/panoDim[1]);
-}
-/* décale la bande pour que l'azimut « centre » soit au milieu */
-function majPano(){
-  var a=CIBLE, pano=$('#v-pano'), bande=$('#v-bande');
-  if(!a) return;
-  var panoLarg=largeurPano();
-  if(!panoLarg) return;
+function placerPano(){
+  var a=CIBLE, pano=$('#v-pano'), piste=$('#v-piste');
+  if(!a || !piste) return;
+  if(!panoW && !mesurerPano()) return;
   var V=pano.clientWidth||1;
-  var n=nbFait(a), vise=viser(a,n);
-  /* on suit la boussole quand elle est là, sinon on regarde la cible */
-  var centre=(panoLibre!==null) ? panoLibre : ((CAP!==null) ? CAP : vise);
-  centre=((centre%360)+360)%360;
-  bande.style.backgroundPositionX=(-(centre/360)*panoLarg + V/2)+'px';
-  /* le repère de visée, à sa place par rapport au centre */
-  var d=ecart(vise,centre);                    /* -180..180 */
-  var x=V/2 + (d/360)*panoLarg;
-  var rep=$('#v-pcible');
-  if(x>-20 && x<V+20){ rep.hidden=false; rep.style.left=x+'px'; }
+  panoVue=((panoVue%360)+360)%360;
+  var off=(panoVue/360)*panoW;
+  /* trois copies bout à bout : la fenêtre tombe toujours dans la deuxième,
+     donc le tour se referme sans saut ni bord vide */
+  piste.style.transform='translate3d('+(-(off-V/2+panoW)).toFixed(1)+'px,0,0)';
+
+  var n=nbFait(a), vise=viser(a,n), d=ecart(vise,panoVue);
+  var rep=$('#v-pcible'), x=V/2+(d/360)*panoW;
+  if(x>-24 && x<V+24){ rep.hidden=false; rep.style.left=x.toFixed(1)+'px'; }
   else rep.hidden=true;
-  var etat=$('#v-pcap');
-  if(panoLibre!==null) etat.textContent='vue libre '+Math.round(centre)+'° — relâche pour suivre la boussole';
-  else if(CAP!==null) etat.textContent='suit ta boussole · '+Math.round(centre)+'° '+cardinal(centre)+
-       ' · à viser '+Math.round(vise)+'° ('+(Math.abs(d)<9?'tu y es':(d>0?'tourne à droite de '+Math.round(Math.abs(d))+'°':'tourne à gauche de '+Math.round(Math.abs(d))+'°'))+')';
-  else etat.textContent='pas de boussole · centré sur la direction à viser ('+Math.round(vise)+'°)';
+  $('#v-pcap').textContent=
+    (Math.abs(d)<8 ? '◆ repère au milieu'
+     : (d>0 ? '→ repère à '+Math.round(Math.abs(d))+'° à droite'
+            : '← repère à '+Math.round(Math.abs(d))+'° à gauche'))
+    +'  ·  vue '+Math.round(panoVue)+'° '+cardinal(panoVue);
+}
+/* élan : un coup de doigt rapide fait tourner la vue, puis elle s'amortit */
+function arreterElan(){
+  if(panoAnim){ cancelAnimationFrame(panoAnim); panoAnim=0; }
+  panoVit=0;
+}
+function elan(){
+  panoAnim=requestAnimationFrame(function(){
+    panoAnim=0;
+    panoVue+=panoVit/60;
+    panoVit*=0.94;
+    placerPano();
+    if(Math.abs(panoVit)>4) elan();
+  });
 }
 function brancherPano(){
   var pano=$('#v-pano'); if(!pano) return;
-  var tenu=null;
+  var tire=null;
   pano.addEventListener('pointerdown',function(e){
-    pano.setPointerCapture(e.pointerId);
-    tenu={x:e.clientX, base:(panoLibre!==null?panoLibre:(CAP!==null?CAP:(CIBLE?viser(CIBLE,nbFait(CIBLE)):0)))};
+    if(e.target && e.target.id==='v-pviser') return;
+    try{ pano.setPointerCapture(e.pointerId); }catch(err){}
+    arreterElan();
+    if(!panoW) mesurerPano();
+    tire={id:e.pointerId, x:e.clientX, base:panoVue, t:performance.now(), lx:e.clientX, vit:0};
+    pano.classList.add('tire');
   });
   pano.addEventListener('pointermove',function(e){
-    var lp=largeurPano();
-    if(!tenu || !lp) return;
-    var d=(e.clientX-tenu.x)/lp*360;
-    panoLibre=((tenu.base-d)%360+360)%360;
-    majPano();
+    if(!tire || e.pointerId!==tire.id) return;
+    if(!panoW && !mesurerPano()) return;
+    var t=performance.now(), dt=Math.max(8,t-tire.t);
+    panoVue=tire.base-(e.clientX-tire.x)/panoW*360;
+    tire.vit=((tire.lx-e.clientX)/panoW*360)/(dt/1000);
+    tire.lx=e.clientX; tire.t=t;
+    placerPano();
   });
-  function fin(){ tenu=null; }
-  pano.addEventListener('pointerup',function(){ fin(); });
+  function fin(e){
+    if(!tire || (e && e.pointerId!==undefined && e.pointerId!==tire.id)) return;
+    pano.classList.remove('tire');
+    /* si le doigt s'est arrêté avant de lâcher, pas d'élan */
+    var vieux=performance.now()-tire.t>90;
+    panoVit=vieux?0:Math.max(-1200,Math.min(1200,tire.vit));
+    tire=null;
+    if(Math.abs(panoVit)>25) elan();
+  }
+  pano.addEventListener('pointerup',fin);
   pano.addEventListener('pointercancel',fin);
-  /* double appui : on revient au suivi de la boussole */
-  pano.addEventListener('dblclick',function(){ panoLibre=null; majPano(); });
+  pano.addEventListener('lostpointercapture',fin);
+  $('#v-pviser').onclick=function(ev){
+    ev.stopPropagation();
+    arreterElan();
+    if(CIBLE) panoVue=viser(CIBLE,nbFait(CIBLE));
+    placerPano();
+  };
 }
 
 /* ---------- le cadre visuel : la vue 3D à copier, ou la photo prise ----------
@@ -1013,7 +1069,7 @@ function majVisuel(){
 
   if(QUOI==='360'){
     img.hidden=true; vide.hidden=true;
-    etiq.textContent='360° · tourne-toi vers le repère';
+    etiq.textContent='360° · glisse au doigt';
     poserPano(a);
     return;
   }
@@ -1408,6 +1464,7 @@ Promise.all([
 ]).then(function(r){
   var P=r[0];
   PLAN=P; BASE=preparerPlan(P);
+  var ev=$('#version'); if(ev) ev.textContent=VERSION;
   brancher(); brancherCarte(); suivrePosition(); demanderBoussole();
   poserMode(MODE);
   legendeCarte();

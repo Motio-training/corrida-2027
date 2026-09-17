@@ -1,7 +1,7 @@
 /* Relevé photo : tout doit marcher sans réseau, en marchant dans la ville.
    La page, le plan et les polices sont mis de côté à la première visite ;
    ensuite le cache répond d'abord et le réseau ne sert qu'à rafraîchir. */
-var CACHE='releve-corrida-4';
+var CACHE='releve-corrida-5';
 var BASE=['./','./index.html','./plan.json','./carte.json','./vues/index.json','./vues/360/index.json'];
 
 /* les vues 3D du lot de validation sont mises de côté dès l'installation :
@@ -41,21 +41,50 @@ self.addEventListener('activate',function(e){
   }).then(function(){ return self.clients.claim(); }));
 });
 
+/* Deux régimes, et la distinction compte :
+
+   - la page et les fichiers de description (plan, index, carte) changent à
+     chaque mise à jour → RÉSEAU D'ABORD, cache en secours. Sinon une version
+     en cache continue d'être servie et les nouveautés n'arrivent jamais :
+     c'est exactement ce qui a fait disparaître l'onglet Carte.
+   - les images (vignettes, panoramas, photos) ne changent pas sous le même
+     nom → CACHE D'ABORD, c'est ce qui rend la sortie possible sans réseau.  */
+function aNous(url){
+  return url.indexOf(self.registration.scope)===0;
+}
+function fraisDAbord(rq){
+  return rq.mode==='navigate' || /\.(html|json)(\?|$)/.test(rq.url) || rq.url.slice(-1)==='/';
+}
 self.addEventListener('fetch',function(e){
   if(e.request.method!=='GET') return;
-  e.respondWith(
-    caches.match(e.request).then(function(r){
-      if(r){
-        /* on rafraîchit en tâche de fond, sans faire attendre le terrain */
-        fetch(e.request).then(function(n){
-          if(n && n.ok) caches.open(CACHE).then(function(c){ c.put(e.request,n); });
-        }).catch(function(){});
-        return r;
-      }
-      return fetch(e.request).then(function(n){
-        if(n && n.ok && (e.request.url.indexOf(self.registration.scope)===0 || e.request.url.indexOf('fonts.')>=0)){
+  var rq=e.request;
+
+  if(fraisDAbord(rq)){
+    e.respondWith(
+      fetch(rq,{cache:'no-store'}).then(function(n){
+        if(n && n.ok && aNous(rq.url)){
           var copie=n.clone();
-          caches.open(CACHE).then(function(c){ c.put(e.request,copie); });
+          caches.open(CACHE).then(function(c){ c.put(rq,copie); });
+        }
+        return n;
+      }).catch(function(){
+        /* hors réseau : on ressort la dernière version connue */
+        return caches.match(rq).then(function(r){
+          return r || caches.match('./index.html') ||
+                 new Response('hors ligne',{status:503,statusText:'hors ligne'});
+        });
+      })
+    );
+    return;
+  }
+
+  e.respondWith(
+    caches.match(rq).then(function(r){
+      if(r) return r;
+      return fetch(rq).then(function(n){
+        if(n && n.ok && (aNous(rq.url) || rq.url.indexOf('fonts.')>=0)){
+          var copie=n.clone();
+          caches.open(CACHE).then(function(c){ c.put(rq,copie); });
         }
         return n;
       }).catch(function(){

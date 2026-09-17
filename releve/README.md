@@ -12,12 +12,15 @@ photos à prendre, puis empaquette tout dans une archive `.zip`.
   validation** et tout le parcours.
 - **Le cadre visuel** — trois onglets sous l'image :
   - **360° autour de toi** — une bande qui fait le tour de l'horizon depuis
-    le point de prise de vue, et qui **défile avec la boussole** : ce que
-    montre l'écran est ce que tu as devant toi. Le repère orange marque la
-    direction à viser, il suffit de tourner jusqu'à lui ; la ligne pointillée
-    au milieu, c'est droit devant. On peut la faire glisser au doigt pour
-    regarder ailleurs, et double-taper pour revenir au suivi de la boussole.
-    C'est l'onglet ouvert par défaut : on se repère d'abord.
+    le point de prise de vue, **tournée au doigt** : on glisse, et un coup
+    rapide lance un élan qui s'amortit. Le repère orange marque la direction
+    à viser, la barre du bas dit de quel côté il se trouve, et le bouton
+    « recentrer » ramène dessus. C'est l'onglet ouvert par défaut : on se
+    repère d'abord.
+
+    La bande ne suit pas la boussole : les capteurs émettaient jusqu'à 60
+    fois par seconde et le suivi du doigt en pâtissait. Le cadran de la vue
+    Guidage, lui, utilise toujours la boussole.
   - **Cadrage** — l'image que la 3D donne du point et de l'angle exacts de la
     photo à prendre : il n'y a plus qu'à cadrer pareil.
   - **Ma photo** — dès que la photo est prise, pour la vérifier sur place.
@@ -45,6 +48,16 @@ photos à prendre, puis empaquette tout dans une archive `.zip`.
 Tout reste sur le téléphone (IndexedDB) et la page fonctionne hors réseau
 après la première visite : on peut marcher les 9 km sans connexion et
 n'envoyer qu'en rentrant.
+
+Le service worker distingue deux régimes, et la distinction compte : la page
+et les fichiers de description (plan, carte, index) sont pris **au réseau
+d'abord**, cache en secours — sinon une version en cache continue d'être
+servie et les mises à jour n'arrivent jamais. Les images, elles, sont prises
+**au cache d'abord** : c'est ce qui rend la sortie possible sans réseau.
+
+Le numéro de version affiché en haut de l'écran dit d'un coup d'œil si le
+téléphone a bien la dernière version. Il est dans la constante `VERSION` de
+`index.html`, à monter à chaque mise à jour.
 
 ## Le lot de validation
 
