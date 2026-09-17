@@ -71,6 +71,13 @@ button.action.primaire{background:var(--frontale);border-color:var(--frontale);c
 button.action.primaire:disabled{background:var(--nuit-3);border-color:var(--trait);color:var(--creme-faible)}
 button.action.discret{font-size:13px;padding:11px;color:var(--creme-dim)}
 
+.bascule{display:flex;gap:0;margin-bottom:12px;border:1px solid var(--trait);border-radius:3px;overflow:hidden}
+.bascule button{
+  flex:1;background:var(--nuit-2);border:none;color:var(--creme-faible);cursor:pointer;
+  font-family:"Roboto Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:9px 4px;
+}
+.bascule button.on{background:var(--nuit-4);color:var(--frontale)}
+
 /* ---------- listes ---------- */
 .filtres{display:flex;gap:6px;margin-bottom:11px;flex-wrap:wrap}
 .filtres button{
@@ -129,6 +136,10 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 <main>
 
 <section id="v-guidage">
+  <div class="bascule" id="bascule">
+    <button data-m="lot" class="on" id="m-lot">Lot de validation</button>
+    <button data-m="tout">Tout le parcours</button>
+  </div>
   <div class="cible" id="cible">
     <div class="chapo" id="c-chapo">Aucune cible</div>
     <h2 id="c-titre">—</h2>
@@ -162,7 +173,8 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 
 <section id="v-facades" hidden>
   <div class="filtres" id="f-facades">
-    <button data-f="reste" class="on">À faire</button>
+    <button data-f="lot" class="on">Lot</button>
+    <button data-f="reste">À faire</button>
     <button data-f="p1">Priorité 1</button>
     <button data-f="proche">Les plus proches</button>
     <button data-f="tout">Tout</button>
@@ -173,7 +185,8 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 <section id="v-postes" hidden>
   <p class="note">Un poste de jalonneur = <b>trois photos</b> : à gauche, en face, à droite de la direction qu'il regarde. Ça couvre son champ de vision et remplacera la 3D dans « voir par ses yeux ». Si ton téléphone sait faire des photos sphériques, une sphère vaut mieux que les trois — prends-la depuis le même point.</p>
   <div class="filtres" id="f-postes">
-    <button data-f="reste" class="on">À faire</button>
+    <button data-f="lot" class="on">Lot</button>
+    <button data-f="reste">À faire</button>
     <button data-f="proche">Les plus proches</button>
     <button data-f="tout">Tout</button>
   </div>
@@ -211,6 +224,8 @@ var PLAN=null, POS=null, CAP=null, CIBLE=null, FAIT=lireFait(), BASE=null;
 /* une cible choisie avant le premier point GPS ne vaut rien : on la remplace
    dès qu'on sait où l'on est, mais jamais celle que tu as désignée toi-même */
 var PROVISOIRE=true;
+/* on démarre sur le lot de validation : la sortie courte qui décide du projet */
+var MODE=(function(){ try{ return localStorage.getItem('releve-mode')||'lot'; }catch(e){ return 'lot'; } })();
 var TYPES={f:'facade', p:'poste'};
 
 /* ---------- petites fonctions de géographie ---------- */
@@ -252,14 +267,14 @@ function preparerPlan(P){
   var A=[];
   P.arrets.forEach(function(a){
     A.push({
-      type:'f', id:a.i, prio:a.p, km:a.km, la:a.la, lo:a.lo, az:a.az, recul:a.r,
+      type:'f', id:a.i, prio:a.p, lot:a.v||0, km:a.km, la:a.la, lo:a.lo, az:a.az, recul:a.r,
       larg:a.l, facades:a.f, expo:a.e, ensoa:!!a.m, nom:a.n,
       attendu:combienDePhotos(a.l,a.r), azs:null
     });
   });
   P.jalons.forEach(function(j){
     A.push({
-      type:'p', id:j.n, prio:j.r?1:2, km:null, la:j.la, lo:j.lo, az:j.az, recul:null,
+      type:'p', id:j.n, prio:j.r?1:2, lot:j.v||0, km:null, la:j.la, lo:j.lo, az:j.az, recul:null,
       larg:null, facades:null, expo:null, ensoa:false,
       nom:'Poste n° '+j.n, attendu:3, azs:[(j.az+320)%360, j.az, (j.az+40)%360]
     });
@@ -287,7 +302,8 @@ function consigne(a){
 }
 function balises(a){
   var b='';
-  if(a.prio===1) b+='<span class="balise p1">priorité 1</span>';
+  if(a.lot) b+='<span class="balise p1">lot · arrêt '+a.lot+'</span>';
+  else if(a.prio===1) b+='<span class="balise p1">priorité 1</span>';
   if(a.type==='f'){
     b+='<span class="balise">km '+nb(a.km,2)+'</span>';
     b+='<span class="balise">'+a.facades+' façade'+(a.facades>1?'s':'')+' · '+nb(a.larg)+' m</span>';
@@ -333,8 +349,20 @@ function demanderBoussole(){
 }
 
 /* ---------- choix de la cible ---------- */
+function auLot(a){ return a.lot>0; }
 function candidats(){
-  return BASE.filter(function(a){ return !estFait(a); });
+  var C=BASE.filter(function(a){ return !estFait(a); });
+  return (MODE==='lot') ? C.filter(auLot) : C;
+}
+function lotFait(){
+  var L=BASE.filter(auLot);
+  return {faits:L.filter(estFait).length, total:L.length};
+}
+function poserMode(m){
+  MODE=m;
+  try{ localStorage.setItem('releve-mode',m); }catch(e){}
+  document.querySelectorAll('#bascule button').forEach(function(b){ b.classList.toggle('on',b.dataset.m===m); });
+  choisirCible(); rafraichirListes();
 }
 function choisirCible(){
   var C=candidats();
@@ -358,11 +386,19 @@ function polaire(cx,cy,r,az){
   return [cx+r*Math.cos(a), cy+r*Math.sin(a)];
 }
 function dessiner(){
+  var L=lotFait();
+  $('#m-lot').textContent='Lot de validation ('+L.faits+'/'+L.total+')';
   var a=CIBLE;
   if(!a){
-    $('#c-chapo').textContent='Relevé terminé';
-    $('#c-titre').textContent='Plus rien à photographier';
-    $('#c-consigne').innerHTML='Va dans <b>Envoi</b> pour récupérer l\'archive.';
+    if(MODE==='lot'){
+      $('#c-chapo').textContent='Lot de validation bouclé';
+      $('#c-titre').textContent=L.total+' arrêts faits';
+      $('#c-consigne').innerHTML='Récupère l\'archive dans <b>Envoi</b> et envoie-la moi : je traite ce lot dans la 3D avant que tu marches le reste. Pour continuer quand même, passe sur <b>Tout le parcours</b>.';
+    } else {
+      $('#c-chapo').textContent='Relevé terminé';
+      $('#c-titre').textContent='Plus rien à photographier';
+      $('#c-consigne').innerHTML='Va dans <b>Envoi</b> pour récupérer l\'archive.';
+    }
     $('#b-photo').disabled=true;
     return;
   }
@@ -427,7 +463,11 @@ function dessiner(){
 
 /* ---------- listes ---------- */
 function dessinerListe(sel,type,filtre){
+  /* filtre : lot | reste | p1 | proche | tout */
   var L=BASE.filter(function(a){ return a.type===type; });
+  if(filtre==='lot'){
+    L=L.filter(auLot).sort(function(x,y){ return x.lot-y.lot; });
+  }
   if(filtre==='reste') L=L.filter(function(a){ return !estFait(a); });
   if(filtre==='p1') L=L.filter(function(a){ return a.prio===1; });
   if(filtre==='proche' && POS){
@@ -438,7 +478,7 @@ function dessinerListe(sel,type,filtre){
     var n=nbFait(a), f=FAIT[cle(a)];
     var d=POS?Math.round(metres(POS.la,POS.lo,a.la,a.lo)):null;
     h+='<li data-c="'+cle(a)+'" class="'+(estFait(a)?'fait ':'')+(a.prio===1?'p1 ':'')+(CIBLE&&cle(CIBLE)===cle(a)?'actif':'')+'">'+
-       '<span class="num">'+a.id+'</span>'+
+       '<span class="num">'+((filtre==='lot'&&a.lot)?a.lot:a.id)+'</span>'+
        '<span class="quoi"><b>'+titre(a)+'</b><span>'+
          (a.type==='f'?('km '+nb(a.km,2)+' · '+nb(a.larg)+' m · vise '+a.az+'°'):('regarde au '+a.az+'°'))+
          (d!==null?(' · à '+(d<1000?d+' m':nb(d/1000)+' km')):'')+
@@ -653,10 +693,14 @@ function brancher(){
       var li=ev.target.closest('li'); if(!li||!li.dataset.c) return;
       var a=BASE.filter(function(x){ return cle(x)===li.dataset.c; })[0];
       if(!a) return;
+      if(MODE==='lot' && !auLot(a)) poserMode('tout');
       fixer(a); dessiner(); rafraichirListes();
       document.querySelector('nav button[data-vue="guidage"]').click();
       dire('Cible : '+titre(a));
     };
+  });
+  document.querySelectorAll('#bascule button').forEach(function(b){
+    b.onclick=function(){ poserMode(b.dataset.m); };
   });
   $('#b-photo').onclick=function(){ $('#fichier').click(); };
   $('#fichier').onchange=function(){
@@ -696,7 +740,7 @@ function brancher(){
 fetch('plan.json',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(P){
   PLAN=P; BASE=preparerPlan(P);
   brancher(); suivrePosition(); demanderBoussole();
-  choisirCible(); rafraichirListes();
+  poserMode(MODE);
   if(navigator.serviceWorker) navigator.serviceWorker.register('sw.js').catch(function(){});
 }).catch(function(e){
   $('#c-titre').textContent='Plan illisible';

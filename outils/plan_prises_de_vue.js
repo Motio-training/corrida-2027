@@ -45,7 +45,40 @@ const i0=S.indexOf('window.ETAT_EMBARQUE=');
 const ETAT=JSON.parse(S.slice(i0+21,S.indexOf('</script>',i0)).replace(/;\s*$/,''));
 const C=ETAT.courant;
 const TRACE=C.trace.map(q=>[pX(q[1]),pZ(q[0])]);
-const JALONS=C.jalons.map((j,n)=>({n:n+1, la:j[0], lo:j[1], x:pX(j[1]), z:pZ(j[0]), niv:j[2], az:j[3], bras:j[4]}));
+/* distances cumulées le long du tracé, pour retrouver un point à N mètres */
+const CUM=[0];
+for(let i=1;i<TRACE.length;i++) CUM.push(CUM[i-1]+Math.hypot(TRACE[i][0]-TRACE[i-1][0],TRACE[i][1]-TRACE[i-1][1]));
+function pointADistance(d){
+  if(d<=0) return TRACE[0];
+  const L=CUM[CUM.length-1];
+  if(d>=L) return TRACE[TRACE.length-1];
+  let i=1; while(i<CUM.length && CUM[i]<d) i++;
+  const t=(d-CUM[i-1])/Math.max(1e-6,CUM[i]-CUM[i-1]);
+  return [TRACE[i-1][0]+(TRACE[i][0]-TRACE[i-1][0])*t, TRACE[i-1][1]+(TRACE[i][1]-TRACE[i-1][1])*t];
+}
+function indiceProche(x,z){
+  let bi=0, bd=1e18;
+  for(let i=0;i<TRACE.length;i++){ const d=Math.hypot(TRACE[i][0]-x,TRACE[i][1]-z); if(d<bd){ bd=d; bi=i; } }
+  return bi;
+}
+const azVecteur=(dx,dz)=>(Math.atan2(dx,-dz)*180/PI+360)%360;
+/* 43 des 75 postes n'ont pas d'azimut enregistré : ils sont en orientation
+   automatique, c'est-à-dire face aux coureurs qui arrivent. On refait le même
+   calcul que orientationJalon() dans index.html, sinon le relevé enverrait
+   viser « null° ». */
+function azAuto(x,z){
+  const d0=CUM[indiceProche(x,z)];
+  const a=pointADistance(d0-15), b=pointADistance(d0);
+  let inx=b[0]-a[0], inz=b[1]-a[1];
+  if(!inx && !inz){ const c=pointADistance(d0+25); inx=c[0]-b[0]; inz=c[1]-b[1]; }
+  return azVecteur(-inx,-inz);
+}
+const JALONS=C.jalons.map((j,n)=>{
+  const x=pX(j[1]), z=pZ(j[0]);
+  const fixe=(j[3]===undefined||j[3]===null)?null:+j[3];
+  return {n:n+1, la:j[0], lo:j[1], x:x, z:z, niv:j[2],
+          az:(fixe===null)?Math.round(azAuto(x,z)):fixe, az_auto:(fixe===null), bras:j[4]};
+});
 const POIS=C.pois.map(q=>({la:q[0], lo:q[1], x:pX(q[1]), z:pZ(q[0]), nom:q[2], desc:q[3], sur:q[4]}));
 
 function dansPoly(p,x,z){
@@ -191,26 +224,69 @@ ARRETS.forEach((a,i)=>{ a.rang=i+1; a.prio = a.poi ? 1 : (i<40?1:(i<90?2:3)); })
 ARRETS.sort((a,b)=>a.km-b.km);
 ARRETS.forEach((a,i)=>{ a.id=i+1; });
 
+/* ---- lot de validation : de quoi juger le projet en une sortie courte ----
+   Un tour à pied dans la vieille ville : tous les repères nommés du secteur
+   (un arrêt chacun, le plus exposé), complété par les façades de priorité 1
+   les plus vues, plus trois postes de jalonneurs pour valider aussi la vue
+   « par ses yeux ». Ordonné en plus proche voisin depuis la Porte Chalon. */
+const CENTRE={la:46.411335, lo:-0.203092};   /* place du Marché */
+function mAB(a,b){
+  const f=(a.la+b.la)/2*PI/180;
+  return Math.hypot((b.lo-a.lo)*PI/180*Math.cos(f)*6371000,(b.la-a.la)*PI/180*6371000);
+}
+const secteur=ARRETS.filter(a=>!a.milit && mAB(CENTRE,{la:a.la,lo:a.lo})<300);
+const nommes=[], repVus=new Set();
+secteur.filter(a=>a.poi).sort((x,y)=>y.expo-x.expo).forEach(a=>{
+  if(repVus.has(a.poi)) return;
+  repVus.add(a.poi); nommes.push(a);
+});
+const complement=secteur.filter(a=>nommes.indexOf(a)<0 && a.prio===1).sort((x,y)=>y.expo-x.expo);
+const LOT=nommes.concat(complement).slice(0,15);
+const depart=LOT.find(a=>a.poi==='Porte Chalon')||LOT[0];
+const ORDRE=[depart];
+let libres=LOT.filter(a=>a!==depart);
+while(libres.length){
+  const d=ORDRE[ORDRE.length-1];
+  libres.sort((x,y)=>mAB(d,x)-mAB(d,y));
+  ORDRE.push(libres.shift());
+}
+ORDRE.forEach((a,i)=>{ a.lot=i+1; });
+let marcheLot=0;
+for(let i=1;i<ORDRE.length;i++) marcheLot+=mAB(ORDRE[i-1],ORDRE[i]);
+const POSTES_LOT=[];
+JALONS.filter(j=>j.niv==='r' && mAB(CENTRE,j)<300).sort((x,y)=>mAB(CENTRE,x)-mAB(CENTRE,y))
+  .forEach(j=>{ if(POSTES_LOT.length<3 && POSTES_LOT.every(k=>mAB(k,j)>90)) POSTES_LOT.push(j); });
+POSTES_LOT.forEach((j,i)=>{ j.lot=i+1; });
+
 const SORTIE={
   source:'corrida-2027, parcours actif ('+(C.distance_m/1000).toFixed(2)+' km, '+C.denivele_m+' m D+)',
   batiments_osm:BATS.length, echantillons:ECH.length,
   arrets:ARRETS.length,
   panoramas:JALONS.length,
+  lot_validation:{
+    facades:ORDRE.map(a=>a.id), postes:POSTES_LOT.map(j=>j.n),
+    marche_m:Math.round(marcheLot),
+    photos:ORDRE.reduce((s,a)=>s+Math.max(1,Math.min(4,Math.ceil(a.sujets.reduce((t,c)=>t+c.larg,0)/Math.max(6,a.dist*1.4)))),0)+POSTES_LOT.length*3
+  },
   arrets_photo:ARRETS.map(a=>({
-    id:a.id, prio:a.prio, km:a.km, la:a.la, lo:a.lo, az:a.az, recul_m:a.dist,
+    id:a.id, prio:a.prio, lot:a.lot||0, km:a.km, la:a.la, lo:a.lo, az:a.az, recul_m:a.dist,
     facades:a.sujets.length, largeur_m:+a.sujets.reduce((s,c)=>s+c.larg,0).toFixed(1),
     exposition:a.expo, ensoa:a.milit, repere:a.poi
   })),
-  panoramas_jalonneurs:JALONS.map(j=>({n:j.n, la:j.la, lo:j.lo, az:j.az, niveau:j.niv==='r'?'indispensable':'facultatif'}))
+  panoramas_jalonneurs:JALONS.map(j=>({n:j.n, la:j.la, lo:j.lo, az:j.az, az_automatique:j.az_auto,
+                                       niveau:j.niv==='r'?'indispensable':'facultatif'}))
 };
 fs.writeFileSync(RACINE+'/outils/plan_prises_de_vue.json',JSON.stringify(SORTIE,null,1));
 /* le plan embarqué sur le téléphone : uniquement ce qui sert au relevé */
 fs.writeFileSync(RACINE+'/releve/plan.json',JSON.stringify({
   genere:new Date().toISOString().slice(0,10),
   source:SORTIE.source,
-  arrets:SORTIE.arrets_photo.map(a=>({i:a.id,p:a.prio,km:a.km,la:a.la,lo:a.lo,az:a.az,r:a.recul_m,
+  lot:SORTIE.lot_validation,
+  arrets:SORTIE.arrets_photo.map(a=>({i:a.id,p:a.prio,v:a.lot||0,km:a.km,la:a.la,lo:a.lo,az:a.az,r:a.recul_m,
                                       f:a.facades,l:a.largeur_m,e:a.exposition,m:a.ensoa?1:0,n:a.repere||''})),
-  jalons:SORTIE.panoramas_jalonneurs.map(j=>({n:j.n,la:j.la,lo:j.lo,az:j.az,r:j.niveau==='indispensable'?1:0}))
+  jalons:SORTIE.panoramas_jalonneurs.map((j,k)=>({n:j.n,la:j.la,lo:j.lo,az:j.az,
+                                      v:(POSTES_LOT.filter(q=>q.n===j.n)[0]||{}).lot||0,
+                                      r:j.niveau==='indispensable'?1:0}))
 }));
 
 console.log('bâtiments OSM            :',BATS.length);
@@ -220,7 +296,15 @@ console.log('façades retenues         :',CANDIDATS.length);
 console.log('arrêts photo             :',ARRETS.length, '| prio 1 :',ARRETS.filter(a=>a.prio===1).length,
             '| prio 2 :',ARRETS.filter(a=>a.prio===2).length,'| prio 3 :',ARRETS.filter(a=>a.prio===3).length);
 console.log('dont dans l\'enceinte ENSOA :',ARRETS.filter(a=>a.milit).length);
-console.log('panoramas de jalonneurs  :',JALONS.length,'(',JALONS.filter(j=>j.niv==='r').length,'indispensables )');
+console.log('panoramas de jalonneurs  :',JALONS.length,'(',JALONS.filter(j=>j.niv==='r').length,'indispensables,',
+            JALONS.filter(j=>j.az_auto).length,'orientés automatiquement )');
+console.log('\n--- lot de validation :',ORDRE.length,'façades +',POSTES_LOT.length,'postes,',
+            Math.round(marcheLot),'m de marche ---');
+ORDRE.forEach(function(a,i){
+  console.log(String(i+1).padEnd(3)+('#'+a.id).padEnd(6)+(a.poi||('km '+a.km.toFixed(2))).padEnd(25)+
+    String(Math.round(a.sujets.reduce((s,c)=>s+c.larg,0))+' m').padEnd(7)+'vise '+a.az+'°');
+});
+POSTES_LOT.forEach(function(j){ console.log('    poste n°'+j.n+' — regarde au '+j.az+'°'+(j.az_auto?' (automatique)':'')); });
 console.log('\n--- 25 premiers arrêts, par ordre de marche ---');
 console.log('id  km     az    recul  fac  prio  repère');
 for(const a of ARRETS.slice(0,25)){
