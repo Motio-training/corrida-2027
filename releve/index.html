@@ -15,6 +15,10 @@
   --kaki:#7E9067; --seve:#3D6B8C; --alerte:#E0704E;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* l'attribut hidden ne pèse rien face à une règle d'auteur qui pose un
+   display : sans ceci, un voile « masqué » reste affiché et intercepte
+   les gestes du doigt. */
+[hidden]{display:none !important}
 html,body{height:100%;margin:0}
 body{
   background:var(--nuit);color:var(--creme);
@@ -83,6 +87,34 @@ button.action.discret{font-size:13px;padding:11px;color:var(--creme-dim)}
   position:absolute;left:8px;top:8px;background:rgba(11,16,25,.82);border:1px solid var(--trait-fort);
   border-radius:2px;padding:2px 7px;font-family:"Roboto Mono",monospace;font-size:9.5px;
   letter-spacing:.12em;text-transform:uppercase;color:var(--creme-dim);
+}
+/* le panorama : une bande cylindrique qui part du nord et fait le tour.
+   Elle défile avec la boussole, donc l'écran montre ce qu'on a devant. */
+.pano{position:absolute;inset:0;overflow:hidden}
+.pano-bande{
+  position:absolute;inset:0;background-repeat:repeat-x;background-size:auto 100%;
+  background-position:0 center;
+}
+/* la mire : le milieu de l'écran, c'est-à-dire droit devant */
+.pano-mire{
+  position:absolute;left:50%;top:0;bottom:0;width:0;
+  border-left:1px dashed rgba(234,228,216,.45);pointer-events:none;
+}
+/* le repère de la direction à viser */
+.pano-cible{
+  position:absolute;top:0;bottom:0;width:26px;margin-left:-13px;pointer-events:none;
+  border-left:2px solid var(--frontale);border-right:2px solid var(--frontale);
+  background:rgba(242,179,61,.14);
+}
+.pano-cible::after{
+  content:'';position:absolute;left:50%;top:6px;margin-left:-5px;
+  border:5px solid transparent;border-top-color:var(--frontale);
+}
+.pano-cap{
+  position:absolute;left:0;right:0;bottom:0;height:15px;
+  background:rgba(11,16,25,.72);border-top:1px solid var(--trait);
+  font-family:"Roboto Mono",monospace;font-size:9px;letter-spacing:.1em;color:var(--creme-dim);
+  display:flex;align-items:center;justify-content:center;pointer-events:none;
 }
 .visuel-bar{display:flex;border-top:1px solid var(--trait)}
 .visuel-bar button{
@@ -191,11 +223,18 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
   <div class="visuel" id="visuel">
     <div class="visuel-img">
       <img id="v-img" alt="">
+      <div class="pano" id="v-pano" hidden>
+        <div class="pano-bande" id="v-bande"></div>
+        <div class="pano-mire"></div>
+        <div class="pano-cible" id="v-pcible" hidden></div>
+        <div class="pano-cap" id="v-pcap"></div>
+      </div>
       <div class="visuel-vide" id="v-vide">vue 3D indisponible</div>
       <span class="visuel-etiq" id="v-etiq">3D</span>
     </div>
     <div class="visuel-bar">
-      <button data-q="3d" id="v-b3d" class="on">Vue 3D à copier</button>
+      <button data-q="360" id="v-b360" class="on">360° autour de toi</button>
+      <button data-q="3d" id="v-b3d">Cadrage</button>
       <button data-q="photo" id="v-bph" disabled>Ma photo</button>
     </div>
   </div>
@@ -299,7 +338,9 @@ var PLAN=null, POS=null, CAP=null, CIBLE=null, FAIT=lireFait(), BASE=null;
 /* vues 3D de référence : une par photo à prendre, rendues hors ligne par
    outils/rendre_vues.js. QUOI dit ce que le cadre montre : la 3D, ou la
    photo qu'on vient de prendre. */
-var VUES=null, QUOI='3d', urlPhoto=null;
+var VUES=null, QUOI='360', urlPhoto=null;
+/* DEJA3D : tu as demandé le cadrage toi-même, on ne te renvoie pas au 360 */
+var DEJA3D=false;
 /* photos libres : celles que tu décides de prendre, en plus du plan.
    Elles ne dépendent d'aucun arrêt, seulement de l'endroit et du cap. */
 var LIBRES=(function(){ try{ return JSON.parse(localStorage.getItem('releve-libres')||'[]'); }catch(e){ return []; } })();
@@ -438,7 +479,9 @@ function brancherBoussole(){
     if(e.webkitCompassHeading!==undefined && e.webkitCompassHeading!==null) c=e.webkitCompassHeading;
     else if(e.absolute && e.alpha!==null) c=(360-e.alpha)%360;
     if(c===null) return;
-    CAP=c; dessiner(); redessiner();
+    CAP=c;
+    if(QUOI==='360'){ majPano(); }
+    dessiner(); redessiner();
   }
   window.addEventListener('deviceorientationabsolute',lire,true);
   window.addEventListener('deviceorientation',lire,true);
@@ -468,8 +511,8 @@ function poserMode(m){
 }
 function choisirCible(){
   var C=candidats();
-  if(!C.length){ CIBLE=null; PROVISOIRE=false; QUOI='3d'; dessiner(); return; }
-  if(!POS){ if(C[0]!==CIBLE) QUOI='3d'; CIBLE=C[0]; PROVISOIRE=true; dessiner(); return; }
+  if(!C.length){ CIBLE=null; PROVISOIRE=false; QUOI='360'; dessiner(); return; }
+  if(!POS){ if(C[0]!==CIBLE) QUOI='360'; CIBLE=C[0]; PROVISOIRE=true; dessiner(); return; }
   /* la plus proche, à distance égale on préfère la priorité 1 */
   var best=null;
   C.forEach(function(a){
@@ -477,11 +520,11 @@ function choisirCible(){
     var note=d*(a.prio===1?1:1.8)*(a.ensoa?1.4:1);
     if(!best||note<best.note) best={a:a, note:note};
   });
-  if(best.a!==CIBLE) QUOI='3d';
+  if(best.a!==CIBLE){ QUOI='360'; DEJA3D=false; }
   CIBLE=best.a; PROVISOIRE=false;
   dessiner();
 }
-function fixer(a){ if(a!==CIBLE) QUOI='3d'; CIBLE=a; PROVISOIRE=false; }
+function fixer(a){ if(a!==CIBLE){ QUOI='360'; DEJA3D=false; } CIBLE=a; PROVISOIRE=false; }
 
 /* ---------- dessin ---------- */
 function polaire(cx,cy,r,az){
@@ -834,7 +877,10 @@ function brancherCarte(){
       redessiner(); legendeCarte();
     };
   });
-  window.addEventListener('resize',function(){ dimensionner(); redessiner(); });
+  window.addEventListener('resize',function(){
+    dimensionner(); redessiner();
+    if(QUOI==='360') majPano();
+  });
 }
 function legendeCarte(){
   var P=pointsCarte(), lot=P.filter(auLot).length, faits=P.filter(estFait).length;
@@ -843,6 +889,101 @@ function legendeCarte(){
     (VC.tous?' (tout le plan)':' de priorité 1')+'. '+faits+' déjà faits, en vert. '+
     'Le trait part du point vers la direction à viser. Les postes de jalonneurs ne sont pas encore sur la carte.'+
     (LIBRES.length?' Tes '+LIBRES.length+' photo(s) libre(s) : petits carrés bleus.':'');
+}
+
+/* ---------- le panorama 360° ----------
+   La bande fait 360° en partant du nord : une position x dans l'image
+   correspond à l'azimut x / largeur × 360. On la décale pour mettre le cap
+   de la boussole au milieu de l'écran ; le repère orange montre alors où
+   se trouve la direction à viser, et il suffit de tourner jusqu'à lui. */
+var PANOS=null, panoNom=null, panoLibre=null, panoDim=null;
+
+function chargerPanos(){
+  return fetch('vues/360/index.json',{cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('absent');
+    return r.json();
+  }).then(function(P){
+    P.dispo={};
+    (P.panos||[]).forEach(function(n){ P.dispo[n]=1; });
+    PANOS=P;
+  }).catch(function(){ PANOS=null; });
+}
+function nomPano(a){
+  if(!a || a.type!=='f') return null;
+  return 'facade-'+String(a.id).padStart(3,'0')+'.jpg';
+}
+function panoDispo(a){
+  var n=nomPano(a);
+  return !!(n && PANOS && PANOS.dispo[n]);
+}
+function poserPano(a){
+  var n=nomPano(a), bande=$('#v-bande');
+  if(panoNom!==n){
+    panoNom=n; panoLibre=null; panoDim=null;
+    bande.style.backgroundImage='url("vues/360/'+n+'")';
+    var im=new Image();
+    im.onload=function(){
+      if(panoNom!==n) return;
+      panoDim=[im.naturalWidth,im.naturalHeight];
+      majPano();
+    };
+    im.src='vues/360/'+n;
+  }
+  majPano();
+}
+/* La bande est mise à la hauteur du cadre, donc sa largeur utile dépend de
+   la hauteur affichée — qui vaut zéro tant que le cadre est masqué. On la
+   recalcule à chaque fois plutôt qu'une seule, sinon un aller-retour par
+   un autre onglet laisserait un panorama vide. */
+function largeurPano(){
+  if(!panoDim) return 0;
+  var h=$('#v-pano').clientHeight;
+  if(!h) return 0;
+  return panoDim[0]*(h/panoDim[1]);
+}
+/* décale la bande pour que l'azimut « centre » soit au milieu */
+function majPano(){
+  var a=CIBLE, pano=$('#v-pano'), bande=$('#v-bande');
+  if(!a) return;
+  var panoLarg=largeurPano();
+  if(!panoLarg) return;
+  var V=pano.clientWidth||1;
+  var n=nbFait(a), vise=viser(a,n);
+  /* on suit la boussole quand elle est là, sinon on regarde la cible */
+  var centre=(panoLibre!==null) ? panoLibre : ((CAP!==null) ? CAP : vise);
+  centre=((centre%360)+360)%360;
+  bande.style.backgroundPositionX=(-(centre/360)*panoLarg + V/2)+'px';
+  /* le repère de visée, à sa place par rapport au centre */
+  var d=ecart(vise,centre);                    /* -180..180 */
+  var x=V/2 + (d/360)*panoLarg;
+  var rep=$('#v-pcible');
+  if(x>-20 && x<V+20){ rep.hidden=false; rep.style.left=x+'px'; }
+  else rep.hidden=true;
+  var etat=$('#v-pcap');
+  if(panoLibre!==null) etat.textContent='vue libre '+Math.round(centre)+'° — relâche pour suivre la boussole';
+  else if(CAP!==null) etat.textContent='suit ta boussole · '+Math.round(centre)+'° '+cardinal(centre)+
+       ' · à viser '+Math.round(vise)+'° ('+(Math.abs(d)<9?'tu y es':(d>0?'tourne à droite de '+Math.round(Math.abs(d))+'°':'tourne à gauche de '+Math.round(Math.abs(d))+'°'))+')';
+  else etat.textContent='pas de boussole · centré sur la direction à viser ('+Math.round(vise)+'°)';
+}
+function brancherPano(){
+  var pano=$('#v-pano'); if(!pano) return;
+  var tenu=null;
+  pano.addEventListener('pointerdown',function(e){
+    pano.setPointerCapture(e.pointerId);
+    tenu={x:e.clientX, base:(panoLibre!==null?panoLibre:(CAP!==null?CAP:(CIBLE?viser(CIBLE,nbFait(CIBLE)):0)))};
+  });
+  pano.addEventListener('pointermove',function(e){
+    var lp=largeurPano();
+    if(!tenu || !lp) return;
+    var d=(e.clientX-tenu.x)/lp*360;
+    panoLibre=((tenu.base-d)%360+360)%360;
+    majPano();
+  });
+  function fin(){ tenu=null; }
+  pano.addEventListener('pointerup',function(){ fin(); });
+  pano.addEventListener('pointercancel',fin);
+  /* double appui : on revient au suivi de la boussole */
+  pano.addEventListener('dblclick',function(){ panoLibre=null; majPano(); });
 }
 
 /* ---------- le cadre visuel : la vue 3D à copier, ou la photo prise ----------
@@ -859,11 +1000,23 @@ function majVisuel(){
   var n=nbFait(a);
   var iVue=Math.min(n,a.attendu-1);          /* la photo qui vient */
   var iPh=Math.max(0,Math.min(n-1,a.attendu-1)); /* la dernière prise */
-  var aPhoto=n>0;
+  var aPhoto=n>0, a360=panoDispo(a), b360=$('#v-b360');
   bph.disabled=!aPhoto;
+  b360.disabled=!a360;
   if(!aPhoto && QUOI==='photo') QUOI='3d';
+  if(!a360 && QUOI==='360') QUOI='3d';
+  if(a360 && QUOI==='3d' && !DEJA3D) QUOI='360';   /* le 360 d'abord : on se repère avant de cadrer */
+  b360.classList.toggle('on',QUOI==='360');
   b3d.classList.toggle('on',QUOI==='3d');
   bph.classList.toggle('on',QUOI==='photo');
+  $('#v-pano').hidden=(QUOI!=='360');
+
+  if(QUOI==='360'){
+    img.hidden=true; vide.hidden=true;
+    etiq.textContent='360° · tourne-toi vers le repère';
+    poserPano(a);
+    return;
+  }
 
   if(QUOI==='photo' && aPhoto){
     etiq.textContent='ta photo '+(iPh+1)+' / '+a.attendu;
@@ -1178,8 +1331,14 @@ function brancher(){
     b.onclick=function(){ poserMode(b.dataset.m); };
   });
   document.querySelectorAll('#visuel .visuel-bar button').forEach(function(b){
-    b.onclick=function(){ if(b.disabled) return; QUOI=b.dataset.q; majVisuel(); };
+    b.onclick=function(){
+      if(b.disabled) return;
+      QUOI=b.dataset.q;
+      DEJA3D=(QUOI==='3d');
+      majVisuel();
+    };
   });
+  brancherPano();
   $('#b-photo').onclick=function(){ PRISE='arret'; $('#fichier').click(); };
   $('#fichier').onchange=function(){
     if(this.files&&this.files.length){
@@ -1196,7 +1355,7 @@ function brancher(){
   };
   $('#b-suivant').onclick=function(){
     var C=candidats();
-    if(!C.length){ CIBLE=null; QUOI='3d'; dessiner(); rafraichirListes(); return; }
+    if(!C.length){ CIBLE=null; QUOI='360'; dessiner(); rafraichirListes(); return; }
     if(C.length===1 && C[0]===CIBLE){ dire('Plus d\'autre arrêt à faire.'); return; }
     /* on tourne dans l'ordre de la marche : le plus proche d'abord */
     if(POS) C.sort(function(x,y){ return metres(POS.la,POS.lo,x.la,x.lo)-metres(POS.la,POS.lo,y.la,y.lo); });
@@ -1244,7 +1403,8 @@ function chargerVues(){
 Promise.all([
   fetch('plan.json',{cache:'no-store'}).then(function(r){ return r.json(); }),
   chargerVues(),
-  chargerCarte()
+  chargerCarte(),
+  chargerPanos()
 ]).then(function(r){
   var P=r[0];
   PLAN=P; BASE=preparerPlan(P);

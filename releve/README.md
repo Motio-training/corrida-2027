@@ -10,11 +10,20 @@ photos à prendre, puis empaquette tout dans une archive `.zip`.
   visée quand on y est. Le cadran passe au vert quand l'appareil est dans
   l'angle voulu à 9° près. La bascule du haut choisit entre le **lot de
   validation** et tout le parcours.
-- **Le cadre visuel** — au-dessus de la boussole, l'image que la 3D donne du
-  même point et du même angle : il n'y a plus qu'à cadrer pareil. Dès que la
-  photo est prise, le cadre la montre à la place, pour la vérifier sur place ;
-  les deux boutons dessous basculent de l'une à l'autre. Au changement
-  d'angle ou d'arrêt, on revient à la vue 3D.
+- **Le cadre visuel** — trois onglets sous l'image :
+  - **360° autour de toi** — une bande qui fait le tour de l'horizon depuis
+    le point de prise de vue, et qui **défile avec la boussole** : ce que
+    montre l'écran est ce que tu as devant toi. Le repère orange marque la
+    direction à viser, il suffit de tourner jusqu'à lui ; la ligne pointillée
+    au milieu, c'est droit devant. On peut la faire glisser au doigt pour
+    regarder ailleurs, et double-taper pour revenir au suivi de la boussole.
+    C'est l'onglet ouvert par défaut : on se repère d'abord.
+  - **Cadrage** — l'image que la 3D donne du point et de l'angle exacts de la
+    photo à prendre : il n'y a plus qu'à cadrer pareil.
+  - **Ma photo** — dès que la photo est prise, pour la vérifier sur place.
+
+  Au changement d'angle ou d'arrêt, on revient au 360° — sauf si tu as
+  demandé le cadrage toi-même.
 - **Carte** — se repérer sur le tracé : rues, bâtiments, rivière, le tracé
   de la course, ta position et le cône de la boussole. Les 15 arrêts du lot
   sont numérotés en orange, avec un trait vers la direction à viser ; les
@@ -56,6 +65,22 @@ de bâtiments à moins de 170 m du parcours, en mètres dans le repère local de
 la 3D, simplifiés et arrondis au mètre. Produit par
 `outils/rendre_carte.js` depuis les données de `index.html` — donc
 d'OpenStreetMap, comme le reste de la carte. À relancer si le tracé change.
+
+## Les panoramas 360°
+
+`releve/vues/360/` contient une bande cylindrique par arrêt, produite par
+`outils/rendre_360.js` : douze vues perspectives de 30° de champ, prises tous
+les 30° et mises bout à bout, soit 2880 × 320. Sur un champ aussi étroit,
+l'écart entre projection perspective et projection cylindrique reste sous 1 %
+de la largeur d'une tranche — la bande se lit comme un panorama continu sans
+reprojection.
+
+La tranche *k* couvre les azimuts [30k, 30k+30], donc **x = 0 dans l'image,
+c'est le nord** : dans l'application, azimut = x / largeur × 360. C'est ce qui
+permet de la caler sur la boussole.
+
+Pour l'instant seuls les 15 arrêts du lot en ont un (environ 3 Mo, gardés hors
+ligne). `--prio1` étend aux façades de priorité 1.
 
 ## Les vues 3D
 

@@ -1,22 +1,30 @@
 /* Relevé photo : tout doit marcher sans réseau, en marchant dans la ville.
    La page, le plan et les polices sont mis de côté à la première visite ;
    ensuite le cache répond d'abord et le réseau ne sert qu'à rafraîchir. */
-var CACHE='releve-corrida-3';
-var BASE=['./','./index.html','./plan.json','./carte.json','./vues/index.json'];
+var CACHE='releve-corrida-4';
+var BASE=['./','./index.html','./plan.json','./carte.json','./vues/index.json','./vues/360/index.json'];
 
 /* les vues 3D du lot de validation sont mises de côté dès l'installation :
    c'est la sortie qu'on fait sans réseau. Les autres arrivent au besoin,
    et le gestionnaire de fetch les garde au passage. */
-function vuesDuLot(c){
-  return fetch('./vues/index.json',{cache:'no-store'})
+function deCote(c,index,prefixe){
+  return fetch(index,{cache:'no-store'})
     .then(function(r){ return r.ok?r.json():null; })
     .then(function(V){
       if(!V || !V.lot || !V.lot.length) return;
       return Promise.all(V.lot.map(function(n){
-        return c.add('./vues/'+n).catch(function(){});
+        return c.add(prefixe+n).catch(function(){});
       }));
     })
     .catch(function(){});
+}
+function vuesDuLot(c){
+  /* les vignettes de cadrage et les panoramas 360° du lot : environ 4 Mo,
+     c'est le prix d'une sortie qui marche sans réseau */
+  return Promise.all([
+    deCote(c,'./vues/index.json','./vues/'),
+    deCote(c,'./vues/360/index.json','./vues/360/')
+  ]);
 }
 
 self.addEventListener('install',function(e){

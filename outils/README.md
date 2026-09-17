@@ -59,3 +59,33 @@ n'est pas touché.
 Les vues déjà présentes sont sautées, donc un long rendu se reprend après
 une interruption. **À relancer avec `--refaire` quand la 3D change** — c'est
 tout l'intérêt : les vignettes doivent montrer l'état courant de la 3D.
+
+## `rendre_carte.js`
+
+Produit `releve/carte.json` (142 Ko) : rues, cours d'eau et emprises de
+bâtiments à moins de 170 m du parcours, en mètres dans le repère local de la
+3D, simplifiés et arrondis au mètre. Les longues routes sont découpées pour ne
+garder que les portions proches du tracé.
+
+```sh
+node outils/rendre_carte.js
+```
+
+À relancer si le tracé change.
+
+## `rendre_360.js`
+
+Produit les panoramas cylindriques du relevé, dans `releve/vues/360/`.
+
+```sh
+node outils/rendre_360.js            # le lot de validation (15 panoramas)
+node outils/rendre_360.js --prio1    # aussi les façades de priorité 1
+node outils/rendre_360.js --index    # réécrit seulement 360/index.json
+```
+
+Douze vues de 30° de champ par arrêt, assemblées bout à bout dans une toile
+de 2880 × 320 directement dans la page, puis relues en un seul JPEG. La
+tranche *k* couvre les azimuts [30k, 30k+30], donc x = 0 correspond au nord —
+c'est ce qui permet à l'application de caler la bande sur la boussole.
+
+Comme pour les vignettes, **à relancer avec `--refaire` quand la 3D change**.
