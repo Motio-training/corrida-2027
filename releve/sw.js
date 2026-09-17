@@ -1,8 +1,8 @@
 /* Relevé photo : tout doit marcher sans réseau, en marchant dans la ville.
    La page, le plan et les polices sont mis de côté à la première visite ;
    ensuite le cache répond d'abord et le réseau ne sert qu'à rafraîchir. */
-var CACHE='releve-corrida-2';
-var BASE=['./','./index.html','./plan.json','./vues/index.json'];
+var CACHE='releve-corrida-3';
+var BASE=['./','./index.html','./plan.json','./carte.json','./vues/index.json'];
 
 /* les vues 3D du lot de validation sont mises de côté dès l'installation :
    c'est la sortie qu'on fait sans réseau. Les autres arrivent au besoin,

@@ -15,6 +15,17 @@ photos à prendre, puis empaquette tout dans une archive `.zip`.
   photo est prise, le cadre la montre à la place, pour la vérifier sur place ;
   les deux boutons dessous basculent de l'une à l'autre. Au changement
   d'angle ou d'arrêt, on revient à la vue 3D.
+- **Carte** — se repérer sur le tracé : rues, bâtiments, rivière, le tracé
+  de la course, ta position et le cône de la boussole. Les 15 arrêts du lot
+  sont numérotés en orange, avec un trait vers la direction à viser ; les
+  autres façades importantes (priorité 1) sont de simples points. Toucher un
+  point en fait la cible. Déplacement au doigt, pincer pour zoomer, ◎ pour se
+  recentrer, ⤢ pour voir tout le parcours. Les postes de jalonneurs ne sont
+  pas encore dessus.
+- **Photo libre** — le bouton sous la carte enregistre une photo où tu es,
+  sans arrêt prévu : quand tu juges qu'un endroit vaut une image. Position et
+  cap sont notés comme pour les autres, et elles arrivent dans l'archive sous
+  `libre-001.jpg`, marquées `genre: "libre"` dans le manifeste.
 - **Façades** — les 361 arrêts, filtrables. Toucher un arrêt en fait la cible.
 - **Postes** — les 75 jalonneurs, trois photos chacun (gauche, face, droite du
   champ de vision), pour remplacer la 3D dans « voir par ses yeux ».
@@ -37,6 +48,14 @@ valider aussi la vue « par ses yeux ».
 
 **1 139 m de marche, 31 photos, aucun arrêt dans l'enceinte de l'ENSOA.**
 De quoi juger le gain dans la 3D avant de marcher les 9 km.
+
+## Le fond de carte
+
+`releve/carte.json` (142 Ko) porte les rues, les cours d'eau et les emprises
+de bâtiments à moins de 170 m du parcours, en mètres dans le repère local de
+la 3D, simplifiés et arrondis au mètre. Produit par
+`outils/rendre_carte.js` depuis les données de `index.html` — donc
+d'OpenStreetMap, comme le reste de la carte. À relancer si le tracé change.
 
 ## Les vues 3D
 

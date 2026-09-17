@@ -93,6 +93,25 @@ button.action.discret{font-size:13px;padding:11px;color:var(--creme-dim)}
 .visuel-bar button.on{color:var(--frontale)}
 .visuel-bar button:disabled{color:var(--trait-fort);cursor:default}
 
+.carte-cadre{position:relative;width:100%;height:62vh;min-height:300px;border:1px solid var(--trait);
+  border-radius:3px;overflow:hidden;background:#0d1320;margin-bottom:11px;touch-action:none}
+.carte-cadre canvas{display:block;width:100%;height:100%}
+.carte-boutons{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px}
+.carte-boutons button{
+  width:34px;height:34px;border-radius:3px;border:1px solid var(--trait-fort);
+  background:rgba(11,16,25,.86);color:var(--creme);font-size:16px;line-height:1;cursor:pointer;
+}
+.carte-ech{
+  position:absolute;left:8px;bottom:8px;font-family:"Roboto Mono",monospace;font-size:9.5px;
+  letter-spacing:.1em;color:var(--creme-dim);background:rgba(11,16,25,.82);
+  border:1px solid var(--trait);border-top:none;border-radius:0 0 2px 2px;padding:1px 6px 2px;
+}
+.carte-info{
+  position:absolute;left:8px;right:52px;top:8px;background:rgba(11,16,25,.86);
+  border:1px solid var(--trait-fort);border-radius:3px;padding:6px 9px;font-size:12px;line-height:1.4;
+}
+.carte-info b{color:var(--frontale)}
+
 .bascule{display:flex;gap:0;margin-bottom:12px;border:1px solid var(--trait);border-radius:3px;overflow:hidden}
 .bascule button{
   flex:1;background:var(--nuit-2);border:none;color:var(--creme-faible);cursor:pointer;
@@ -150,6 +169,7 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 
 <nav>
   <button data-vue="guidage" class="on">Guidage</button>
+  <button data-vue="carte">Carte</button>
   <button data-vue="facades">Façades</button>
   <button data-vue="postes">Postes</button>
   <button data-vue="fin">Envoi</button>
@@ -205,6 +225,26 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
   <button class="action discret" id="b-sauter">Passer cet arrêt (inaccessible)</button>
 </section>
 
+<section id="v-carte" hidden>
+  <div class="carte-cadre">
+    <canvas id="toile"></canvas>
+    <div class="carte-ech" id="c-echelle"></div>
+    <div class="carte-boutons">
+      <button id="c-plus" aria-label="Zoomer">+</button>
+      <button id="c-moins" aria-label="Dézoomer">&minus;</button>
+      <button id="c-moi" title="Me recentrer">◎</button>
+      <button id="c-tout" title="Voir tout le parcours">⤢</button>
+    </div>
+    <div class="carte-info" id="c-info">Touche un point pour en faire ta cible.</div>
+  </div>
+  <div class="filtres" id="f-carte">
+    <button data-c="cles" class="on">Points importants</button>
+    <button data-c="tous">Tous les points</button>
+  </div>
+  <button class="action primaire" id="b-libre">📷 Photo libre ici</button>
+  <p class="note" id="c-legende"></p>
+</section>
+
 <section id="v-facades" hidden>
   <div class="filtres" id="f-facades">
     <button data-f="lot" class="on">Lot</button>
@@ -233,6 +273,7 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
     <div><b id="s-poids">0</b><span class="chapo">mégaoctets</span></div>
     <div><b id="s-fac">0</b><span class="chapo">façades faites</span></div>
     <div><b id="s-pos">0</b><span class="chapo">postes faits</span></div>
+    <div><b id="s-libres">0</b><span class="chapo">photos libres</span></div>
   </div>
   <p class="note">L'archive contient les photos <b>et</b> un fichier <b>manifeste.json</b> : pour chaque image, sa position GPS, le cap de la boussole au déclenchement, l'azimut visé et l'arrêt concerné. C'est ce manifeste qui me permet de replacer chaque façade sur la bonne emprise — les métadonnées EXIF ne survivent pas au passage par le navigateur, donc je ne compte pas sur elles.</p>
   <button class="action primaire" id="b-zip">Télécharger l'archive</button>
@@ -259,6 +300,10 @@ var PLAN=null, POS=null, CAP=null, CIBLE=null, FAIT=lireFait(), BASE=null;
    outils/rendre_vues.js. QUOI dit ce que le cadre montre : la 3D, ou la
    photo qu'on vient de prendre. */
 var VUES=null, QUOI='3d', urlPhoto=null;
+/* photos libres : celles que tu décides de prendre, en plus du plan.
+   Elles ne dépendent d'aucun arrêt, seulement de l'endroit et du cap. */
+var LIBRES=(function(){ try{ return JSON.parse(localStorage.getItem('releve-libres')||'[]'); }catch(e){ return []; } })();
+var PRISE='arret';   /* 'arret' ou 'libre' : ce que le prochain déclenchement enregistre */
 /* une cible choisie avant le premier point GPS ne vaut rien : on la remplace
    dès qu'on sait où l'on est, mais jamais celle que tu as désignée toi-même */
 var PROVISOIRE=true;
@@ -380,6 +425,8 @@ function suivrePosition(){
     $('#gps-txt').textContent='± '+Math.round(POS.acc)+' m';
     if(!CIBLE || PROVISOIRE) choisirCible();
     dessiner();
+    if(CARTE && VC.suivre){ VC.x=xDe(POS.lo); VC.z=zDe(POS.la); }
+    redessiner();
   },function(e){
     $('#gps-txt').textContent='position refusée';
     dire('Sans position je ne peux pas te guider : autorise la localisation dans les réglages du navigateur.');
@@ -391,7 +438,7 @@ function brancherBoussole(){
     if(e.webkitCompassHeading!==undefined && e.webkitCompassHeading!==null) c=e.webkitCompassHeading;
     else if(e.absolute && e.alpha!==null) c=(360-e.alpha)%360;
     if(c===null) return;
-    CAP=c; dessiner();
+    CAP=c; dessiner(); redessiner();
   }
   window.addEventListener('deviceorientationabsolute',lire,true);
   window.addEventListener('deviceorientation',lire,true);
@@ -518,6 +565,284 @@ function dessiner(){
   if(estFait(a)) $('#b-photo').textContent='Une photo de plus';
   else $('#b-photo').textContent=surPlace?('Prendre la photo '+(n+1)+' / '+a.attendu):'Photo quand même (hors position)';
   majVisuel();
+}
+
+/* =================================================================
+   La carte : se repérer sur le tracé, voir les points à photographier,
+   et s'arrêter où l'on veut pour une photo libre.
+   Dessinée sur une toile depuis carte.json (rues, eau, emprises de
+   bâtiments, tracé), en mètres dans le repère local de la 3D.
+================================================================= */
+var CARTE=null, TOILE=null, CTX=null, PX=1;
+var VC={x:0, z:0, ech:1.0, suivre:true, tous:false, prete:false};
+var dessinPrevu=false;
+
+function chargerCarte(){
+  return fetch('carte.json',{cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('absente');
+    return r.json();
+  }).then(function(C){
+    CARTE=C;
+    var t=C.cadreTrace;
+    VC.x=(t[0]+t[1])/2; VC.z=(t[2]+t[3])/2;
+    VC.prete=true;
+  }).catch(function(){ CARTE=null; });
+}
+function xDe(lo){ return (lo-CARTE.ref.lo0)*CARTE.ref.mlon; }
+function zDe(la){ return (CARTE.ref.la0-la)*CARTE.ref.mlat; }
+
+function dimensionner(){
+  if(!TOILE) return;
+  PX=Math.min(window.devicePixelRatio||1,2);
+  var r=TOILE.getBoundingClientRect();
+  TOILE.width=Math.max(10,Math.round(r.width*PX));
+  TOILE.height=Math.max(10,Math.round(r.height*PX));
+}
+function cadrerTout(){
+  if(!CARTE||!TOILE) return;
+  var t=CARTE.cadreTrace;
+  VC.x=(t[0]+t[1])/2; VC.z=(t[2]+t[3])/2;
+  var L=TOILE.width/PX, H=TOILE.height/PX;
+  VC.ech=Math.min(L/(t[1]-t[0]+120), H/(t[3]-t[2]+120));
+  VC.suivre=false; redessiner();
+}
+function cadrerMoi(){
+  if(!CARTE||!POS) { dire('Position pas encore connue.'); return; }
+  VC.x=xDe(POS.lo); VC.z=zDe(POS.la);
+  if(VC.ech<0.55) VC.ech=1.1;
+  VC.suivre=true; redessiner();
+}
+function redessiner(){
+  if(dessinPrevu) return;
+  dessinPrevu=true;
+  requestAnimationFrame(function(){ dessinPrevu=false; tracerCarte(); });
+}
+
+/* écran <- mètres */
+function sx(x){ return (x-VC.x)*VC.ech+TOILE.width/(2*PX); }
+function sy(z){ return (z-VC.z)*VC.ech+TOILE.height/(2*PX); }
+
+function ligneBrisee(g,r,ferme){
+  g.beginPath();
+  g.moveTo(sx(r[0]),sy(r[1]));
+  for(var i=2;i<r.length;i+=2) g.lineTo(sx(r[i]),sy(r[i+1]));
+  if(ferme) g.closePath();
+}
+/* est-ce que ce tracé touche l'écran ? évite de dessiner la ville entière */
+function visible(r,marge){
+  var L=TOILE.width/PX, H=TOILE.height/PX, m=marge||0;
+  var x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(var i=0;i<r.length;i+=2){
+    if(r[i]<x0)x0=r[i]; if(r[i]>x1)x1=r[i];
+    if(r[i+1]<z0)z0=r[i+1]; if(r[i+1]>z1)z1=r[i+1];
+  }
+  return !(sx(x1)<-m || sx(x0)>L+m || sy(z1)<-m || sy(z0)>H+m);
+}
+
+function pointsCarte(){
+  /* les façades seulement : les postes viendront plus tard */
+  return BASE.filter(function(a){
+    if(a.type!=='f') return false;
+    if(VC.tous) return true;
+    return a.lot>0 || (a.prio===1 && !a.ensoa);
+  });
+}
+
+function tracerCarte(){
+  if(!TOILE||!CTX) return;
+  var g=CTX, L=TOILE.width/PX, H=TOILE.height/PX, i;
+  g.setTransform(PX,0,0,PX,0,0);
+  g.fillStyle='#0d1320'; g.fillRect(0,0,L,H);
+  if(!CARTE){
+    g.fillStyle='#6E7A8E'; g.font='12px monospace'; g.textAlign='center';
+    g.fillText('carte.json absent', L/2, H/2);
+    return;
+  }
+
+  /* emprises de bâtiments */
+  g.fillStyle='#1b2333'; g.strokeStyle='#26304a'; g.lineWidth=Math.max(0.4,VC.ech*0.12);
+  for(i=0;i<CARTE.batis.length;i++){
+    var b=CARTE.batis[i];
+    if(!visible(b,20)) continue;
+    ligneBrisee(g,b,true); g.fill();
+    if(VC.ech>0.9) g.stroke();
+  }
+  /* cours d'eau */
+  g.strokeStyle='#2c4a66'; g.lineJoin='round'; g.lineCap='round';
+  g.lineWidth=Math.max(1.6,VC.ech*4);
+  for(i=0;i<CARTE.eau.length;i++){ if(visible(CARTE.eau[i],20)){ ligneBrisee(g,CARTE.eau[i]); g.stroke(); } }
+  /* rues */
+  for(i=0;i<CARTE.voies.length;i++){
+    var v=CARTE.voies[i];
+    if(!visible(v.p,20)) continue;
+    g.strokeStyle='#39465e'; g.lineWidth=Math.max(1,v.l*VC.ech*0.9);
+    ligneBrisee(g,v.p); g.stroke();
+  }
+  /* le tracé de la course */
+  g.strokeStyle='#E8836A'; g.lineWidth=Math.max(2.2,VC.ech*2.4);
+  ligneBrisee(g,CARTE.trace); g.stroke();
+
+  /* les photos libres déjà prises */
+  g.fillStyle='#3D6B8C';
+  LIBRES.forEach(function(q){
+    var X=sx(xDe(q.lo)), Y=sy(zDe(q.la));
+    if(X<-10||X>L+10||Y<-10||Y>H+10) return;
+    g.fillRect(X-3,Y-3,6,6);
+  });
+
+  /* les arrêts */
+  var P=pointsCarte(), gros=VC.ech>0.5;
+  for(i=0;i<P.length;i++){
+    var a=P[i], X=sx(xDe(a.lo)), Y=sy(zDe(a.la));
+    if(X<-20||X>L+20||Y<-20||Y>H+20) continue;
+    var fait=estFait(a), cible=(CIBLE&&cle(CIBLE)===cle(a));
+    var r = a.lot ? (gros?9:6) : (a.prio===1?(gros?5:3.5):2.5);
+    /* la direction à viser */
+    if(gros && (a.lot||cible)){
+      var az=viser(a,nbFait(a))*Math.PI/180;
+      g.strokeStyle=fait?'#7E9067':'#F2B33D'; g.lineWidth=1.6;
+      g.beginPath(); g.moveTo(X,Y);
+      g.lineTo(X+Math.sin(az)*(r+11), Y-Math.cos(az)*(r+11)); g.stroke();
+    }
+    g.beginPath(); g.arc(X,Y,r,0,7);
+    if(a.lot){
+      g.fillStyle=fait?'#7E9067':'#F2B33D'; g.fill();
+      g.strokeStyle=cible?'#FFFFFF':'#0B1019'; g.lineWidth=cible?2.4:1.4; g.stroke();
+      if(gros){
+        g.fillStyle='#1A1206'; g.font='600 '+(r*1.25).toFixed(0)+'px Oswald, sans-serif';
+        g.textAlign='center'; g.textBaseline='middle';
+        g.fillText(String(a.lot),X,Y+0.5);
+      }
+    } else {
+      g.fillStyle=fait?'rgba(126,144,103,.85)':(a.ensoa?'rgba(224,112,78,.85)':'rgba(242,179,61,.55)');
+      g.fill();
+      if(cible){ g.strokeStyle='#FFFFFF'; g.lineWidth=2; g.stroke(); }
+    }
+  }
+
+  /* moi */
+  if(POS){
+    var mx=sx(xDe(POS.lo)), my=sy(zDe(POS.la));
+    if(POS.acc&&VC.ech>0.25){
+      g.fillStyle='rgba(61,107,140,.16)'; g.strokeStyle='rgba(61,107,140,.5)'; g.lineWidth=1;
+      g.beginPath(); g.arc(mx,my,Math.max(4,POS.acc*VC.ech),0,7); g.fill(); g.stroke();
+    }
+    if(CAP!==null){
+      var c=CAP*Math.PI/180, ouv=0.42;
+      g.fillStyle='rgba(242,179,61,.30)';
+      g.beginPath(); g.moveTo(mx,my);
+      g.arc(mx,my,34,c-Math.PI/2-ouv,c-Math.PI/2+ouv); g.closePath(); g.fill();
+    }
+    g.fillStyle='#8FC2E8'; g.strokeStyle='#0B1019'; g.lineWidth=2;
+    g.beginPath(); g.arc(mx,my,6,0,7); g.fill(); g.stroke();
+  }
+
+  /* échelle */
+  var cible100=Math.max(40,Math.min(200,L*0.28));
+  var pas=[10,20,50,100,200,500,1000].reduce(function(m,v){
+    return Math.abs(v*VC.ech-cible100)<Math.abs(m*VC.ech-cible100)?v:m;
+  },100);
+  var e=$('#c-echelle');
+  if(e){ e.textContent=pas+' m'; e.style.width=Math.round(pas*VC.ech)+'px'; e.style.borderTop='2px solid var(--creme-faible)'; }
+}
+
+/* ---------- toucher : déplacer, pincer, choisir un point ---------- */
+function brancherCarte(){
+  TOILE=$('#toile'); if(!TOILE) return;
+  CTX=TOILE.getContext('2d');
+  var doigts={}, depart=null, bouge=false;
+
+  function pos(e){ var r=TOILE.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+  TOILE.addEventListener('pointerdown',function(e){
+    TOILE.setPointerCapture(e.pointerId);
+    doigts[e.pointerId]=pos(e);
+    bouge=false;
+    var n=Object.keys(doigts);
+    if(n.length===1) depart={p:doigts[e.pointerId], x:VC.x, z:VC.z};
+    else if(n.length===2){
+      var a=doigts[n[0]], b=doigts[n[1]];
+      depart={ecart:Math.hypot(a.x-b.x,a.y-b.y), ech:VC.ech,
+              mx:(a.x+b.x)/2, my:(a.y+b.y)/2, x:VC.x, z:VC.z};
+    }
+  });
+  TOILE.addEventListener('pointermove',function(e){
+    if(!doigts[e.pointerId]) return;
+    doigts[e.pointerId]=pos(e);
+    var n=Object.keys(doigts);
+    if(n.length===1 && depart && depart.p){
+      var p=doigts[e.pointerId];
+      var dx=p.x-depart.p.x, dy=p.y-depart.p.y;
+      if(Math.hypot(dx,dy)>6) bouge=true;
+      VC.x=depart.x-dx/VC.ech; VC.z=depart.z-dy/VC.ech;
+      VC.suivre=false; redessiner();
+    } else if(n.length===2 && depart && depart.ecart){
+      var a=doigts[n[0]], b=doigts[n[1]];
+      var d=Math.hypot(a.x-b.x,a.y-b.y);
+      if(d>10){
+        bouge=true;
+        var k=Math.max(0.12,Math.min(6,depart.ech*d/depart.ecart));
+        /* on garde le point pincé sous les doigts */
+        var L=TOILE.width/(2*PX), H=TOILE.height/(2*PX);
+        var mx=depart.x+(depart.mx-L)/depart.ech, mz=depart.z+(depart.my-H)/depart.ech;
+        VC.ech=k;
+        VC.x=mx-(depart.mx-L)/k; VC.z=mz-(depart.my-H)/k;
+        VC.suivre=false; redessiner();
+      }
+    }
+  });
+  function relacher(e){
+    var etait=doigts[e.pointerId];
+    delete doigts[e.pointerId];
+    if(!Object.keys(doigts).length){
+      if(!bouge && etait) toucher(etait);
+      depart=null;
+    }
+  }
+  TOILE.addEventListener('pointerup',relacher);
+  TOILE.addEventListener('pointercancel',relacher);
+  TOILE.addEventListener('wheel',function(e){
+    e.preventDefault();
+    VC.ech=Math.max(0.12,Math.min(6,VC.ech*(e.deltaY<0?1.2:1/1.2)));
+    VC.suivre=false; redessiner();
+  },{passive:false});
+
+  function toucher(p){
+    if(!CARTE) return;
+    var P=pointsCarte(), best=null;
+    for(var i=0;i<P.length;i++){
+      var a=P[i], d=Math.hypot(sx(xDe(a.lo))-p.x, sy(zDe(a.la))-p.y);
+      if(d<26 && (!best||d<best.d)) best={a:a,d:d};
+    }
+    if(!best){ $('#c-info').textContent='Touche un point pour en faire ta cible.'; return; }
+    var a=best.a;
+    if(MODE==='lot' && !auLot(a)) poserMode('tout');
+    fixer(a); dessiner(); rafraichirListes(); redessiner();
+    var n=nbFait(a);
+    $('#c-info').innerHTML='<b>'+titre(a)+'</b> · '+(a.lot?'arrêt '+a.lot+' du lot · ':'')+
+      n+'/'+a.attendu+' photos · vise '+Math.round(viser(a,n))+'°'+
+      (estFait(a)?' · fait':'')+'<br>C\'est ta cible : va sur <b>Guidage</b>.';
+  }
+
+  $('#c-plus').onclick=function(){ VC.ech=Math.min(6,VC.ech*1.5); redessiner(); };
+  $('#c-moins').onclick=function(){ VC.ech=Math.max(0.12,VC.ech/1.5); VC.suivre=false; redessiner(); };
+  $('#c-moi').onclick=cadrerMoi;
+  $('#c-tout').onclick=cadrerTout;
+  document.querySelectorAll('#f-carte button').forEach(function(b){
+    b.onclick=function(){
+      document.querySelectorAll('#f-carte button').forEach(function(x){ x.classList.toggle('on',x===b); });
+      VC.tous=(b.dataset.c==='tous');
+      redessiner(); legendeCarte();
+    };
+  });
+  window.addEventListener('resize',function(){ dimensionner(); redessiner(); });
+}
+function legendeCarte(){
+  var P=pointsCarte(), lot=P.filter(auLot).length, faits=P.filter(estFait).length;
+  $('#c-legende').innerHTML=
+    '<b>'+lot+'</b> arrêts du lot (numérotés, en orange) et <b>'+(P.length-lot)+'</b> autres façades'+
+    (VC.tous?' (tout le plan)':' de priorité 1')+'. '+faits+' déjà faits, en vert. '+
+    'Le trait part du point vers la direction à viser. Les postes de jalonneurs ne sont pas encore sur la carte.'+
+    (LIBRES.length?' Tes '+LIBRES.length+' photo(s) libre(s) : petits carrés bleus.':'');
 }
 
 /* ---------- le cadre visuel : la vue 3D à copier, ou la photo prise ----------
@@ -657,6 +982,40 @@ function reduire(fichier){
   });
 }
 
+function enregistrerLibres(){
+  try{ localStorage.setItem('releve-libres',JSON.stringify(LIBRES)); }catch(e){}
+}
+function enregistrerLibre(liste){
+  var F=Array.prototype.slice.call(liste||[]);
+  if(!F.length) return;
+  var suite=Promise.resolve();
+  F.forEach(function(f){
+    suite=suite.then(function(){
+      return reduire(f).then(function(r){
+        var num=LIBRES.length+1;
+        var nom='libre-'+String(num).padStart(3,'0')+'.jpg';
+        var fiche={n:num, la:POS?+POS.la.toFixed(7):null, lo:POS?+POS.lo.toFixed(7):null,
+                   az:(CAP===null?null:Math.round(CAP)), quand:new Date().toISOString()};
+        LIBRES.push(fiche); enregistrerLibres();
+        return mettre({
+          nom:nom, blob:r.blob,
+          meta:{
+            genre:'libre', numero:num,
+            /* rien de prévu ici : c'est toi qui as jugé que ça valait une photo */
+            az_vise:null, az_boussole:fiche.az,
+            la:fiche.la, lo:fiche.lo, precision_m:POS?Math.round(POS.acc):null,
+            largeur_px:r.w, hauteur_px:r.h, quand:fiche.quand
+          }
+        });
+      });
+    });
+  });
+  return suite.then(function(){
+    dire(F.length>1?(F.length+' photos libres enregistrées.'):('Photo libre n° '+LIBRES.length+' enregistrée.'));
+    redessiner(); legendeCarte(); bilan();
+  }).catch(function(e){ dire('Échec de l\'enregistrement : '+e.message); });
+}
+
 function enregistrer(liste){
   /* on copie la liste tout de suite : vider l'input (fichier.value='') remet
      son FileList à zéro, et la chaîne ci-dessous est asynchrone */
@@ -767,6 +1126,7 @@ function bilan(){
     $('#s-poids').textContent=nb(o/1048576);
     $('#s-fac').textContent=BASE.filter(function(a){ return a.type==='f'&&nbFait(a); }).length;
     $('#s-pos').textContent=BASE.filter(function(a){ return a.type==='p'&&nbFait(a); }).length;
+    var sl=$('#s-libres'); if(sl) sl.textContent=LIBRES.length;
   }).catch(function(){});
 }
 
@@ -783,10 +1143,16 @@ function brancher(){
   document.querySelectorAll('nav button').forEach(function(b){
     b.onclick=function(){
       document.querySelectorAll('nav button').forEach(function(x){ x.classList.toggle('on',x===b); });
-      ['guidage','facades','postes','fin'].forEach(function(v){
+      ['guidage','carte','facades','postes','fin'].forEach(function(v){
         $('#v-'+v).hidden=(v!==b.dataset.vue);
       });
-      if(b.dataset.vue!=='guidage') rafraichirListes();
+      if(b.dataset.vue==='carte'){
+        /* la toile n'a de taille qu'une fois visible */
+        dimensionner();
+        if(!VC.cadre1){ VC.cadre1=true; if(POS) cadrerMoi(); else cadrerTout(); }
+        redessiner(); legendeCarte();
+      }
+      else if(b.dataset.vue!=='guidage') rafraichirListes();
     };
   });
   [['#f-facades','f'],['#f-postes','p']].forEach(function(F){
@@ -814,10 +1180,19 @@ function brancher(){
   document.querySelectorAll('#visuel .visuel-bar button').forEach(function(b){
     b.onclick=function(){ if(b.disabled) return; QUOI=b.dataset.q; majVisuel(); };
   });
-  $('#b-photo').onclick=function(){ $('#fichier').click(); };
+  $('#b-photo').onclick=function(){ PRISE='arret'; $('#fichier').click(); };
   $('#fichier').onchange=function(){
-    if(this.files&&this.files.length) enregistrer(this.files);
+    if(this.files&&this.files.length){
+      if(PRISE==='libre') enregistrerLibre(this.files);
+      else enregistrer(this.files);
+    }
     this.value='';
+    PRISE='arret';
+  };
+  $('#b-libre').onclick=function(){
+    if(!POS) dire('Position inconnue : la photo sera gardée, mais sans point GPS.');
+    PRISE='libre';
+    $('#fichier').click();
   };
   $('#b-suivant').onclick=function(){
     var C=candidats();
@@ -839,7 +1214,10 @@ function brancher(){
   $('#b-zip').onclick=exporter;
   $('#b-vider').onclick=function(){
     if(!confirm('Effacer toutes les photos du téléphone ? À ne faire qu\'une fois l\'archive envoyée.')) return;
-    viderBase().then(function(){ FAIT={}; ecrireFait(); dire('Relevé vidé.'); choisirCible(); rafraichirListes(); });
+    viderBase().then(function(){
+      FAIT={}; ecrireFait(); LIBRES=[]; enregistrerLibres();
+      dire('Relevé vidé.'); choisirCible(); rafraichirListes(); redessiner(); legendeCarte();
+    });
   };
   /* la boussole d'iOS demande un geste de l'utilisateur */
   document.body.addEventListener('click',function once(){
@@ -865,12 +1243,14 @@ function chargerVues(){
 
 Promise.all([
   fetch('plan.json',{cache:'no-store'}).then(function(r){ return r.json(); }),
-  chargerVues()
+  chargerVues(),
+  chargerCarte()
 ]).then(function(r){
   var P=r[0];
   PLAN=P; BASE=preparerPlan(P);
-  brancher(); suivrePosition(); demanderBoussole();
+  brancher(); brancherCarte(); suivrePosition(); demanderBoussole();
   poserMode(MODE);
+  legendeCarte();
   if(navigator.serviceWorker) navigator.serviceWorker.register('sw.js').catch(function(){});
 }).catch(function(e){
   $('#c-titre').textContent='Plan illisible';
