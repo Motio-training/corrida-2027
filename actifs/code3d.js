@@ -1876,6 +1876,9 @@ function construireBatis(bats){
     if(!type && (k==='i')) type='I';
     if(type) NB_TYPES[type]=(NB_TYPES[type]||0)+1;
     var h=hautBat(k,aire,lv,ht,r,milit,type);
+    /* niveaux comptés sur la photo : la 3D faisait trois étages là où il n'y
+       en a qu'un, faute de hauteur dans OpenStreetMap */
+    if(rel && rel.niv) h=(rel.fam===6?4.6:0)+rel.niv*(rel.fam===6?0:3.15)+(rel.fam===6?0:1.1);
     var base=1e9;
     for(j=0;j<n;j++){ var hh=hauteur(p[j*2],p[j*2+1]); if(hh<base) base=hh; }
     base-=0.35;
@@ -2219,6 +2222,9 @@ function construireBatis(bats){
     if(!type && k==='i') type='I';
     if(type) NB_TYPES[type]=(NB_TYPES[type]||0)+1;
     var h=hautBat(k,aire,lv,ht,r,milit,type);
+    /* niveaux comptés sur la photo : la 3D faisait trois étages là où il n'y
+       en a qu'un, faute de hauteur dans OpenStreetMap */
+    if(rel && rel.niv) h=(rel.fam===6?4.6:0)+rel.niv*(rel.fam===6?0:3.15)+(rel.fam===6?0:1.1);
     var base=1e9;
     for(j=0;j<n;j++){ var hh=hauteur(p[j*2],p[j*2+1]); if(hh<base) base=hh; }
     base-=0.35;
@@ -10310,7 +10316,7 @@ construireBatis=function(bats){
   BAT={ murs:[], rdc:[], rdcC:new Tas(8192), mursS:new Tas(16384), mursEg:new Tas(8192), mursI:new Tas(16384),
         annexes:new Tas(16384), toits:new Tas(65536), toits2:new Tas(32768), toitsA:new Tas(16384), toitsM:new Tas(8192),
         plats:new Tas(16384), deco:new Tas(4096), corn:new Tas(65536), zinc:new Tas(65536), chem:new Tas(32768) };
-  for(var f=0;f<6;f++){ BAT.murs.push(new Tas(32768)); BAT.rdc.push(new Tas(32768)); }
+  for(var f=0;f<NB_FAM;f++){ BAT.murs.push(new Tas(32768)); BAT.rdc.push(new Tas(32768)); }
   var brique=teinte(0xb08a72), gris=teinte(0xe6e8ea), clair=teinte(0xf4f0e6), blanc=teinte(0xffffff);
   for(var i=0;i<bats.length;i++){
     var l=bats[i].split('\t');
@@ -10329,20 +10335,45 @@ construireBatis=function(bats){
     if(!type && k==='i') type='I';
     if(type) NB_TYPES[type]=(NB_TYPES[type]||0)+1;
     var h=hautBat(k,aire,lv,ht,r,milit,type);
+    /* niveaux comptés sur la photo : la 3D faisait trois étages là où il n'y
+       en a qu'un, faute de hauteur dans OpenStreetMap */
+    if(rel && rel.niv) h=(rel.fam===6?4.6:0)+rel.niv*(rel.fam===6?0:3.15)+(rel.fam===6?0:1.1);
     var base=1e9;
     for(j=0;j<n;j++){ var hh=hauteur(p[j*2],p[j*2+1]); if(hh<base) base=hh; }
     base-=0.35;
     var top=base+h;
     var petit=(k==='g'||aire<28||h<3.2) && !type;
+    /* ce que les photos disent de ce bâtiment précis, s'il en fait partie */
+    var rel=releveProche(cx,cz);
     var fam;
-    if(milit) fam=3;
+    if(rel && rel.fam!==undefined) fam=rel.fam;
+    else if(milit) fam=3;
+    /* long, large et régulier : caserne, école, administration. Les photos
+       montrent que ce type n'a pas de volets, et qu'il est fréquent en ville
+       et pas seulement dans l'enceinte. */
+    else if(institutionnel(aire,ow,ol,rect)) fam=3;
     else if(type==='M'||type==='H'||type==='P') fam=1;
     else if(aire>220||h>8.5) fam=r2<0.34?1:(r2<0.67?0:2);
     else fam=r2<0.18?1:(r2<0.36?0:(r2<0.50?2:(r2<0.75?4:5)));
-    var cm=melange(blanc,MURS[Math.floor(r*MURS.length)],0.45);
+    var cm;
+    if(rel && rel.mur!==undefined) cm=teinte(rel.mur);
+    else if(fam===3||fam===6){
+      /* Pas de mélange au blanc pour ces familles : il désature, et le tone
+         mapping ACES désature encore les surfaces claires. Pour obtenir à
+         l'écran le crème chaud mesuré sur les photos — rvb(198,192,177),
+         soit 21 d'écart entre le rouge et le bleu — il faut entrer une
+         teinte franchement plus chaude que la cible. */
+      cm=melange(teinte(0xe4d6b4),teinte(0xd8cfbe),r);
+    }
+    else cm=melange(blanc,MURS[Math.floor(r*MURS.length)],0.45);
     if(milit) cm=melange(cm,teinte(0xf7f4ee),0.6);
     if(petit) cm=melange(MURS[Math.floor(r*MURS.length)],teinte(0xd8d2c6),0.5);
-    var bay=(fam===4?4.6:4.0)*(0.9+r3*0.24), hs=3.05+r2*0.3;
+    /* largeur de travée relevée sur les photos : 2,6 m d'axe en axe entre
+       deux fenêtres institutionnelles, soit 5,2 m pour deux ; les commerces
+       de l'avenue ont de grandes baies espacées de 3 m. */
+    var bayFam=(fam===3?5.2:(fam===6?6.0:(fam===4?4.6:4.0)));
+    var bay=bayFam*(fam===3||fam===6?1:(0.9+r3*0.24));
+    var hs=(fam===6?4.2:3.05+r2*0.3);
 
     var tasBas, tasHaut, coupe=base+hs, pleine=false, special=false;
     if(petit){ tasBas=tasHaut=BAT.annexes; coupe=base; special=true; }
@@ -10407,7 +10438,7 @@ construireBatis=function(bats){
 function etapeBatisRiche(){
   var b=construireBatis(Dbats), f;
   MAT.murs=[]; MAT.rdcs=[];
-  for(f=0;f<6;f++){ MAT.murs.push(facadeRiche(f,false)); MAT.rdcs.push(facadeRiche(f,true)); }
+  for(f=0;f<NB_FAM;f++){ MAT.murs.push(facadeRiche(f,false)); MAT.rdcs.push(facadeRiche(f,true)); }
   MAT.mursE=MAT.murs[0]; MAT.rdcE=MAT.rdcs[0]; MAT.mursP=MAT.murs[1]; MAT.rdcP=MAT.rdcs[1];
   MAT.mursE2=MAT.murs[2]; MAT.rdcE2=MAT.rdcs[2]; MAT.mursM=MAT.murs[3]; MAT.rdcM=MAT.rdcs[3];
   MAT.rdcC=facadeN(faireVitrine(),faireFenetresRect(256,205,[[16,88,150,98],[180,88,60,104],[8,20,240,26]],1),[[16,88,150,98],[180,88,60,104]]);
@@ -12106,6 +12137,181 @@ window.ESPACE3D.cliche=function(qualite){
   if(!construit || !renderer) return null;
   renderer.render(scene,camera);
   return renderer.domElement.toDataURL('image/jpeg',qualite||0.72);
+};
+
+/* =================================================================
+   Relevé photographique du 17 septembre 2026 : ce que le terrain dit.
+
+   Dix-sept photos prises sur le parcours, avec position GPS et cap de la
+   boussole, ont été confrontées au rendu 3D du même point et du même angle
+   (outils/comparer_photos.js). Trois constats, par ordre d'importance :
+
+   1. Des volets partout. La 3D en pose sur presque toutes les fenêtres.
+      En ville, les grands bâtiments institutionnels — et ils sont nombreux
+      à Saint-Maixent, qui s'est construite autour de l'école — n'en ont
+      pas : de hautes fenêtres nues, alignées, sans persiennes. La famille
+      « militaire » sans volets existait déjà, mais ne s'appliquait qu'aux
+      polygones de l'ENSOA ; les bâtiments de même nature situés en ville
+      recevaient donc des familles résidentielles. C'est ce qui saute le
+      plus aux yeux sur la comparaison.
+
+   2. Des fenêtres carrées là où elles sont hautes et étroites. La famille
+      institutionnelle dessinait des baies de 1,28 × 1,28 m. Les photos
+      donnent environ 1,15 m de large pour 2,05 m de haut, espacées de
+      2,6 m d'axe en axe.
+
+   3. Les couleurs, elles, étaient déjà proches : la mesure du rendu donne
+      un crème à rvb(198,194,186) contre rvb(198,192,177) sur les photos, et
+      un gris à rvb(134,129,128) contre rvb(142,143,138). On corrige d'un
+      cheveu — un peu plus chaud sur le crème, un peu plus clair sur le
+      gris — sans toucher à l'équilibre général.
+
+   Palette relevée, une voix par photo, teinte au soleil (la 3D éclaire
+   elle-même, il lui faut la couleur propre du matériau et non son
+   apparence du jour) : crème rvb(198,192,177) sur 6 photos, gris-beige
+   rvb(142,143,138) sur 6, gris moyen rvb(160,160,153) sur 2.
+================================================================= */
+
+/* ---------- les bâtiments vus en photo, et ce qu'ils sont vraiment ----------
+   Repérés par leur centre en latitude/longitude, pas par leur rang dans les
+   données : un nouvel import OSM changerait les rangs, pas les positions.
+   niv : nombre de niveaux lu sur la photo. fam : famille de façade.        */
+var RELEVE=[
+  /* Position = centre réel de l'emprise OSM, relevé par le lancer de rayon
+     (outils/relever_batiments.js), et non une coordonnée devinée : deux de
+     mes premières entrées tombaient à plus de 22 m de leur bâtiment et
+     n'étaient donc jamais appliquées. */
+
+  /* #57 — avenue du départ : long commerce d'un seul niveau très haut,
+     grandes baies, enseigne. La 3D en faisait trois étages de logements. */
+  {la:46.414720, lo:-0.201852, niv:1, fam:6, note:'commerce bas de l’avenue'},
+  /* #3586 — le grand bâtiment de 70 m derrière : institutionnel */
+  {la:46.414916, lo:-0.201923, niv:2, fam:3, note:'grand bâtiment de l’avenue'},
+  /* #22 et #4503 — pierre de taille institutionnelle, trois niveaux,
+     fenêtres hautes nues, aucun volet sur la photo */
+  {la:46.414153, lo:-0.203569, niv:3, fam:3, note:'grand bâtiment de pierre'},
+  {la:46.414031, lo:-0.203763, niv:3, fam:3, note:'annexe de pierre'},
+  /* #3229 — la mairie : ocre chaud, volets gris-bleu, drapeau. C'est le
+     bâtiment que la 3D avait le moins mal rendu. */
+  {la:46.413104, lo:-0.203509, niv:2, fam:2, note:'mairie, ocre chaud'},
+  /* #4399 — vieille ville : front bâti continu à volets, trois niveaux */
+  {la:46.413544, lo:-0.205522, niv:3, fam:0, note:'front bâti de la place'},
+  /* #369 — longue caserne à lucarnes, deux niveaux, toit de tuile */
+  {la:46.413421, lo:-0.203303, niv:2, fam:3, note:'caserne à lucarnes'},
+  /* #3128 — la plus longue : 68 m, trois niveaux, fenêtres nues alignées */
+  {la:46.411981, lo:-0.203343, niv:3, fam:3, note:'caserne de 68 m'},
+  /* #3490 — bâtiment de pignon à hautes baies, enduit gris */
+  {la:46.412857, lo:-0.202109, niv:2, fam:3, note:'pignon à hautes baies'}
+];
+/* familles : 0 enduit clair, 1 pierre de taille, 2 enduit ocre,
+   3 institutionnel sans volets, 4 moellons enduits, 5 pavillon,
+   6 commerce bas à grandes baies (nouvelle, relevée sur l'avenue) */
+
+var RELEVE_XZ=null;
+function releveProche(cx,cz){
+  if(!RELEVE_XZ) RELEVE_XZ=RELEVE.map(function(o){
+    return {x:pX(o.lo), z:pZ(o.la), o:o};
+  });
+  var best=null;
+  for(var i=0;i<RELEVE_XZ.length;i++){
+    var d=Math.hypot(RELEVE_XZ[i].x-cx, RELEVE_XZ[i].z-cz);
+    if(d<22 && (!best || d<best.d)) best={d:d, o:RELEVE_XZ[i].o};
+  }
+  return best ? best.o : null;
+}
+
+/* ---------- un bâtiment institutionnel se reconnaît à sa forme ----------
+   Long, large, régulier : une caserne, une école, une administration. Les
+   photos montrent que ce type domine le parcours en ville, et qu'il n'a pas
+   de volets. Le seuil vient des bâtiments relevés : 449 m² pour le plus
+   petit d'entre eux, 37 m de long.                                        */
+function institutionnel(aire,ow,ol,rect){
+  var lon=Math.max(ow,ol), lar=Math.min(ow,ol);
+  return aire>380 && lon>30 && lar>8 && rect>=55;
+}
+
+/* ---------- deux familles de façade refaites d'après les photos ---------- */
+var NB_FAM=7;
+
+/* fonds et volets : une entrée de plus, et un gris relevé sur les photos
+   plutôt que le gris légèrement chaud et sombre que mesurait le rendu */
+/* Le voile donne sa teinte à la famille. Mon premier essai était neutre
+   (146,147,142) et le rendu mesuré est ressorti à rvb(182,180,179) : un
+   écart rouge-bleu de 3 là où les photos en donnent 21. Les bâtiments
+   institutionnels de Saint-Maixent sont d'un crème chaud, pas gris. */
+FOND_FAM[3]={id:'plastered_wall_02', voile:'rgba(206,197,176,0.46)'};
+FOND_FAM[6]={id:'beige_wall_001',    voile:'rgba(201,195,180,0.46)'};
+VOLETS_FAM[6]=[null];               /* un commerce n'a pas de persiennes */
+/* Sur les dix-sept photos, aucun volet rouge ni brun : ils sont gris-bleu,
+   gris pâle ou blanc cassé — la mairie, les maisons de la place et les
+   étages de l'avenue s'accordent là-dessus. La famille ocre avait hérité
+   d'une palette de rouges et d'olive que j'avais inventée. */
+VOLETS_FAM[2]=['#8d9aa3','#a9b0b2','#e4e2da','#6f8391'];
+VOLETS_FAM[0]=['#7c93a4','#a3aead','#e6e2d6','#5f7a8a'];
+VOLETS_FAM[4]=['#94a0a6','#a9a9a2','#7a8b93'];
+
+/* Façade institutionnelle : deux fenêtres hautes et étroites par travée de
+   5,2 m — 1,15 m de large pour 1,9 m de haut, appui à 0,95 m, comme sur les
+   casernes photographiées. Encadrement peint clair, pas de volets, corniche
+   sous le toit. C'est la correction la plus visible du relevé.             */
+function etageInstit(g,W,H){
+  var vit=[];
+  var lF=Math.round(W*1.15/5.2), hF=Math.round(H*1.90/3.35);
+  var yF=H-Math.round(H*0.95/3.35)-hF;
+  [0.25,0.75].forEach(function(u){
+    var x=Math.round(W*u-lF/2);
+    vit=vit.concat(fenetreRiche(g,x,yF,lF,hF,{
+      encadr:'rgba(222,220,212,0.95)', encW:4, menuis:'#707880',
+      appui:'#c9c7c0', bois:true, carreaux:3
+    }));
+  });
+  /* corniche : un bandeau clair et son ombre portée */
+  g.fillStyle='rgba(216,214,206,0.92)'; g.fillRect(0,H-13,W,8);
+  g.fillStyle='rgba(0,0,0,0.20)'; g.fillRect(0,H-5,W,3);
+  return vit;
+}
+/* Commerce bas de l'avenue : un seul niveau très haut, grandes baies,
+   bandeau d'enseigne. La 3D en faisait trois étages de logements.          */
+function etageCommerce(g,W,H){
+  var vit=[];
+  /* bandeau d'enseigne en haut */
+  g.fillStyle='rgba(74,78,82,0.90)'; g.fillRect(0,0,W,Math.round(H*0.17));
+  g.fillStyle='rgba(255,255,255,0.10)'; g.fillRect(0,Math.round(H*0.17)-3,W,3);
+  var lB=Math.round(W*2.40/6.0), hB=Math.round(H*2.60/4.2);
+  var yB=H-Math.round(H*0.40/4.2)-hB;
+  [0.27,0.73].forEach(function(u){
+    var x=Math.round(W*u-lB/2);
+    vit=vit.concat(fenetreRiche(g,x,yB,lB,hB,{
+      encadr:'rgba(64,68,72,0.95)', encW:6, menuis:'#3d4247'
+    }));
+  });
+  g.fillStyle='rgba(120,116,108,0.35)'; g.fillRect(0,H-9,W,9);
+  return vit;
+}
+
+var _etageAvant=etageRiche, _rdcAvant=rdcRiche;
+etageRiche=function(f){
+  if(f!==3 && f!==6) return _etageAvant(f);
+  var W=256, H=205, c=toile(W,H), g=c.getContext('2d');
+  fondRiche(g,W,H,f);
+  return {c:c, v:(f===6)?etageCommerce(g,W,H):etageInstit(g,W,H)};
+};
+rdcRiche=function(f){
+  if(f!==3 && f!==6) return _rdcAvant(f);
+  var W=256, H=205, c=toile(W,H), g=c.getContext('2d');
+  fondRiche(g,W,H,f);
+  if(f===6) return {c:c, v:etageCommerce(g,W,H)};
+  /* rez institutionnel : mêmes fenêtres, une porte à deux battants, et un
+     soubassement de pierre comme sur les photos */
+  soubassement(g,W,H,'#9e9c95',26);
+  var vit=[];
+  var lF=Math.round(W*1.15/5.2), hF=Math.round(H*1.90/3.35);
+  var yF=H-Math.round(H*0.95/3.35)-hF;
+  vit=vit.concat(porteRiche(g,Math.round(W*0.25-40),H-26-Math.round(H*2.35/3.35),80,
+    Math.round(H*2.35/3.35),{encadr:'rgba(222,220,212,0.95)',col:'#5d666d',double:true,imposte:true}));
+  vit=vit.concat(fenetreRiche(g,Math.round(W*0.75-lF/2),yF,lF,hF,{
+    encadr:'rgba(222,220,212,0.95)', encW:4, menuis:'#707880', appui:'#c9c7c0', bois:true, carreaux:3}));
+  return {c:c, v:vit};
 };
 
 })();
