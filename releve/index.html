@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0B1019">
+<title>Relevé photo · Corrida 2027</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Barlow:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --nuit:#0B1019; --nuit-2:#141C2B; --nuit-3:#1C2537; --nuit-4:#242F45;
+  --trait:#2A3548; --trait-fort:#3C4A63;
+  --creme:#EAE4D8; --creme-dim:#98A3B6; --creme-faible:#6E7A8E;
+  --frontale:#F2B33D; --frontale-vif:#FFC65A;
+  --kaki:#7E9067; --seve:#3D6B8C; --alerte:#E0704E;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{
+  background:var(--nuit);color:var(--creme);
+  font-family:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  display:flex;flex-direction:column;overflow:hidden;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.mono{font-family:"Roboto Mono",monospace;font-variant-numeric:tabular-nums}
+.chapo{font-family:"Roboto Mono",monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--creme-faible)}
+
+header{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--trait);flex:0 0 auto}
+header strong{font-family:"Oswald",sans-serif;font-weight:500;font-size:16px;letter-spacing:.04em;text-transform:uppercase;line-height:1}
+header .gps{margin-left:auto;display:flex;align-items:center;gap:6px}
+.pastille{width:8px;height:8px;border-radius:50%;background:var(--alerte)}
+.pastille.ok{background:var(--kaki)}
+.pastille.moyen{background:var(--frontale)}
+
+nav{display:flex;flex:0 0 auto;border-bottom:1px solid var(--trait)}
+nav button{
+  flex:1;background:none;border:none;border-bottom:2px solid transparent;color:var(--creme-faible);
+  font-family:"Roboto Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  padding:11px 2px;cursor:pointer;
+}
+nav button.on{color:var(--frontale);border-bottom-color:var(--frontale)}
+
+main{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+section{padding:14px}
+
+/* ---------- guidage ---------- */
+.cible{background:var(--nuit-2);border:1px solid var(--trait);border-radius:3px;padding:12px 14px;margin-bottom:12px}
+.cible h2{margin:0 0 2px;font-family:"Oswald",sans-serif;font-weight:500;font-size:20px;letter-spacing:.02em}
+.cible .consigne{margin:8px 0 0;font-size:14px;line-height:1.5;color:var(--creme-dim)}
+.cible .balise{display:inline-block;font-family:"Roboto Mono",monospace;font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;border:1px solid var(--trait-fort);border-radius:2px;padding:2px 6px;margin:0 4px 0 0;color:var(--creme-faible)}
+.cible .balise.p1{border-color:var(--frontale);color:var(--frontale)}
+.cible .balise.ensoa{border-color:var(--alerte);color:var(--alerte)}
+
+.boussole{position:relative;width:100%;max-width:340px;margin:0 auto 14px;aspect-ratio:1}
+.boussole svg{width:100%;height:100%;display:block}
+.grand{font-family:"Oswald",sans-serif;font-size:34px;font-weight:500;line-height:1;font-variant-numeric:tabular-nums}
+
+.jauges{display:flex;gap:10px;margin-bottom:12px}
+.jauge{flex:1;background:var(--nuit-2);border:1px solid var(--trait);border-radius:3px;padding:9px 11px;text-align:center}
+.jauge b{display:block;font-family:"Oswald",sans-serif;font-size:22px;font-weight:500;line-height:1.1}
+.jauge.viser b{color:var(--frontale)}
+.jauge.bon b{color:var(--kaki)}
+
+button.action{
+  width:100%;padding:16px;border-radius:3px;border:1px solid var(--trait-fort);
+  background:var(--nuit-3);color:var(--creme);font-family:"Barlow",sans-serif;
+  font-size:15px;font-weight:600;letter-spacing:.02em;cursor:pointer;margin-bottom:9px;
+}
+button.action.primaire{background:var(--frontale);border-color:var(--frontale);color:#1A1206}
+button.action.primaire:disabled{background:var(--nuit-3);border-color:var(--trait);color:var(--creme-faible)}
+button.action.discret{font-size:13px;padding:11px;color:var(--creme-dim)}
+
+/* ---------- listes ---------- */
+.filtres{display:flex;gap:6px;margin-bottom:11px;flex-wrap:wrap}
+.filtres button{
+  background:var(--nuit-2);border:1px solid var(--trait);border-radius:2px;color:var(--creme-dim);
+  font-family:"Roboto Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:6px 9px;cursor:pointer;
+}
+.filtres button.on{border-color:var(--frontale);color:var(--frontale)}
+ul.arrets{list-style:none;margin:0;padding:0}
+ul.arrets li{
+  display:flex;align-items:center;gap:11px;padding:10px 11px;margin-bottom:6px;
+  background:var(--nuit-2);border:1px solid var(--trait);border-left:3px solid var(--trait-fort);border-radius:2px;cursor:pointer;
+}
+ul.arrets li.fait{border-left-color:var(--kaki);opacity:.62}
+ul.arrets li.p1{border-left-color:var(--frontale)}
+ul.arrets li.fait.p1{border-left-color:var(--kaki)}
+ul.arrets li.actif{background:var(--nuit-4);border-color:var(--trait-fort)}
+ul.arrets .num{font-family:"Oswald",sans-serif;font-size:17px;font-weight:500;min-width:34px}
+ul.arrets .quoi{flex:1;min-width:0}
+ul.arrets .quoi b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ul.arrets .quoi span{font-family:"Roboto Mono",monospace;font-size:10.5px;color:var(--creme-faible)}
+ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(--kaki)}
+
+.note{font-size:13px;line-height:1.6;color:var(--creme-dim);margin:0 0 12px}
+.note b{color:var(--creme)}
+.avert{background:rgba(224,112,78,.10);border:1px solid var(--alerte);border-radius:3px;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.5}
+.bilan{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:14px}
+.bilan div{background:var(--nuit-2);border:1px solid var(--trait);border-radius:3px;padding:10px 12px}
+.bilan b{display:block;font-family:"Oswald",sans-serif;font-size:21px;font-weight:500}
+.toast{
+  position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);
+  background:var(--nuit-4);border:1px solid var(--trait-fort);border-radius:3px;padding:10px 16px;
+  font-size:13.5px;z-index:40;max-width:90vw;text-align:center;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <strong>Relevé photo</strong>
+    <div class="chapo">Corrida 2027 · Saint-Maixent</div>
+  </div>
+  <div class="gps">
+    <span class="pastille" id="pastille"></span>
+    <span class="mono" id="gps-txt" style="font-size:11px;color:var(--creme-dim)">GPS…</span>
+  </div>
+</header>
+
+<nav>
+  <button data-vue="guidage" class="on">Guidage</button>
+  <button data-vue="facades">Façades</button>
+  <button data-vue="postes">Postes</button>
+  <button data-vue="fin">Envoi</button>
+</nav>
+
+<main>
+
+<section id="v-guidage">
+  <div class="cible" id="cible">
+    <div class="chapo" id="c-chapo">Aucune cible</div>
+    <h2 id="c-titre">—</h2>
+    <p class="consigne" id="c-consigne">Autorise la position pour que je te guide.</p>
+  </div>
+
+  <div class="boussole">
+    <svg viewBox="0 0 200 200" id="bouss">
+      <circle cx="100" cy="100" r="92" fill="#141C2B" stroke="#2A3548"/>
+      <circle cx="100" cy="100" r="66" fill="none" stroke="#1C2537"/>
+      <g id="secteur"></g>
+      <g id="rose"></g>
+      <g id="fleche"></g>
+      <text x="100" y="96" id="b-val" text-anchor="middle" fill="#EAE4D8"
+            style="font-family:Oswald,sans-serif;font-size:30px;font-weight:500">—</text>
+      <text x="100" y="114" id="b-unite" text-anchor="middle" fill="#6E7A8E"
+            style="font-family:'Roboto Mono',monospace;font-size:9px;letter-spacing:.16em">EN ROUTE</text>
+    </svg>
+  </div>
+
+  <div class="jauges">
+    <div class="jauge" id="j-dist"><b>—</b><span class="chapo">distance</span></div>
+    <div class="jauge" id="j-cap"><b>—</b><span class="chapo">à viser</span></div>
+    <div class="jauge" id="j-nb"><b>—</b><span class="chapo">photos</span></div>
+  </div>
+
+  <button class="action primaire" id="b-photo" disabled>Prendre la photo</button>
+  <button class="action" id="b-suivant">Arrêt suivant →</button>
+  <button class="action discret" id="b-sauter">Passer cet arrêt (inaccessible)</button>
+</section>
+
+<section id="v-facades" hidden>
+  <div class="filtres" id="f-facades">
+    <button data-f="reste" class="on">À faire</button>
+    <button data-f="p1">Priorité 1</button>
+    <button data-f="proche">Les plus proches</button>
+    <button data-f="tout">Tout</button>
+  </div>
+  <ul class="arrets" id="l-facades"></ul>
+</section>
+
+<section id="v-postes" hidden>
+  <p class="note">Un poste de jalonneur = <b>trois photos</b> : à gauche, en face, à droite de la direction qu'il regarde. Ça couvre son champ de vision et remplacera la 3D dans « voir par ses yeux ». Si ton téléphone sait faire des photos sphériques, une sphère vaut mieux que les trois — prends-la depuis le même point.</p>
+  <div class="filtres" id="f-postes">
+    <button data-f="reste" class="on">À faire</button>
+    <button data-f="proche">Les plus proches</button>
+    <button data-f="tout">Tout</button>
+  </div>
+  <ul class="arrets" id="l-postes"></ul>
+</section>
+
+<section id="v-fin" hidden>
+  <div class="bilan">
+    <div><b id="s-photos">0</b><span class="chapo">photos prises</span></div>
+    <div><b id="s-poids">0</b><span class="chapo">mégaoctets</span></div>
+    <div><b id="s-fac">0</b><span class="chapo">façades faites</span></div>
+    <div><b id="s-pos">0</b><span class="chapo">postes faits</span></div>
+  </div>
+  <p class="note">L'archive contient les photos <b>et</b> un fichier <b>manifeste.json</b> : pour chaque image, sa position GPS, le cap de la boussole au déclenchement, l'azimut visé et l'arrêt concerné. C'est ce manifeste qui me permet de replacer chaque façade sur la bonne emprise — les métadonnées EXIF ne survivent pas au passage par le navigateur, donc je ne compte pas sur elles.</p>
+  <button class="action primaire" id="b-zip">Télécharger l'archive</button>
+  <button class="action discret" id="b-vider">Vider le relevé (après envoi)</button>
+  <p class="note" style="margin-top:14px">Tout est gardé sur le téléphone : tu peux couper le réseau, marcher les 9 km et n'envoyer qu'en rentrant.</p>
+</section>
+
+</main>
+
+<input type="file" id="fichier" accept="image/*" capture="environment" multiple hidden>
+
+<script>
+/* =================================================================
+   Relevé photo de la Corrida — guidage sur le terrain.
+   Lit le plan calculé hors ligne (plan.json : arrêts, azimuts, reculs),
+   guide au GPS et à la boussole, enregistre chaque photo avec sa
+   position et son cap dans IndexedDB, et exporte une archive .zip.
+   Rien ne part sur le réseau : le téléphone travaille seul.
+================================================================= */
+'use strict';
+var $=function(s){ return document.querySelector(s); };
+var PLAN=null, POS=null, CAP=null, CIBLE=null, FAIT=lireFait(), BASE=null;
+/* une cible choisie avant le premier point GPS ne vaut rien : on la remplace
+   dès qu'on sait où l'on est, mais jamais celle que tu as désignée toi-même */
+var PROVISOIRE=true;
+var TYPES={f:'facade', p:'poste'};
+
+/* ---------- petites fonctions de géographie ---------- */
+var R=6371000;
+function metres(la1,lo1,la2,lo2){
+  var f=(la1+la2)/2*Math.PI/180;
+  var dx=(lo2-lo1)*Math.PI/180*Math.cos(f)*R, dy=(la2-la1)*Math.PI/180*R;
+  return Math.hypot(dx,dy);
+}
+function azimut(la1,lo1,la2,lo2){
+  var f=(la1+la2)/2*Math.PI/180;
+  var dx=(lo2-lo1)*Math.PI/180*Math.cos(f), dy=(la2-la1)*Math.PI/180;
+  return (Math.atan2(dx,dy)*180/Math.PI+360)%360;
+}
+function ecart(a,b){ var d=(a-b+540)%360-180; return d; }
+function nb(v,d){ return v.toFixed(d===undefined?1:d).replace('.',','); }
+function cardinal(az){
+  return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'][Math.round(az/22.5)%16];
+}
+
+/* ---------- état des arrêts faits ---------- */
+function lireFait(){
+  try{ return JSON.parse(localStorage.getItem('releve-fait')||'{}'); }catch(e){ return {}; }
+}
+function ecrireFait(){
+  try{ localStorage.setItem('releve-fait',JSON.stringify(FAIT)); }catch(e){}
+}
+function cle(a){ return a.type+a.id; }
+function nbFait(a){ var f=FAIT[cle(a)]; return f&&f.n||0; }
+function estFait(a){ var f=FAIT[cle(a)]; return !!f && (f.saute || f.n>=a.attendu); }
+
+/* ---------- le plan ---------- */
+function combienDePhotos(largeur,recul){
+  /* un téléphone voit environ 1,4 × le recul en largeur ; on ne coupe pas une façade en deux */
+  var vue=Math.max(6,recul*1.4);
+  return Math.max(1,Math.min(4,Math.ceil(largeur/vue)));
+}
+function preparerPlan(P){
+  var A=[];
+  P.arrets.forEach(function(a){
+    A.push({
+      type:'f', id:a.i, prio:a.p, km:a.km, la:a.la, lo:a.lo, az:a.az, recul:a.r,
+      larg:a.l, facades:a.f, expo:a.e, ensoa:!!a.m, nom:a.n,
+      attendu:combienDePhotos(a.l,a.r), azs:null
+    });
+  });
+  P.jalons.forEach(function(j){
+    A.push({
+      type:'p', id:j.n, prio:j.r?1:2, km:null, la:j.la, lo:j.lo, az:j.az, recul:null,
+      larg:null, facades:null, expo:null, ensoa:false,
+      nom:'Poste n° '+j.n, attendu:3, azs:[(j.az+320)%360, j.az, (j.az+40)%360]
+    });
+  });
+  return A;
+}
+function titre(a){
+  if(a.type==='p') return 'Poste n° '+a.id;
+  if(a.nom) return a.nom;
+  return 'Façades du km '+nb(a.km,2);
+}
+function consigne(a){
+  var n=nbFait(a), reste=Math.max(0,a.attendu-n);
+  if(a.type==='p'){
+    var vise=a.azs[Math.min(n,2)];
+    var quoi=['la gauche de son champ','ce qu\'il a en face','la droite de son champ'][Math.min(n,2)];
+    return 'Place-toi à son poste et vise '+quoi+' : <b>'+Math.round(vise)+'° ('+cardinal(vise)+')</b>. '+
+           (reste>1?('Encore '+reste+' photos ici.'):'Dernière photo de ce poste.');
+  }
+  var t='Recule à une quinzaine de mètres si tu peux, façade entière dans le cadre, appareil bien droit. '+
+        'Vise <b>'+a.az+'° ('+cardinal(a.az)+')</b>.';
+  if(a.attendu>1) t+=' Façade large ('+nb(a.larg)+' m) : <b>'+a.attendu+' photos</b> en balayant de gauche à droite, avec un tiers de recouvrement.';
+  if(a.ensoa) t+=' <b>Enceinte ENSOA</b> : ne déclenche que si tu as l\'autorisation.';
+  return t;
+}
+function balises(a){
+  var b='';
+  if(a.prio===1) b+='<span class="balise p1">priorité 1</span>';
+  if(a.type==='f'){
+    b+='<span class="balise">km '+nb(a.km,2)+'</span>';
+    b+='<span class="balise">'+a.facades+' façade'+(a.facades>1?'s':'')+' · '+nb(a.larg)+' m</span>';
+    if(a.ensoa) b+='<span class="balise ensoa">ENSOA</span>';
+  } else {
+    b+='<span class="balise">'+(a.prio===1?'indispensable':'facultatif')+'</span>';
+    b+='<span class="balise">regarde au '+a.az+'°</span>';
+  }
+  return b;
+}
+
+/* ---------- position et boussole ---------- */
+function suivrePosition(){
+  if(!navigator.geolocation){ $('#gps-txt').textContent='pas de GPS'; return; }
+  navigator.geolocation.watchPosition(function(p){
+    POS={la:p.coords.latitude, lo:p.coords.longitude, acc:p.coords.accuracy};
+    var pa=$('#pastille');
+    pa.className='pastille '+(POS.acc<12?'ok':(POS.acc<35?'moyen':''));
+    $('#gps-txt').textContent='± '+Math.round(POS.acc)+' m';
+    if(!CIBLE || PROVISOIRE) choisirCible();
+    dessiner();
+  },function(e){
+    $('#gps-txt').textContent='position refusée';
+    dire('Sans position je ne peux pas te guider : autorise la localisation dans les réglages du navigateur.');
+  },{enableHighAccuracy:true, maximumAge:2000, timeout:20000});
+}
+function brancherBoussole(){
+  function lire(e){
+    var c=null;
+    if(e.webkitCompassHeading!==undefined && e.webkitCompassHeading!==null) c=e.webkitCompassHeading;
+    else if(e.absolute && e.alpha!==null) c=(360-e.alpha)%360;
+    if(c===null) return;
+    CAP=c; dessiner();
+  }
+  window.addEventListener('deviceorientationabsolute',lire,true);
+  window.addEventListener('deviceorientation',lire,true);
+}
+function demanderBoussole(){
+  var D=window.DeviceOrientationEvent;
+  if(D && typeof D.requestPermission==='function'){
+    D.requestPermission().then(function(r){ if(r==='granted') brancherBoussole(); }).catch(function(){});
+  } else brancherBoussole();
+}
+
+/* ---------- choix de la cible ---------- */
+function candidats(){
+  return BASE.filter(function(a){ return !estFait(a); });
+}
+function choisirCible(){
+  var C=candidats();
+  if(!C.length){ CIBLE=null; PROVISOIRE=false; dessiner(); return; }
+  if(!POS){ CIBLE=C[0]; PROVISOIRE=true; dessiner(); return; }
+  /* la plus proche, à distance égale on préfère la priorité 1 */
+  var best=null;
+  C.forEach(function(a){
+    var d=metres(POS.la,POS.lo,a.la,a.lo);
+    var note=d*(a.prio===1?1:1.8)*(a.ensoa?1.4:1);
+    if(!best||note<best.note) best={a:a, note:note};
+  });
+  CIBLE=best.a; PROVISOIRE=false;
+  dessiner();
+}
+function fixer(a){ CIBLE=a; PROVISOIRE=false; }
+
+/* ---------- dessin ---------- */
+function polaire(cx,cy,r,az){
+  var a=(az-90)*Math.PI/180;
+  return [cx+r*Math.cos(a), cy+r*Math.sin(a)];
+}
+function dessiner(){
+  var a=CIBLE;
+  if(!a){
+    $('#c-chapo').textContent='Relevé terminé';
+    $('#c-titre').textContent='Plus rien à photographier';
+    $('#c-consigne').innerHTML='Va dans <b>Envoi</b> pour récupérer l\'archive.';
+    $('#b-photo').disabled=true;
+    return;
+  }
+  var n=nbFait(a);
+  $('#c-chapo').innerHTML=balises(a);
+  $('#c-titre').textContent=titre(a);
+  $('#c-consigne').innerHTML=consigne(a);
+  $('#j-nb').querySelector('b').textContent=n+' / '+a.attendu;
+
+  var d=POS?metres(POS.la,POS.lo,a.la,a.lo):null;
+  var azCible=POS?azimut(POS.la,POS.lo,a.la,a.lo):null;
+  var viser=(a.type==='p')?a.azs[Math.min(n,2)]:a.az;
+  var surPlace=(d!==null && d<=Math.max(12,(POS.acc||10)));
+
+  $('#j-dist').querySelector('b').textContent=(d===null)?'—':(d<1000?Math.round(d)+' m':nb(d/1000,2)+' km');
+  $('#j-cap').querySelector('b').textContent=Math.round(viser)+'° '+cardinal(viser);
+  $('#j-cap').className='jauge '+(surPlace?'viser':'');
+
+  /* rose des vents tournée avec le téléphone */
+  var rose=$('#rose'), fl=$('#fleche'), sec=$('#secteur');
+  var cap=(CAP===null)?0:CAP, s='';
+  ['N','E','S','O'].forEach(function(l,i){
+    var p=polaire(100,100,80,i*90-cap);
+    s+='<text x="'+p[0].toFixed(1)+'" y="'+(p[1]+4).toFixed(1)+'" text-anchor="middle" fill="'+(i?'#6E7A8E':'#98A3B6')+'" '+
+       'style="font-family:\'Roboto Mono\',monospace;font-size:11px">'+l+'</text>';
+  });
+  for(var g=0;g<360;g+=15){
+    var p1=polaire(100,100,92,g-cap), p2=polaire(100,100,g%45?87:83,g-cap);
+    s+='<line x1="'+p1[0].toFixed(1)+'" y1="'+p1[1].toFixed(1)+'" x2="'+p2[0].toFixed(1)+'" y2="'+p2[1].toFixed(1)+'" stroke="#2A3548"/>';
+  }
+  rose.innerHTML=s;
+
+  /* secteur de visée : le cône dans lequel la photo est bonne */
+  var v=viser-cap, e0=polaire(100,100,66,v-9), e1=polaire(100,100,66,v+9);
+  var bon=(CAP!==null && Math.abs(ecart(viser,CAP))<9);
+  sec.innerHTML='<path d="M100 100 L'+e0[0].toFixed(1)+' '+e0[1].toFixed(1)+
+    ' A66 66 0 0 1 '+e1[0].toFixed(1)+' '+e1[1].toFixed(1)+' Z" fill="'+(bon?'rgba(126,144,103,.30)':'rgba(242,179,61,.16)')+'"/>';
+
+  /* aiguille : vers l'arrêt quand on marche, vers l'azimut à viser quand on y est */
+  var dir=surPlace?viser:(azCible===null?viser:azCible);
+  var t=polaire(100,100,surPlace?68:80,dir-cap);
+  var g1=polaire(100,100,46,dir-cap+11), g2=polaire(100,100,46,dir-cap-11), q=polaire(100,100,38,dir-cap);
+  var coul=surPlace?(bon?'#7E9067':'#F2B33D'):'#3D6B8C';
+  fl.innerHTML='<path d="M'+t[0].toFixed(1)+' '+t[1].toFixed(1)+' L'+g1[0].toFixed(1)+' '+g1[1].toFixed(1)+
+    ' L'+q[0].toFixed(1)+' '+q[1].toFixed(1)+' L'+g2[0].toFixed(1)+' '+g2[1].toFixed(1)+' Z" fill="'+coul+'"/>';
+
+  if(CAP===null){
+    $('#b-val').textContent=(d===null)?'—':(d<1000?Math.round(d):'∞');
+    $('#b-unite').textContent='PAS DE BOUSSOLE';
+  } else if(surPlace){
+    var de=ecart(viser,CAP);
+    $('#b-val').textContent=(Math.abs(de)<9?'OK':(de>0?'→ ':'← ')+Math.abs(Math.round(de))+'°');
+    $('#b-unite').textContent=bon?'DÉCLENCHE':'TOURNE-TOI';
+  } else {
+    $('#b-val').textContent=(d<1000?Math.round(d)+' m':nb(d/1000)+' km');
+    $('#b-unite').textContent='EN ROUTE';
+  }
+
+  $('#b-photo').disabled=false;
+  $('#b-photo').textContent=surPlace?('Prendre la photo '+(n+1)+' / '+a.attendu):'Photo quand même (hors position)';
+}
+
+/* ---------- listes ---------- */
+function dessinerListe(sel,type,filtre){
+  var L=BASE.filter(function(a){ return a.type===type; });
+  if(filtre==='reste') L=L.filter(function(a){ return !estFait(a); });
+  if(filtre==='p1') L=L.filter(function(a){ return a.prio===1; });
+  if(filtre==='proche' && POS){
+    L=L.slice().sort(function(x,y){ return metres(POS.la,POS.lo,x.la,x.lo)-metres(POS.la,POS.lo,y.la,y.lo); }).slice(0,40);
+  }
+  var h='';
+  L.forEach(function(a){
+    var n=nbFait(a), f=FAIT[cle(a)];
+    var d=POS?Math.round(metres(POS.la,POS.lo,a.la,a.lo)):null;
+    h+='<li data-c="'+cle(a)+'" class="'+(estFait(a)?'fait ':'')+(a.prio===1?'p1 ':'')+(CIBLE&&cle(CIBLE)===cle(a)?'actif':'')+'">'+
+       '<span class="num">'+a.id+'</span>'+
+       '<span class="quoi"><b>'+titre(a)+'</b><span>'+
+         (a.type==='f'?('km '+nb(a.km,2)+' · '+nb(a.larg)+' m · vise '+a.az+'°'):('regarde au '+a.az+'°'))+
+         (d!==null?(' · à '+(d<1000?d+' m':nb(d/1000)+' km')):'')+
+       '</span></span>'+
+       '<span class="compte">'+(f&&f.saute?'passé':(n?n+'/'+a.attendu:''))+'</span></li>';
+  });
+  sel.innerHTML=h||'<li style="cursor:default;color:var(--creme-faible)">Rien ici.</li>';
+}
+function rafraichirListes(){
+  dessinerListe($('#l-facades'),'f',$('#f-facades .on').dataset.f);
+  dessinerListe($('#l-postes'),'p',$('#f-postes .on').dataset.f);
+  bilan();
+}
+
+/* ---------- photos : IndexedDB ---------- */
+var DB=null;
+function base(){
+  if(DB) return Promise.resolve(DB);
+  return new Promise(function(ok,ko){
+    var r=indexedDB.open('releve-corrida',1);
+    r.onupgradeneeded=function(){ r.result.createObjectStore('photos',{keyPath:'nom'}); };
+    r.onsuccess=function(){ DB=r.result; ok(DB); };
+    r.onerror=function(){ ko(r.error); };
+  });
+}
+function mettre(o){
+  return base().then(function(db){
+    return new Promise(function(ok,ko){
+      var t=db.transaction('photos','readwrite');
+      t.objectStore('photos').put(o);
+      t.oncomplete=ok; t.onerror=function(){ ko(t.error); };
+    });
+  });
+}
+function toutes(){
+  return base().then(function(db){
+    return new Promise(function(ok,ko){
+      var t=db.transaction('photos','readonly'), q=t.objectStore('photos').getAll();
+      q.onsuccess=function(){ ok(q.result); }; q.onerror=function(){ ko(q.error); };
+    });
+  });
+}
+function viderBase(){
+  return base().then(function(db){
+    return new Promise(function(ok,ko){
+      var t=db.transaction('photos','readwrite');
+      t.objectStore('photos').clear();
+      t.oncomplete=ok; t.onerror=function(){ ko(t.error); };
+    });
+  });
+}
+
+/* réduit la photo : 2048 px au plus grand côté suffit largement pour une façade
+   (10 cm par pixel sur 20 m) et fait tenir 400 photos sur le téléphone */
+function reduire(fichier){
+  return new Promise(function(ok,ko){
+    var u=URL.createObjectURL(fichier), im=new Image();
+    im.onload=function(){
+      var M=2048, e=Math.min(1,M/Math.max(im.width,im.height));
+      var w=Math.round(im.width*e), h=Math.round(im.height*e);
+      var c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(im,0,0,w,h);
+      URL.revokeObjectURL(u);
+      c.toBlob(function(b){ b?ok({blob:b,w:w,h:h}):ko(new Error('encodage impossible')); },'image/jpeg',0.86);
+    };
+    im.onerror=function(){ URL.revokeObjectURL(u); ko(new Error('image illisible')); };
+    im.src=u;
+  });
+}
+
+function enregistrer(liste){
+  /* on copie la liste tout de suite : vider l'input (fichier.value='') remet
+     son FileList à zéro, et la chaîne ci-dessous est asynchrone */
+  var F=Array.prototype.slice.call(liste||[]);
+  var a=CIBLE; if(!a||!F.length) return;
+  var n=nbFait(a);
+  var suite=Promise.resolve();
+  F.forEach(function(f,k){
+    suite=suite.then(function(){
+      return reduire(f).then(function(r){
+        var idx=n+k+1;
+        var vise=(a.type==='p')?a.azs[Math.min(n+k,2)]:a.az;
+        var nom=(a.type==='p'?'poste':'facade')+'-'+String(a.id).padStart(3,'0')+'-'+idx+'.jpg';
+        return mettre({
+          nom:nom, blob:r.blob,
+          meta:{
+            arret:a.id, genre:TYPES[a.type], ordre:idx,
+            km:a.km, repere:a.nom||null, ensoa:a.ensoa||false,
+            az_vise:Math.round(vise), az_boussole:(CAP===null?null:Math.round(CAP)),
+            la:POS?+POS.la.toFixed(7):null, lo:POS?+POS.lo.toFixed(7):null,
+            precision_m:POS?Math.round(POS.acc):null,
+            la_prevue:a.la, lo_prevue:a.lo,
+            recul_prevu_m:a.recul, largeur_facade_m:a.larg,
+            largeur_px:r.w, hauteur_px:r.h, quand:new Date().toISOString()
+          }
+        });
+      });
+    });
+  });
+  return suite.then(function(){
+    FAIT[cle(a)]={n:n+F.length, ts:Date.now()};
+    ecrireFait();
+    if(estFait(a)){ dire('Arrêt ' + a.id + ' complet.'); choisirCible(); }
+    else dessiner();
+    rafraichirListes();
+  }).catch(function(e){ dire('Échec de l\'enregistrement : '+e.message); });
+}
+
+/* ---------- archive .zip (stockage sans compression : du JPEG ne se comprime pas) ---------- */
+var TCRC=(function(){
+  var t=new Uint32Array(256);
+  for(var n=0;n<256;n++){ var c=n; for(var k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); t[n]=c>>>0; }
+  return t;
+})();
+function crc32(u){
+  var c=0xFFFFFFFF;
+  for(var i=0;i<u.length;i++) c=TCRC[(c^u[i])&0xFF]^(c>>>8);
+  return (c^0xFFFFFFFF)>>>0;
+}
+function zip(entrees){
+  var parts=[], centre=[], off=0, enc=new TextEncoder();
+  function u16(v){ return [v&255,(v>>8)&255]; }
+  function u32(v){ return [v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255]; }
+  var d=new Date();
+  var hDOS=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1);
+  var dDOS=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate();
+  entrees.forEach(function(e){
+    var nom=enc.encode(e.nom), c=crc32(e.data), n=e.data.length;
+    var loc=[].concat([0x50,0x4b,0x03,0x04],u16(20),u16(0),u16(0),u16(hDOS),u16(dDOS),u32(c),u32(n),u32(n),u16(nom.length),u16(0));
+    parts.push(new Uint8Array(loc),nom,e.data);
+    centre.push({nom:nom,c:c,n:n,off:off});
+    off+=loc.length+nom.length+n;
+  });
+  var deb=off, cd=[];
+  centre.forEach(function(e){
+    var h=[].concat([0x50,0x4b,0x01,0x02],u16(20),u16(20),u16(0),u16(0),u16(hDOS),u16(dDOS),
+      u32(e.c),u32(e.n),u32(e.n),u16(e.nom.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(e.off));
+    cd.push(new Uint8Array(h),e.nom);
+    off+=h.length+e.nom.length;
+  });
+  var fin=new Uint8Array([].concat([0x50,0x4b,0x05,0x06],u16(0),u16(0),u16(centre.length),u16(centre.length),
+    u32(off-deb),u32(deb),u16(0)));
+  return new Blob(parts.concat(cd,[fin]),{type:'application/zip'});
+}
+function exporter(){
+  var b=$('#b-zip'); b.disabled=true; b.textContent='Préparation…';
+  toutes().then(function(P){
+    if(!P.length){ dire('Aucune photo à envoyer.'); return; }
+    var manif={
+      releve:'corrida-2027', quand:new Date().toISOString(),
+      plan:PLAN.genere, source:PLAN.source,
+      photos:P.map(function(p){ return Object.assign({fichier:p.nom},p.meta); }),
+      passes:Object.keys(FAIT).filter(function(k){ return FAIT[k].saute; })
+    };
+    var suite=P.reduce(function(p,ph){
+      return p.then(function(acc){
+        return ph.blob.arrayBuffer().then(function(ab){ acc.push({nom:ph.nom,data:new Uint8Array(ab)}); return acc; });
+      });
+    },Promise.resolve([]));
+    return suite.then(function(E){
+      E.push({nom:'manifeste.json',data:new TextEncoder().encode(JSON.stringify(manif,null,1))});
+      var blob=zip(E), u=URL.createObjectURL(blob), a=document.createElement('a');
+      a.href=u; a.download='releve-corrida-'+new Date().toISOString().slice(0,10)+'.zip';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(u); },30000);
+      dire(P.length+' photos empaquetées.');
+    });
+  }).catch(function(e){ dire('Échec : '+e.message); })
+    .then(function(){ b.disabled=false; b.textContent='Télécharger l\'archive'; });
+}
+
+/* ---------- bilan ---------- */
+function bilan(){
+  toutes().then(function(P){
+    $('#s-photos').textContent=P.length;
+    var o=P.reduce(function(s,p){ return s+p.blob.size; },0);
+    $('#s-poids').textContent=nb(o/1048576);
+    $('#s-fac').textContent=BASE.filter(function(a){ return a.type==='f'&&nbFait(a); }).length;
+    $('#s-pos').textContent=BASE.filter(function(a){ return a.type==='p'&&nbFait(a); }).length;
+  }).catch(function(){});
+}
+
+/* ---------- interface ---------- */
+var minuteurToast=0;
+function dire(t){
+  var e=document.querySelector('.toast');
+  if(!e){ e=document.createElement('div'); e.className='toast'; document.body.appendChild(e); }
+  e.innerHTML=t;
+  clearTimeout(minuteurToast);
+  minuteurToast=setTimeout(function(){ e.remove(); },3600);
+}
+function brancher(){
+  document.querySelectorAll('nav button').forEach(function(b){
+    b.onclick=function(){
+      document.querySelectorAll('nav button').forEach(function(x){ x.classList.toggle('on',x===b); });
+      ['guidage','facades','postes','fin'].forEach(function(v){
+        $('#v-'+v).hidden=(v!==b.dataset.vue);
+      });
+      if(b.dataset.vue!=='guidage') rafraichirListes();
+    };
+  });
+  [['#f-facades','f'],['#f-postes','p']].forEach(function(F){
+    document.querySelectorAll(F[0]+' button').forEach(function(b){
+      b.onclick=function(){
+        document.querySelectorAll(F[0]+' button').forEach(function(x){ x.classList.toggle('on',x===b); });
+        rafraichirListes();
+      };
+    });
+  });
+  [['#l-facades','f'],['#l-postes','p']].forEach(function(L){
+    $(L[0]).onclick=function(ev){
+      var li=ev.target.closest('li'); if(!li||!li.dataset.c) return;
+      var a=BASE.filter(function(x){ return cle(x)===li.dataset.c; })[0];
+      if(!a) return;
+      fixer(a); dessiner(); rafraichirListes();
+      document.querySelector('nav button[data-vue="guidage"]').click();
+      dire('Cible : '+titre(a));
+    };
+  });
+  $('#b-photo').onclick=function(){ $('#fichier').click(); };
+  $('#fichier').onchange=function(){
+    if(this.files&&this.files.length) enregistrer(this.files);
+    this.value='';
+  };
+  $('#b-suivant').onclick=function(){
+    var C=candidats();
+    if(C.length<2){ dire('Plus d\'autre arrêt à faire.'); return; }
+    /* on tourne dans l'ordre de la marche : le plus proche d'abord */
+    if(POS) C.sort(function(x,y){ return metres(POS.la,POS.lo,x.la,x.lo)-metres(POS.la,POS.lo,y.la,y.lo); });
+    var i=C.indexOf(CIBLE);
+    fixer(C[(i+1)%C.length]);
+    dessiner(); dire('Cible : '+titre(CIBLE));
+  };
+  $('#b-sauter').onclick=function(){
+    if(!CIBLE) return;
+    FAIT[cle(CIBLE)]={n:nbFait(CIBLE), saute:true, ts:Date.now()};
+    ecrireFait();
+    dire('Arrêt '+CIBLE.id+' passé.');
+    choisirCible(); rafraichirListes();
+  };
+  $('#b-zip').onclick=exporter;
+  $('#b-vider').onclick=function(){
+    if(!confirm('Effacer toutes les photos du téléphone ? À ne faire qu\'une fois l\'archive envoyée.')) return;
+    viderBase().then(function(){ FAIT={}; ecrireFait(); dire('Relevé vidé.'); choisirCible(); rafraichirListes(); });
+  };
+  /* la boussole d'iOS demande un geste de l'utilisateur */
+  document.body.addEventListener('click',function once(){
+    document.body.removeEventListener('click',once);
+    demanderBoussole();
+  });
+  /* écran allumé pendant la marche */
+  if(navigator.wakeLock) navigator.wakeLock.request('screen').catch(function(){});
+}
+
+fetch('plan.json',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(P){
+  PLAN=P; BASE=preparerPlan(P);
+  brancher(); suivrePosition(); demanderBoussole();
+  choisirCible(); rafraichirListes();
+  if(navigator.serviceWorker) navigator.serviceWorker.register('sw.js').catch(function(){});
+}).catch(function(e){
+  $('#c-titre').textContent='Plan illisible';
+  $('#c-consigne').textContent='plan.json ne s\'est pas chargé : '+e.message;
+});
+</script>
+</body>
+</html>
