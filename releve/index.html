@@ -71,6 +71,28 @@ button.action.primaire{background:var(--frontale);border-color:var(--frontale);c
 button.action.primaire:disabled{background:var(--nuit-3);border-color:var(--trait);color:var(--creme-faible)}
 button.action.discret{font-size:13px;padding:11px;color:var(--creme-dim)}
 
+.visuel{margin-bottom:12px;border:1px solid var(--trait);border-radius:3px;overflow:hidden;background:var(--nuit-2)}
+.visuel-img{position:relative;width:100%;aspect-ratio:520/340;background:var(--nuit-3);display:block}
+.visuel-img img{width:100%;height:100%;object-fit:cover;display:block}
+.visuel-img img[hidden]{display:none}
+.visuel-vide{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-family:"Roboto Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--creme-faible);
+}
+.visuel-etiq{
+  position:absolute;left:8px;top:8px;background:rgba(11,16,25,.82);border:1px solid var(--trait-fort);
+  border-radius:2px;padding:2px 7px;font-family:"Roboto Mono",monospace;font-size:9.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--creme-dim);
+}
+.visuel-bar{display:flex;border-top:1px solid var(--trait)}
+.visuel-bar button{
+  flex:1;background:none;border:none;border-right:1px solid var(--trait);color:var(--creme-faible);cursor:pointer;
+  font-family:"Roboto Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:8px 4px;
+}
+.visuel-bar button:last-child{border-right:none}
+.visuel-bar button.on{color:var(--frontale)}
+.visuel-bar button:disabled{color:var(--trait-fort);cursor:default}
+
 .bascule{display:flex;gap:0;margin-bottom:12px;border:1px solid var(--trait);border-radius:3px;overflow:hidden}
 .bascule button{
   flex:1;background:var(--nuit-2);border:none;color:var(--creme-faible);cursor:pointer;
@@ -144,6 +166,18 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
     <div class="chapo" id="c-chapo">Aucune cible</div>
     <h2 id="c-titre">—</h2>
     <p class="consigne" id="c-consigne">Autorise la position pour que je te guide.</p>
+  </div>
+
+  <div class="visuel" id="visuel">
+    <div class="visuel-img">
+      <img id="v-img" alt="">
+      <div class="visuel-vide" id="v-vide">vue 3D indisponible</div>
+      <span class="visuel-etiq" id="v-etiq">3D</span>
+    </div>
+    <div class="visuel-bar">
+      <button data-q="3d" id="v-b3d" class="on">Vue 3D à copier</button>
+      <button data-q="photo" id="v-bph" disabled>Ma photo</button>
+    </div>
   </div>
 
   <div class="boussole">
@@ -221,6 +255,10 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 'use strict';
 var $=function(s){ return document.querySelector(s); };
 var PLAN=null, POS=null, CAP=null, CIBLE=null, FAIT=lireFait(), BASE=null;
+/* vues 3D de référence : une par photo à prendre, rendues hors ligne par
+   outils/rendre_vues.js. QUOI dit ce que le cadre montre : la 3D, ou la
+   photo qu'on vient de prendre. */
+var VUES=null, QUOI='3d', urlPhoto=null;
 /* une cible choisie avant le premier point GPS ne vaut rien : on la remplace
    dès qu'on sait où l'on est, mais jamais celle que tu as désignée toi-même */
 var PROVISOIRE=true;
@@ -269,17 +307,33 @@ function preparerPlan(P){
     A.push({
       type:'f', id:a.i, prio:a.p, lot:a.v||0, km:a.km, la:a.la, lo:a.lo, az:a.az, recul:a.r,
       larg:a.l, facades:a.f, expo:a.e, ensoa:!!a.m, nom:a.n,
-      attendu:combienDePhotos(a.l,a.r), azs:null
+      /* une façade large se prend en balayant : chaque photo a son angle,
+         le même que celui de la vue 3D correspondante */
+      azs:(VUES&&VUES.angles&&VUES.angles['f'+a.i])||null,
+      attendu:((VUES&&VUES.angles&&VUES.angles['f'+a.i])||{length:0}).length||combienDePhotos(a.l,a.r)
     });
   });
   P.jalons.forEach(function(j){
     A.push({
       type:'p', id:j.n, prio:j.r?1:2, lot:j.v||0, km:null, la:j.la, lo:j.lo, az:j.az, recul:null,
       larg:null, facades:null, expo:null, ensoa:false,
-      nom:'Poste n° '+j.n, attendu:3, azs:[(j.az+320)%360, j.az, (j.az+40)%360]
+      nom:'Poste n° '+j.n, attendu:3,
+      azs:(VUES&&VUES.angles&&VUES.angles['p'+j.n])||[(j.az+320)%360, j.az, (j.az+40)%360]
     });
   });
   return A;
+}
+/* Le même nom sert à la vue 3D (releve/vues/) et à la photo prise :
+   facade-028-1.jpg, poste-066-2.jpg… */
+function nomFichier(a,n){
+  return (a.type==='p'?'poste':'facade')+'-'+String(a.id).padStart(3,'0')+'-'+(n+1)+'.jpg';
+}
+function vueDispo(nom){ return !!(VUES && VUES.dispo && VUES.dispo[nom]); }
+
+/* azimut de la photo n° n+1 d'un arrêt */
+function viser(a,n){
+  if(a.azs && a.azs.length) return a.azs[Math.min(n,a.azs.length-1)];
+  return a.az;
 }
 function titre(a){
   if(a.type==='p') return 'Poste n° '+a.id;
@@ -289,13 +343,14 @@ function titre(a){
 function consigne(a){
   var n=nbFait(a), reste=Math.max(0,a.attendu-n);
   if(a.type==='p'){
-    var vise=a.azs[Math.min(n,2)];
+    var vise=viser(a,n);
     var quoi=['la gauche de son champ','ce qu\'il a en face','la droite de son champ'][Math.min(n,2)];
     return 'Place-toi à son poste et vise '+quoi+' : <b>'+Math.round(vise)+'° ('+cardinal(vise)+')</b>. '+
            (reste>1?('Encore '+reste+' photos ici.'):'Dernière photo de ce poste.');
   }
+  var v=viser(a,n);
   var t='Recule à une quinzaine de mètres si tu peux, façade entière dans le cadre, appareil bien droit. '+
-        'Vise <b>'+a.az+'° ('+cardinal(a.az)+')</b>.';
+        'Vise <b>'+Math.round(v)+'° ('+cardinal(v)+')</b>.';
   if(a.attendu>1) t+=' Façade large ('+nb(a.larg)+' m) : <b>'+a.attendu+' photos</b> en balayant de gauche à droite, avec un tiers de recouvrement.';
   if(a.ensoa) t+=' <b>Enceinte ENSOA</b> : ne déclenche que si tu as l\'autorisation.';
   return t;
@@ -366,8 +421,8 @@ function poserMode(m){
 }
 function choisirCible(){
   var C=candidats();
-  if(!C.length){ CIBLE=null; PROVISOIRE=false; dessiner(); return; }
-  if(!POS){ CIBLE=C[0]; PROVISOIRE=true; dessiner(); return; }
+  if(!C.length){ CIBLE=null; PROVISOIRE=false; QUOI='3d'; dessiner(); return; }
+  if(!POS){ if(C[0]!==CIBLE) QUOI='3d'; CIBLE=C[0]; PROVISOIRE=true; dessiner(); return; }
   /* la plus proche, à distance égale on préfère la priorité 1 */
   var best=null;
   C.forEach(function(a){
@@ -375,10 +430,11 @@ function choisirCible(){
     var note=d*(a.prio===1?1:1.8)*(a.ensoa?1.4:1);
     if(!best||note<best.note) best={a:a, note:note};
   });
+  if(best.a!==CIBLE) QUOI='3d';
   CIBLE=best.a; PROVISOIRE=false;
   dessiner();
 }
-function fixer(a){ CIBLE=a; PROVISOIRE=false; }
+function fixer(a){ if(a!==CIBLE) QUOI='3d'; CIBLE=a; PROVISOIRE=false; }
 
 /* ---------- dessin ---------- */
 function polaire(cx,cy,r,az){
@@ -400,6 +456,7 @@ function dessiner(){
       $('#c-consigne').innerHTML='Va dans <b>Envoi</b> pour récupérer l\'archive.';
     }
     $('#b-photo').disabled=true;
+    majVisuel();
     return;
   }
   var n=nbFait(a);
@@ -410,11 +467,11 @@ function dessiner(){
 
   var d=POS?metres(POS.la,POS.lo,a.la,a.lo):null;
   var azCible=POS?azimut(POS.la,POS.lo,a.la,a.lo):null;
-  var viser=(a.type==='p')?a.azs[Math.min(n,2)]:a.az;
+  var viserAz=viser(a,n);
   var surPlace=(d!==null && d<=Math.max(12,(POS.acc||10)));
 
   $('#j-dist').querySelector('b').textContent=(d===null)?'—':(d<1000?Math.round(d)+' m':nb(d/1000,2)+' km');
-  $('#j-cap').querySelector('b').textContent=Math.round(viser)+'° '+cardinal(viser);
+  $('#j-cap').querySelector('b').textContent=Math.round(viserAz)+'° '+cardinal(viserAz);
   $('#j-cap').className='jauge '+(surPlace?'viser':'');
 
   /* rose des vents tournée avec le téléphone */
@@ -432,13 +489,13 @@ function dessiner(){
   rose.innerHTML=s;
 
   /* secteur de visée : le cône dans lequel la photo est bonne */
-  var v=viser-cap, e0=polaire(100,100,66,v-9), e1=polaire(100,100,66,v+9);
-  var bon=(CAP!==null && Math.abs(ecart(viser,CAP))<9);
+  var v=viserAz-cap, e0=polaire(100,100,66,v-9), e1=polaire(100,100,66,v+9);
+  var bon=(CAP!==null && Math.abs(ecart(viserAz,CAP))<9);
   sec.innerHTML='<path d="M100 100 L'+e0[0].toFixed(1)+' '+e0[1].toFixed(1)+
     ' A66 66 0 0 1 '+e1[0].toFixed(1)+' '+e1[1].toFixed(1)+' Z" fill="'+(bon?'rgba(126,144,103,.30)':'rgba(242,179,61,.16)')+'"/>';
 
   /* aiguille : vers l'arrêt quand on marche, vers l'azimut à viser quand on y est */
-  var dir=surPlace?viser:(azCible===null?viser:azCible);
+  var dir=surPlace?viserAz:(azCible===null?viserAz:azCible);
   var t=polaire(100,100,surPlace?68:80,dir-cap);
   var g1=polaire(100,100,46,dir-cap+11), g2=polaire(100,100,46,dir-cap-11), q=polaire(100,100,38,dir-cap);
   var coul=surPlace?(bon?'#7E9067':'#F2B33D'):'#3D6B8C';
@@ -449,7 +506,7 @@ function dessiner(){
     $('#b-val').textContent=(d===null)?'—':(d<1000?Math.round(d):'∞');
     $('#b-unite').textContent='PAS DE BOUSSOLE';
   } else if(surPlace){
-    var de=ecart(viser,CAP);
+    var de=ecart(viserAz,CAP);
     $('#b-val').textContent=(Math.abs(de)<9?'OK':(de>0?'→ ':'← ')+Math.abs(Math.round(de))+'°');
     $('#b-unite').textContent=bon?'DÉCLENCHE':'TOURNE-TOI';
   } else {
@@ -458,7 +515,50 @@ function dessiner(){
   }
 
   $('#b-photo').disabled=false;
-  $('#b-photo').textContent=surPlace?('Prendre la photo '+(n+1)+' / '+a.attendu):'Photo quand même (hors position)';
+  if(estFait(a)) $('#b-photo').textContent='Une photo de plus';
+  else $('#b-photo').textContent=surPlace?('Prendre la photo '+(n+1)+' / '+a.attendu):'Photo quand même (hors position)';
+  majVisuel();
+}
+
+/* ---------- le cadre visuel : la vue 3D à copier, ou la photo prise ----------
+   Avant la photo, on montre ce que la 3D donne du même point et du même
+   angle : il n'y a plus qu'à cadrer pareil. Après, on montre la photo,
+   pour la vérifier avant de passer à la suite. */
+function majVisuel(){
+  var img=$('#v-img'), vide=$('#v-vide'), etiq=$('#v-etiq'), b3d=$('#v-b3d'), bph=$('#v-bph');
+  var a=CIBLE;
+  if(urlPhoto){ URL.revokeObjectURL(urlPhoto); urlPhoto=null; }
+  if(!a){ $('#visuel').hidden=true; return; }
+  $('#visuel').hidden=false;
+
+  var n=nbFait(a);
+  var iVue=Math.min(n,a.attendu-1);          /* la photo qui vient */
+  var iPh=Math.max(0,Math.min(n-1,a.attendu-1)); /* la dernière prise */
+  var aPhoto=n>0;
+  bph.disabled=!aPhoto;
+  if(!aPhoto && QUOI==='photo') QUOI='3d';
+  b3d.classList.toggle('on',QUOI==='3d');
+  bph.classList.toggle('on',QUOI==='photo');
+
+  if(QUOI==='photo' && aPhoto){
+    etiq.textContent='ta photo '+(iPh+1)+' / '+a.attendu;
+    var nom=nomFichier(a,iPh);
+    lire(nom).then(function(o){
+      if(!o || QUOI!=='photo'){ return; }
+      urlPhoto=URL.createObjectURL(o.blob);
+      img.src=urlPhoto; img.hidden=false; vide.hidden=true;
+    }).catch(function(){ img.hidden=true; vide.hidden=false; vide.textContent='photo introuvable'; });
+    return;
+  }
+
+  var nv=nomFichier(a,iVue);
+  etiq.textContent='vue 3D · photo '+(iVue+1)+' / '+a.attendu;
+  if(vueDispo(nv)){
+    img.src='vues/'+nv; img.hidden=false; vide.hidden=true;
+  } else {
+    img.hidden=true; vide.hidden=false;
+    vide.textContent=VUES?'vue 3D non rendue':'vues 3D absentes';
+  }
 }
 
 /* ---------- listes ---------- */
@@ -513,6 +613,14 @@ function mettre(o){
     });
   });
 }
+function lire(nom){
+  return base().then(function(db){
+    return new Promise(function(ok,ko){
+      var t=db.transaction('photos','readonly'), q=t.objectStore('photos').get(nom);
+      q.onsuccess=function(){ ok(q.result||null); }; q.onerror=function(){ ko(q.error); };
+    });
+  });
+}
 function toutes(){
   return base().then(function(db){
     return new Promise(function(ok,ko){
@@ -560,7 +668,7 @@ function enregistrer(liste){
     suite=suite.then(function(){
       return reduire(f).then(function(r){
         var idx=n+k+1;
-        var vise=(a.type==='p')?a.azs[Math.min(n+k,2)]:a.az;
+        var vise=viser(a,n+k);
         var nom=(a.type==='p'?'poste':'facade')+'-'+String(a.id).padStart(3,'0')+'-'+idx+'.jpg';
         return mettre({
           nom:nom, blob:r.blob,
@@ -581,9 +689,10 @@ function enregistrer(liste){
   return suite.then(function(){
     FAIT[cle(a)]={n:n+F.length, ts:Date.now()};
     ecrireFait();
-    if(estFait(a)){ dire('Arrêt ' + a.id + ' complet.'); choisirCible(); }
-    else dessiner();
-    rafraichirListes();
+    /* on montre ce qui vient d'être pris, pour le vérifier sur place */
+    QUOI='photo';
+    if(estFait(a)) dire('Arrêt '+a.id+' complet. Vérifie la photo, puis « Arrêt suivant ».');
+    dessiner(); rafraichirListes();
   }).catch(function(e){ dire('Échec de l\'enregistrement : '+e.message); });
 }
 
@@ -702,6 +811,9 @@ function brancher(){
   document.querySelectorAll('#bascule button').forEach(function(b){
     b.onclick=function(){ poserMode(b.dataset.m); };
   });
+  document.querySelectorAll('#visuel .visuel-bar button').forEach(function(b){
+    b.onclick=function(){ if(b.disabled) return; QUOI=b.dataset.q; majVisuel(); };
+  });
   $('#b-photo').onclick=function(){ $('#fichier').click(); };
   $('#fichier').onchange=function(){
     if(this.files&&this.files.length) enregistrer(this.files);
@@ -709,7 +821,8 @@ function brancher(){
   };
   $('#b-suivant').onclick=function(){
     var C=candidats();
-    if(C.length<2){ dire('Plus d\'autre arrêt à faire.'); return; }
+    if(!C.length){ CIBLE=null; QUOI='3d'; dessiner(); rafraichirListes(); return; }
+    if(C.length===1 && C[0]===CIBLE){ dire('Plus d\'autre arrêt à faire.'); return; }
     /* on tourne dans l'ordre de la marche : le plus proche d'abord */
     if(POS) C.sort(function(x,y){ return metres(POS.la,POS.lo,x.la,x.lo)-metres(POS.la,POS.lo,y.la,y.lo); });
     var i=C.indexOf(CIBLE);
@@ -737,7 +850,24 @@ function brancher(){
   if(navigator.wakeLock) navigator.wakeLock.request('screen').catch(function(){});
 }
 
-fetch('plan.json',{cache:'no-store'}).then(function(r){ return r.json(); }).then(function(P){
+/* l'index des vues dit lesquelles ont été rendues et sous quels angles ;
+   l'application marche sans, avec un cadre vide */
+function chargerVues(){
+  return fetch('vues/index.json',{cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('absent');
+    return r.json();
+  }).then(function(V){
+    V.dispo={};
+    (V.vues||[]).forEach(function(n){ V.dispo[n]=1; });
+    VUES=V;
+  }).catch(function(){ VUES=null; });
+}
+
+Promise.all([
+  fetch('plan.json',{cache:'no-store'}).then(function(r){ return r.json(); }),
+  chargerVues()
+]).then(function(r){
+  var P=r[0];
   PLAN=P; BASE=preparerPlan(P);
   brancher(); suivrePosition(); demanderBoussole();
   poserMode(MODE);

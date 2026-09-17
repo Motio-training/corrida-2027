@@ -10,6 +10,11 @@ photos à prendre, puis empaquette tout dans une archive `.zip`.
   visée quand on y est. Le cadran passe au vert quand l'appareil est dans
   l'angle voulu à 9° près. La bascule du haut choisit entre le **lot de
   validation** et tout le parcours.
+- **Le cadre visuel** — au-dessus de la boussole, l'image que la 3D donne du
+  même point et du même angle : il n'y a plus qu'à cadrer pareil. Dès que la
+  photo est prise, le cadre la montre à la place, pour la vérifier sur place ;
+  les deux boutons dessous basculent de l'une à l'autre. Au changement
+  d'angle ou d'arrêt, on revient à la vue 3D.
 - **Façades** — les 361 arrêts, filtrables. Toucher un arrêt en fait la cible.
 - **Postes** — les 75 jalonneurs, trois photos chacun (gauche, face, droite du
   champ de vision), pour remplacer la 3D dans « voir par ses yeux ».
@@ -32,6 +37,18 @@ valider aussi la vue « par ses yeux ».
 
 **1 139 m de marche, 31 photos, aucun arrêt dans l'enceinte de l'ENSOA.**
 De quoi juger le gain dans la 3D avant de marcher les 9 km.
+
+## Les vues 3D
+
+`releve/vues/` contient une vignette par photo à prendre, rendue hors ligne
+par `outils/rendre_vues.js` : 520 × 340, champ de 68° comme un téléphone.
+`vues/index.json` dit lesquelles existent, sous quels angles, et lesquelles
+appartiennent au lot de validation — ce sont celles que le service worker
+garde hors ligne. Les autres se chargent au besoin et sont gardées au passage.
+
+Une façade large est prise en plusieurs photos : chacune a son propre angle,
+et donc sa propre vue 3D. L'application marche sans les vues, avec un cadre
+qui l'annonce.
 
 Les métadonnées EXIF ne survivent pas au passage par le navigateur : c'est le
 manifeste qui porte la géolocalisation, et c'est lui qui permet de replacer

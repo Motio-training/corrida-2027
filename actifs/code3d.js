@@ -12050,4 +12050,62 @@ brancherInterface=function(){
   });
   az2.addEventListener('change',function(){ role({az:+az2.value}); az2.blur(); });
 };
+/* =================================================================
+   Vues de référence pour le relevé photo.
+   Poser la caméra où l'on veut, dans la direction qu'on veut, et
+   récupérer l'image : c'est ce qui fabrique les vignettes montrées sur
+   le téléphone (outils/rendre_vues.js). Rien dans l'interface n'appelle
+   ces fonctions, l'usage normal de la 3D n'est pas touché.
+================================================================= */
+window.ESPACE3D.construit=function(){ return !!construit; };
+/* o : {la, lo, az, champ (degrés, horizontal), pitch} */
+window.ESPACE3D.vueDepuis=function(o){
+  if(!construit || !renderer) return false;
+  if(VUE==='jal') sortirVueJal();
+  VUE='fp';
+  J.x=pX(o.lo); J.z=pZ(o.la); J.v=0; J.phase=0;
+  J.cap=capDeAz(o.az);
+  CAM.yaw=J.cap; CAM.libre=0;
+  CAM.fpPitch=(o.pitch===undefined)?-0.02:o.pitch;
+  /* le champ demandé est horizontal, comme celui d'un téléphone ;
+     three.js veut le champ vertical */
+  var h=(o.champ||68)*PI/180, asp=camera.aspect||1.6;
+  camera.fov=2*Math.atan(Math.tan(h/2)/asp)*180/PI;
+  camera.updateProjectionMatrix();
+  if(joueur) majJoueur(0);
+  majVisibilite(); majBoutonsVue();
+  /* la caméra vient de sauter : on révèle tout de suite ce qui l'entoure
+     au lieu d'attendre le prochain tour de boucle (qui peut être lent) */
+  camera.position.set(J.x+Math.cos(CAM.yaw)*0.15, hauteur(J.x,J.z)+1.63, J.z+Math.sin(CAM.yaw)*0.15);
+  PERF.auto=false;            /* pas d'allègement automatique : toutes les vues au même niveau */
+  PERF.t=0; ARB.cx=1e9; VOIT.cx=1e9;
+  try{
+    majMorceaux(J.x,J.z); majVoitures(J.x,J.z); majJalonsVisibles(J.x,J.z); majArbres(J.x,J.z);
+  }catch(e){ console.warn(e); }
+  return true;
+};
+/* où est la caméra, et qu'est-ce qui est réellement affiché : sert à
+   vérifier chaque vue au moment où on la fabrique */
+window.ESPACE3D.etat=function(){
+  if(!construit || !renderer) return null;
+  var vis=0, i;
+  for(i=0;i<PERF.morceaux.length;i++) if(PERF.morceaux[i].m.visible) vis++;
+  return {
+    vue:VUE, auto:auto,
+    joueur:[+J.x.toFixed(1), +J.z.toFixed(1)],
+    camera:[+camera.position.x.toFixed(1), +camera.position.y.toFixed(1), +camera.position.z.toFixed(1)],
+    cap:+(((Math.atan2(Math.cos(CAM.yaw),-Math.sin(CAM.yaw))*180/PI)+360)%360).toFixed(1),
+    champV:+camera.fov.toFixed(1), sol:+hauteur(J.x,J.z).toFixed(1),
+    portee:PERF.dist, qualite:QUAL().nom,
+    morceaux:PERF.morceaux.length, morceauxVisibles:vis
+  };
+};
+/* dessine immédiatement et renvoie l'image : le tampon n'est pas
+   conservé d'une image à l'autre, il faut donc lire dans la foulée */
+window.ESPACE3D.cliche=function(qualite){
+  if(!construit || !renderer) return null;
+  renderer.render(scene,camera);
+  return renderer.domElement.toDataURL('image/jpeg',qualite||0.72);
+};
+
 })();
