@@ -109,7 +109,18 @@ for(const p of meta.photos){
     '  niv '+(b.lv||'?')+'  h '+(b.ht||'?')+
     ' | à '+String(Math.round(h.t)).padStart(2)+' m, '+String(h.mur.L).padStart(5)+' m'+
     ' | '+NOMS_FAM[fam]);
+  /* le point exact où le rayon touche le mur, et la normale sortante de ce
+     mur : c'est là qu'on posera une enseigne relevée sur la photo */
+  var a=p.az_boussole*PI/180;
+  var hx=x+Math.sin(a)*h.t, hz=z-Math.cos(a)*h.t;
+  var ex=h.mur.B[0]-h.mur.A[0], ez=h.mur.B[1]-h.mur.A[1], eL=Math.hypot(ex,ez)||1;
+  var mnx=ez/eL, mnz=-ex/eL;
+  if(mnx*(hx-b.cx)+mnz*(hz-b.cz)<0){ mnx=-mnx; mnz=-mnz; }
+  var azMur=((Math.atan2(mnx,-mnz)*180/PI)+360)%360;
   table.push({photo:p.fichier, bat:b.i, cx:+b.cx.toFixed(1), cz:+b.cz.toFixed(1),
+              hx:+hx.toFixed(1), hz:+hz.toFixed(1),
+              la_mur:+(LA0-hz/MLAT).toFixed(6), lo_mur:+(LO0+hx/MLON).toFixed(6),
+              az_mur:Math.round(azMur),
               la:+(LA0-b.cz/MLAT).toFixed(6), lo:+(LO0+b.cx/MLON).toFixed(6),
               aire:Math.round(b.aire), ow:Math.round(b.ow), ol:Math.round(b.ol),
               lv:b.lv, ht:b.ht, recul:Math.round(h.t), mur_m:h.mur.L, fam_actuelle:fam});

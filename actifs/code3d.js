@@ -1875,10 +1875,20 @@ function construireBatis(bats){
     var type=(k==='e')?'E':typeDe(p,cx,cz,aire,x0,x1,z0,z1);
     if(!type && (k==='i')) type='I';
     if(type) NB_TYPES[type]=(NB_TYPES[type]||0)+1;
+    /* Ce que les photos disent de ce bâtiment précis. À lire ici, avant la
+       hauteur : je l'avais placé plus bas, après, et « rel » valait donc
+       undefined au moment du remplacement de hauteur. Sans erreur visible :
+       la famille de façade changeait bien, mais pas la hauteur, et le toit
+       restait perché là où la hauteur devinée l'avait mis — d'où des
+       toitures flottant au-dessus des commerces bas. */
+    if(repriseParMonument(cx,cz)) continue;
+    var rel=releveProche(cx,cz);
     var h=hautBat(k,aire,lv,ht,r,milit,type);
-    /* niveaux comptés sur la photo : la 3D faisait trois étages là où il n'y
-       en a qu'un, faute de hauteur dans OpenStreetMap */
-    if(rel && rel.niv) h=(rel.fam===6?4.6:0)+rel.niv*(rel.fam===6?0:3.15)+(rel.fam===6?0:1.1);
+    /* niveaux comptés sur la photo : la 3D faisait trois étages là où
+       l'avenue n'a qu'un commerce d'un seul niveau très haut */
+    if(rel && rel.niv){
+      h=(rel.fam===6) ? 4.9 : (rel.niv*3.15+1.1);
+    }
     var base=1e9;
     for(j=0;j<n;j++){ var hh=hauteur(p[j*2],p[j*2+1]); if(hh<base) base=hh; }
     base-=0.35;
@@ -2221,10 +2231,20 @@ function construireBatis(bats){
     var type=(k==='e')?'E':typeDe(p,cx,cz,aire,x0,x1,z0,z1);
     if(!type && k==='i') type='I';
     if(type) NB_TYPES[type]=(NB_TYPES[type]||0)+1;
+    /* Ce que les photos disent de ce bâtiment précis. À lire ici, avant la
+       hauteur : je l'avais placé plus bas, après, et « rel » valait donc
+       undefined au moment du remplacement de hauteur. Sans erreur visible :
+       la famille de façade changeait bien, mais pas la hauteur, et le toit
+       restait perché là où la hauteur devinée l'avait mis — d'où des
+       toitures flottant au-dessus des commerces bas. */
+    if(repriseParMonument(cx,cz)) continue;
+    var rel=releveProche(cx,cz);
     var h=hautBat(k,aire,lv,ht,r,milit,type);
-    /* niveaux comptés sur la photo : la 3D faisait trois étages là où il n'y
-       en a qu'un, faute de hauteur dans OpenStreetMap */
-    if(rel && rel.niv) h=(rel.fam===6?4.6:0)+rel.niv*(rel.fam===6?0:3.15)+(rel.fam===6?0:1.1);
+    /* niveaux comptés sur la photo : la 3D faisait trois étages là où
+       l'avenue n'a qu'un commerce d'un seul niveau très haut */
+    if(rel && rel.niv){
+      h=(rel.fam===6) ? 4.9 : (rel.niv*3.15+1.1);
+    }
     var base=1e9;
     for(j=0;j<n;j++){ var hh=hauteur(p[j*2],p[j*2+1]); if(hh<base) base=hh; }
     base-=0.35;
@@ -10269,45 +10289,308 @@ function gouttiere(P0,P1,y){
   if(!BAT.zinc) return;
   tube(BAT.zinc,P0[0],y,P0[2],P1[0],y,P1[2],0.065,0.065,4,teinte(0xb9bec2),true,true);
 }
-toitDeuxPentes=function(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique){
-  var co=Math.cos(ang), si=Math.sin(ang), ov=0.38, ctx=CTX_TOIT;
-  var W=w/2+ov, L=l/2+ov, Wi=w/2, Li=l/2, faite=(w>=l);
-  var rise=Math.min((faite?L:W)*0.72,3.4)*(fpente||1);
-  function P(u,v,y){ return [cx+u*co-v*si, y, cz+u*si+v*co]; }
-  var A=P(-W,-L,top), B=P(W,-L,top), C=P(W,L,top), D=P(-W,L,top), E, F, g1, g2;
-  if(faite){
-    E=P(-W,0,top+rise); F=P(W,0,top+rise);
-    pan(tas,A,B,F,E,c); pan(tas,C,D,E,F,c);
-    if(ctx){ pignonMur(P(-Wi,-Li,top),P(-Wi,0,top+rise*0.96),P(-Wi,Li,top),cx,cz); pignonMur(P(Wi,Li,top),P(Wi,0,top+rise*0.96),P(Wi,-Li,top),cx,cz); }
-    else { pignon(tas,A,E,D,c,cx,cz); pignon(tas,C,F,B,c,cx,cz); }
-    g1=[A,B]; g2=[C,D];
-  } else {
-    E=P(0,-L,top+rise); F=P(0,L,top+rise);
-    pan(tas,B,C,F,E,c); pan(tas,D,A,E,F,c);
-    if(ctx){ pignonMur(P(-Wi,-Li,top),P(0,-Li,top+rise*0.96),P(Wi,-Li,top),cx,cz); pignonMur(P(Wi,Li,top),P(0,Li,top+rise*0.96),P(-Wi,Li,top),cx,cz); }
-    else { pignon(tas,A,B,E,c,cx,cz); pignon(tas,C,D,F,c,cx,cz); }
-    g1=[B,C]; g2=[D,A];
+/* ---------------------------------------------------------------
+   Toiture découpée sur l'emprise.
+
+   Jusqu'ici le toit était posé sur la boîte englobante du bâtiment. Dès
+   que l'emprise n'est pas rectangulaire — et à Saint-Maixent les rangées
+   suivent des rues obliques, si bien que deux emprises sur cinq laissent
+   plus d'un dixième de leur boîte hors du bâti — un pan de toit dépassait
+   dans le vide. Depuis la rue on voyait une toiture suspendue en plein
+   ciel, séparée du haut du mur par une bande de ciel : c'est la « zone de
+   vide » relevée sur le terrain, avenue Gambetta comme rue Chalon.
+
+   La surface reste la même tente à deux pentes, de même pente et de même
+   faîte ; elle est seulement rognée au contour du bâtiment. Le découpage
+   est exact et non échantillonné : les bornes des tranches sont les
+   abscisses des sommets, entre lesquelles le contour est fait de droites.
+   Partout où le rampant s'élève au-dessus du haut du mur, une bande
+   verticale ferme le pignon — plus aucun trou possible, quelle que soit
+   la forme de l'emprise.
+--------------------------------------------------------------- */
+/* normale sortante d'une arête, d'après le sens de parcours du contour */
+function normSort(A,B,sens){
+  var du=B[0]-A[0], dv=B[1]-A[1], L=Math.hypot(du,dv);
+  if(L<1e-6) return null;
+  return [sens*dv/L, -sens*du/L];
+}
+/* l'emprise dans le repère du faîte, dilatée du débord de toit */
+function empriseToit(p,n,cx,cz,co,si,deb){
+  var Q=[], i;
+  for(i=0;i<n;i++){
+    var dx=p[i*2]-cx, dz=p[i*2+1]-cz;
+    Q.push([dx*co+dz*si, -dx*si+dz*co]);
   }
-  tube(tas,E[0],E[1]+0.06,E[2],F[0],F[1]+0.06,F[2],0.13,0.13,5,assombrir(c,0.88),false,false);
+  /* sommets doublés : ils cassent le calcul des normales */
+  var R=[];
+  for(i=0;i<Q.length;i++){
+    var s=Q[(i+1)%Q.length];
+    if(Math.hypot(s[0]-Q[i][0],s[1]-Q[i][1])>0.05) R.push(Q[i]);
+  }
+  if(R.length<3) return null;
+  var aire2=0;
+  for(i=0;i<R.length;i++){ var A=R[i], B=R[(i+1)%R.length]; aire2+=A[0]*B[1]-B[0]*A[1]; }
+  var sens=(aire2>=0)?1:-1;
+  if(!(deb>0)) return R;
+  var D=[];
+  for(i=0;i<R.length;i++){
+    var Aa=R[(i+R.length-1)%R.length], Bb=R[i], Cc=R[(i+1)%R.length];
+    var n1=normSort(Aa,Bb,sens), n2=normSort(Bb,Cc,sens);
+    if(!n1||!n2){ D.push([Bb[0],Bb[1]]); continue; }
+    var k=1+n1[0]*n2[0]+n1[1]*n2[1];
+    var al=(k<0.25)?deb*4:deb/k;                 /* angle rentrant : on borne */
+    D.push([Bb[0]+(n1[0]+n2[0])*al, Bb[1]+(n1[1]+n2[1])*al]);
+  }
+  return D;
+}
+/* Traversées du contour par la verticale d'abscisse u : l'ordonnée, et
+   l'arête qui la donne. On garde l'arête pour évaluer la borne exactement
+   aux deux bouts de la tranche : compter les traversées séparément à
+   chaque bout revenait à comparer deux listes qui ne concordaient pas
+   toujours sur les grandes emprises découpées en dizaines de sommets, et
+   la tranche entière était alors abandonnée — un vrai trou au milieu du
+   toit. Ici on ne compte qu'une fois, au milieu de la tranche, où la
+   verticale ne passe par aucun sommet. */
+function coupesU(Q,u){
+  var t=[], m=Q.length;
+  for(var i=0;i<m;i++){
+    var A=Q[i], B=Q[(i+1)%m];
+    if((A[0]<=u)===(B[0]<=u)) continue;
+    t.push({v:A[1]+(B[1]-A[1])*(u-A[0])/(B[0]-A[0]), a:A, b:B});
+  }
+  t.sort(function(x,y){ return x.v-y.v; });
+  return t;
+}
+function vSurArete(e,u){ return e.a[1]+(e.b[1]-e.a[1])*(u-e.a[0])/(e.b[0]-e.a[0]); }
+/* Un quadrilatère de toiture dont un côté s'est refermé en pointe — cela
+   arrive à chaque tranche qui se termine sur un sommet de l'emprise — a
+   trois coins confondus ou alignés. Si ce sont les trois premiers, la
+   normale calculée sur eux est indéfinie et le pan peut partir tourné vers
+   le bas : éclairé par en dessous, il apparaît en noir. On fait donc
+   tourner le quadrilatère pour que le triangle de tête soit franc. */
+function panRogne(tas,A,B,C,D,col){
+  var S=[A,B,C,D], m=0, meilleur=-1, N=null, i;
+  for(i=0;i<4;i++){
+    var a=S[i], b=S[(i+1)%4], cc=S[(i+2)%4];
+    var ux=b[0]-a[0], uy=b[1]-a[1], uz=b[2]-a[2];
+    var vx=cc[0]-a[0], vy=cc[1]-a[1], vz=cc[2]-a[2];
+    var nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    var s=nx*nx+ny*ny+nz*nz;
+    if(s>m){ m=s; meilleur=i; N=[nx,ny,nz]; }
+  }
+  if(m<1e-4) return;   /* moins d'un demi-décimètre carré : invisible, et
+                          sa normale n'est plus fiable — on ne le pose pas */
+  var lg=Math.sqrt(m), n=[N[0]/lg, N[1]/lg, N[2]/lg];
+  if(n[1]<0){ n=[-n[0],-n[1],-n[2]]; }
+  /* On pose les deux triangles soi-même au lieu de passer par pan() : pan
+     retourne le quadrilatère quand sa normale de tête pointe vers le bas,
+     ce qui remet en tête le triangle dégénéré que l'on venait justement
+     d'écarter, et la normale stockée redevient quelconque. */
+  var a0=S[meilleur], b0=S[(meilleur+1)%4], c0=S[(meilleur+2)%4], d0=S[(meilleur+3)%4];
+  var w=Math.hypot(b0[0]-a0[0],b0[2]-a0[2]), h=Math.hypot(c0[0]-b0[0],c0[1]-b0[1],c0[2]-b0[2]);
+  triFace(tas,a0,b0,c0,n,[0,0,w/1.28,0,w/1.28,h/1.28],col);
+  triFace(tas,a0,c0,d0,n,[0,0,w/1.28,h/1.28,0,h/1.28],col);
+}
+/* Triangle posé dans le sens de sa normale : on échange deux sommets s'il
+   tourne à l'envers, sinon le moteur l'efface ou l'éclaire par derrière.
+   Ne pas confondre avec triOriente, plus haut, qui prend une normale par
+   sommet — c'est d'ailleurs le nom que j'avais pris ici par distraction,
+   et la déclaration la plus tardive l'emportant, tubes et sphères se
+   retrouvaient appelés avec la mauvaise signature. */
+function triFace(tas,a,b,c,n,uv,col){
+  var ux=b[0]-a[0], uy=b[1]-a[1], uz=b[2]-a[2];
+  var vx=c[0]-a[0], vy=c[1]-a[1], vz=c[2]-a[2];
+  var nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+  var ps=nx*n[0]+ny*n[1]+nz*n[2];
+  if(nx*nx+ny*ny+nz*nz<1e-8) return;      /* moitié refermée en pointe */
+  if(ps<0){
+    var t=b; b=c; c=t;
+    uv=[uv[0],uv[1],uv[4],uv[5],uv[2],uv[3]];
+  }
+  tas.tri(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2], n[0],n[1],n[2], uv, col);
+}
+/* la tente : faîte le long de u, versants vers v=±L */
+function toitTente(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique,ctx){
+  var co=Math.cos(ang), si=Math.sin(ang), ov=0.38;
+  var W=w/2+ov, L=l/2+ov;
+  var rise=Math.min(L*0.72,3.4)*(fpente||1);
+  function P(u,v,y){ return [cx+u*co-v*si, y, cz+u*si+v*co]; }
+  function yDe(v){ var a=1-Math.abs(v)/L; return top+rise*(a>0?a:0); }
+  var Q=(ctx&&ctx.p)?empriseToit(ctx.p,ctx.n,cx,cz,co,si,ov):null;
+  if(!Q||Q.length<3) Q=[[-W,-L],[W,-L],[W,L],[-W,L]];
+
+  /* --- les versants, tranche par tranche ---
+     Bornes des tranches : les abscisses des sommets, et aussi celles où une
+     arête traverse le faîte. Sans ces dernières, la borne basse d'une
+     tranche change de versant en cours de route ; en la rabattant sur le
+     faîte on obtenait un rabat de toit débordant de l'emprise, jusqu'à un
+     mètre et demi — le pan suspendu qui restait visible rue Chalon. */
+  var PLIS=[-L,0,L];                  /* les trois plis de la tente : deux
+                                         égouts et le faîte ; au-delà des
+                                         égouts la surface reste plate */
+  var us=[], i, q;
+  for(i=0;i<Q.length;i++){
+    us.push(Q[i][0]);
+    var A0=Q[i], B0=Q[(i+1)%Q.length];
+    for(q=0;q<PLIS.length;q++){
+      if((A0[1]<PLIS[q])!==(B0[1]<PLIS[q]))
+        us.push(A0[0]+(B0[0]-A0[0])*(PLIS[q]-A0[1])/(B0[1]-A0[1]));
+    }
+  }
+  us.sort(function(a,b){ return a-b; });
+  /* Bornes trop voisines : les fondre au lieu de sauter la tranche. Sauter
+     laissait une fente — jusqu'à un centimètre, invisible de la rue mais
+     bien réelle — entre deux tranches, là où un sommet et un pli tombent
+     presque au même endroit. */
+  var uf=[us[0]];
+  for(i=1;i<us.length;i++) if(us[i]-uf[uf.length-1]>0.03) uf.push(us[i]);
+  us=uf;
+  var runs=[], enCours=null;
+  for(i=0;i+1<us.length;i++){
+    var ua=us[i], ub=us[i+1];
+    var tm=coupesU(Q,(ua+ub)/2);
+    if(tm.length<2 || (tm.length&1)) continue;
+    var faite=false;
+    for(var k=0;k+1<tm.length;k+=2){
+      var e0=tm[k], e1=tm[k+1];
+      var v0a=vSurArete(e0,ua), v1a=vSurArete(e1,ua);
+      var v0b=vSurArete(e0,ub), v1b=vSurArete(e1,ub);
+      if(v1a<v0a){ var w0=v0a; v0a=v1a; v1a=w0; }
+      if(v1b<v0b){ var w1=v0b; v0b=v1b; v1b=w1; }
+      /* coupé à chaque pli pour que chaque morceau reste plan : à cheval
+         sur un pli, le quadrilatère se voile et l'un de ses deux triangles
+         part retourné, éclairé par en dessous — les éclats noirs. */
+      var bornes=[-1e9,-L,0,L,1e9];
+      for(q=0;q+1<bornes.length;q++){
+        var g=bornes[q], dd=bornes[q+1];
+        var a0=Math.min(Math.max(v0a,g),dd), a1=Math.min(Math.max(v1a,g),dd);
+        var b0=Math.min(Math.max(v0b,g),dd), b1=Math.min(Math.max(v1b,g),dd);
+        if((a1-a0)+(b1-b0)<0.03) continue;
+        panRogne(tas,P(ua,a0,yDe(a0)),P(ub,b0,yDe(b0)),P(ub,b1,yDe(b1)),P(ua,a1,yDe(a1)),c);
+      }
+      if(v0a<-0.02&&v1a>0.02&&v0b<-0.02&&v1b>0.02) faite=true;
+    }
+    if(faite){
+      if(enCours && Math.abs(enCours[1]-ua)<0.05) enCours[1]=ub;
+      else { enCours=[ua,ub]; runs.push(enCours); }
+    } else enCours=null;
+  }
+  /* --- faîtière, sur la longueur réellement couverte --- */
+  var cf=assombrir(c,0.88), pl=null;
+  for(i=0;i<runs.length;i++){
+    var R0=P(runs[i][0],0,top+rise+0.06), R1=P(runs[i][1],0,top+rise+0.06);
+    tube(tas,R0[0],R0[1],R0[2],R1[0],R1[1],R1[2],0.13,0.13,5,cf,false,false);
+    if(!pl || runs[i][1]-runs[i][0]>pl[1]-pl[0]) pl=runs[i];
+  }
+
+  /* --- pignons et gouttières, le long du contour --- */
+  var aire2=0;
+  for(i=0;i<Q.length;i++){ var A1=Q[i], B1=Q[(i+1)%Q.length]; aire2+=A1[0]*B1[1]-B1[0]*A1[1]; }
+  var sens=(aire2>=0)?1:-1;
+  var egout=null;
+  for(i=0;i<Q.length;i++){
+    var A=Q[i], B=Q[(i+1)%Q.length];
+    var ns=normSort(A,B,sens);
+    if(!ns) continue;
+    var nx=ns[0]*co-ns[1]*si, nz=ns[0]*si+ns[1]*co;
+    /* l'arête traverse-t-elle un pli ? on la scinde à chaque fois, sinon
+       la bande de pignon coupe au plus court et dépasse du rampant */
+    var ts=[0,1], kk;
+    for(kk=0;kk<PLIS.length;kk++){
+      if((A[1]<PLIS[kk])!==(B[1]<PLIS[kk])){
+        var tt=(PLIS[kk]-A[1])/(B[1]-A[1]);
+        if(tt>0.001 && tt<0.999) ts.push(tt);
+      }
+    }
+    ts.sort(function(x,y){ return x-y; });
+    var bouts=[];
+    for(kk=0;kk+1<ts.length;kk++){
+      bouts.push([[A[0]+(B[0]-A[0])*ts[kk], A[1]+(B[1]-A[1])*ts[kk]],
+                  [A[0]+(B[0]-A[0])*ts[kk+1], A[1]+(B[1]-A[1])*ts[kk+1]]]);
+    }
+    for(var b=0;b<bouts.length;b++){
+      var S=bouts[b][0], T=bouts[b][1];
+      var yS=yDe(S[1]), yT=yDe(T[1]);
+      if(yS-top<0.06 && yT-top<0.06){                 /* c'est un égout */
+        var G0=P(S[0],S[1],0), G1=P(T[0],T[1],0);
+        if(ctx && ctx.h>3.2) gouttiere(G0,G1,top-0.07);
+        if(!egout || Math.hypot(T[0]-S[0],T[1]-S[1])>egout.L)
+          egout={P:G0, L:Math.hypot(T[0]-S[0],T[1]-S[1])};
+        continue;
+      }
+      /* bande verticale du haut du mur au rampant */
+      var a0=P(S[0],S[1],top), a1=P(S[0],S[1],yS);
+      var b0=P(T[0],T[1],top), b1=P(T[0],T[1],yT);
+      var cible=(ctx&&ctx.mur)?ctx.mur:tas, cc=(ctx&&ctx.mur)?ctx.col:c;
+      var v1u=0.1+(yS-top)/8, v2u=0.1+(yT-top)/8;
+      /* par triFace, et non directement : le sens de parcours de l'arête
+         n'a rien à voir avec la normale sortante, si bien qu'une bande sur
+         deux tournait à l'envers et se faisait effacer par le moteur — le
+         pignon manquait, et le rampant paraissait flotter au-dessus du
+         vide alors qu'il était bien à sa place. */
+      var nb=[nx,0,nz];
+      triFace(cible,a0,b0,b1,nb,[0.004,0.1,0.024,0.1,0.024,v2u],cc);
+      triFace(cible,a0,b1,a1,nb,[0.004,0.1,0.024,v2u,0.004,v1u],cc);
+    }
+  }
   if(!ctx) return;
-  /* gouttières le long des égouts et une descente d'eau à un angle */
-  if(ctx.h>3.2){
-    gouttiere(g1[0],g1[1],top-0.07); gouttiere(g2[0],g2[1],top-0.07);
-    var dp=faite?P(Wi-0.35,-(Li+0.1),0):P(Wi+0.1,Li-0.35,0);
+  /* descente d'eau à l'angle d'un égout */
+  if(ctx.h>3.2 && egout){
+    var dp=egout.P;
     tube(BAT.zinc,dp[0],ctx.base+0.1,dp[2],dp[0],top-0.1,dp[2],0.045,0.045,4,teinte(0xaeb3b7),false,false);
   }
-  /* souche de cheminée enduite, chaperon et mitrons en terre cuite */
-  if(aire>55 && r<0.72 && BAT.chem){
-    var t=(r<0.36?-0.3:0.3);
-    var mx=E[0]+(F[0]-E[0])*(0.5+t), mz=E[2]+(F[2]-E[2])*(0.5+t);
-    var s=0.34+r*0.16, hc=top+rise+0.7+r*0.7, cc=melange(ctx.col,teinte(0xe8e2d6),0.5);
-    boiteQuad(BAT.chem,[mx-s,mz-s],[mx+s,mz-s],[mx+s,mz+s],[mx-s,mz+s],top+rise-0.9,hc,cc,cc,1.2);
-    var s2=s+0.08;
-    boiteQuad(BAT.chem,[mx-s2,mz-s2],[mx+s2,mz-s2],[mx+s2,mz+s2],[mx-s2,mz+s2],hc,hc+0.1,assombrir(cc,0.82),assombrir(cc,0.8),1.2);
+  /* souche de cheminée enduite, chaperon et mitrons en terre cuite, posée
+     sur le faîte là où il existe vraiment */
+  if(aire>55 && r<0.72 && BAT.chem && pl){
+    var uc=pl[0]+(pl[1]-pl[0])*(r<0.36?0.34:0.68);
+    var Pm=P(uc,0,0), mx=Pm[0], mz=Pm[2];
+    var sz=0.34+r*0.16, hc=top+rise+0.7+r*0.7, cc2=melange(ctx.col,teinte(0xe8e2d6),0.5);
+    boiteQuad(BAT.chem,[mx-sz,mz-sz],[mx+sz,mz-sz],[mx+sz,mz+sz],[mx-sz,mz+sz],top+rise-0.9,hc,cc2,cc2,1.2);
+    var s2=sz+0.08;
+    boiteQuad(BAT.chem,[mx-s2,mz-s2],[mx+s2,mz-s2],[mx+s2,mz+s2],[mx-s2,mz+s2],hc,hc+0.1,assombrir(cc2,0.82),assombrir(cc2,0.8),1.2);
     var terre=teinte(0xa4552f);
-    tube(BAT.chem,mx-s*0.4,hc+0.1,mz,mx-s*0.4,hc+0.42,mz,0.085,0.07,6,terre,false,true);
-    if(r>0.2) tube(BAT.chem,mx+s*0.4,hc+0.1,mz,mx+s*0.4,hc+0.36,mz,0.085,0.07,6,terre,false,true);
+    tube(BAT.chem,mx-sz*0.4,hc+0.1,mz,mx-sz*0.4,hc+0.42,mz,0.085,0.07,6,terre,false,true);
+    if(r>0.2) tube(BAT.chem,mx+sz*0.4,hc+0.1,mz,mx+sz*0.4,hc+0.36,mz,0.085,0.07,6,terre,false,true);
   }
+}
+/* L'axe du faîte. La boîte englobante d'aire minimale donne l'enveloppe la
+   plus serrée, mais pas toujours l'axe du bâtiment : pour une rangée qui
+   suit une rue oblique, les côtés de la boîte ne sont pas parallèles aux
+   murs de pignon, et la toiture rognée sur l'emprise s'effile en pointe à
+   hauteur de faîte au lieu de finir sur un pignon franc — une lame claire
+   suspendue dans le ciel, vue de la rue. On essaie donc l'axe du plus long
+   mur : s'il enveloppe l'emprise presque aussi serré, c'est le bon. */
+function axeToit(p,n,cx,cz,ang,w,l){
+  var base={ang:ang, w:w, l:l, cx:cx, cz:cz};
+  if(!p || n<3) return base;
+  var iL=-1, lg=0, i, j;
+  for(i=0;i<n;i++){
+    j=(i+1)%n;
+    var dx=p[j*2]-p[i*2], dz=p[j*2+1]-p[i*2+1], d=Math.hypot(dx,dz);
+    if(d>lg){ lg=d; iL=i; }
+  }
+  if(iL<0 || lg<6) return base;
+  j=(iL+1)%n;
+  var a2=Math.atan2(p[j*2+1]-p[iL*2+1], p[j*2]-p[iL*2]);
+  var co=Math.cos(a2), si=Math.sin(a2);
+  var u0=1e9,u1=-1e9,v0=1e9,v1=-1e9;
+  for(i=0;i<n;i++){
+    var ex=p[i*2]-cx, ez=p[i*2+1]-cz;
+    var uu=ex*co+ez*si, vv=-ex*si+ez*co;
+    if(uu<u0)u0=uu; if(uu>u1)u1=uu; if(vv<v0)v0=vv; if(vv>v1)v1=vv;
+  }
+  var w2=u1-u0, l2=v1-v0;
+  if(Math.min(w2,l2)>Math.min(w,l)*1.22) return base;   /* enveloppe trop lâche */
+  var um=(u0+u1)/2, vm=(v0+v1)/2;
+  return {ang:a2, w:w2, l:l2, cx:cx+um*co-vm*si, cz:cz+um*si+vm*co};
+}
+toitDeuxPentes=function(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique){
+  var ctx=CTX_TOIT;
+  var A=axeToit(ctx?ctx.p:null, ctx?ctx.n:0, cx, cz, ang, w, l);
+  /* un seul cas traité : le faîte le long de u. L'autre s'y ramène par un
+     quart de tour, ce qui évite d'écrire deux fois le découpage. */
+  if(A.w>=A.l) toitTente(tas,A.cx,A.cz,A.ang,A.w,A.l,top,c,fpente,aire,r,brique,ctx);
+  else toitTente(tas,A.cx,A.cz,A.ang+PI/2,A.l,A.w,top,c,fpente,aire,r,brique,ctx);
 };
 
 construireBatis=function(bats){
@@ -10335,17 +10618,25 @@ construireBatis=function(bats){
     var type=(k==='e')?'E':typeDe(p,cx,cz,aire,x0,x1,z0,z1);
     if(!type && k==='i') type='I';
     if(type) NB_TYPES[type]=(NB_TYPES[type]||0)+1;
+    /* Ce que les photos disent de ce bâtiment précis. À lire ici, avant la
+       hauteur : je l'avais placé plus bas, après, et « rel » valait donc
+       undefined au moment du remplacement de hauteur. Sans erreur visible :
+       la famille de façade changeait bien, mais pas la hauteur, et le toit
+       restait perché là où la hauteur devinée l'avait mis — d'où des
+       toitures flottant au-dessus des commerces bas. */
+    if(repriseParMonument(cx,cz)) continue;
+    var rel=releveProche(cx,cz);
     var h=hautBat(k,aire,lv,ht,r,milit,type);
-    /* niveaux comptés sur la photo : la 3D faisait trois étages là où il n'y
-       en a qu'un, faute de hauteur dans OpenStreetMap */
-    if(rel && rel.niv) h=(rel.fam===6?4.6:0)+rel.niv*(rel.fam===6?0:3.15)+(rel.fam===6?0:1.1);
+    /* niveaux comptés sur la photo : la 3D faisait trois étages là où
+       l'avenue n'a qu'un commerce d'un seul niveau très haut */
+    if(rel && rel.niv){
+      h=(rel.fam===6) ? 4.9 : (rel.niv*3.15+1.1);
+    }
     var base=1e9;
     for(j=0;j<n;j++){ var hh=hauteur(p[j*2],p[j*2+1]); if(hh<base) base=hh; }
     base-=0.35;
     var top=base+h;
     var petit=(k==='g'||aire<28||h<3.2) && !type;
-    /* ce que les photos disent de ce bâtiment précis, s'il en fait partie */
-    var rel=releveProche(cx,cz);
     var fam;
     if(rel && rel.fam!==undefined) fam=rel.fam;
     else if(milit) fam=3;
@@ -10415,7 +10706,7 @@ construireBatis=function(bats){
     var cta=melange(blanc,teinte(0xd6dbe2),r2);
     if(milit && !ardoise) ct=melange(ct,teinte(0xc8cdd4),0.5);
     var tuiles=(r3>0.5)?BAT.toits2:BAT.toits, riseMairie=0;
-    CTX_TOIT={mur:tasHaut, col:cm, base:base, h:h};
+    CTX_TOIT={mur:tasHaut, col:cm, base:base, h:h, p:p, n:n};
     if(type==='G'||type==='I'){
       if(rect>=70 && Math.min(ow,ol)>6) toitDeuxPentes(BAT.toitsM,cx,cz,ang,ow,ol,top,gris,0.32,0,1,brique);
       else toitPlat(BAT.plats,p,top,cm,ct);
@@ -10464,7 +10755,13 @@ function etapeBatisRiche(){
   if(phAppliquer(MAT.toits2,'ceramic_roof_01',0.5,0.5,1.2)) MAT.toits2.color.setScalar(1.18);
   if(phAppliquer(MAT.toitsA,'roof_slates_02',0.55,0.55,1.1)) MAT.toitsA.color.setRGB(0.78,0.90,1.10);
   if(phAppliquer(MAT.plats,'gravel_road',0.8,0.8,0.8)) MAT.plats.color.setScalar(1.05);
-  for(f=0;f<6;f++){ ajouter(b.murs[f],MAT.murs[f],true,true); ajouter(b.rdc[f],MAT.rdcs[f],true,true); }
+  /* NB_FAM et non 6 : en ajoutant la septième famille j'avais corrigé les
+     deux boucles de création mais pas celle-ci, et les murs de cette famille
+     partaient dans des tas que rien n'ajoutait à la scène. Les bâtiments
+     concernés n'avaient donc aucun mur, seulement leur toit — c'est la
+     « zone de vide » vue sur le terrain : une toiture suspendue au-dessus
+     de rien. */
+  for(f=0;f<NB_FAM;f++){ ajouter(b.murs[f],MAT.murs[f],true,true); ajouter(b.rdc[f],MAT.rdcs[f],true,true); }
   ajouter(b.rdcC,MAT.rdcC,true,true);     ajouter(b.mursS,MAT.mursS,true,true);
   ajouter(b.mursEg,MAT.mursEg,true,true); ajouter(b.mursI,MAT.mursI,true,true);
   ajouter(b.annexes,MAT.annexes,true,true);
@@ -10484,6 +10781,15 @@ function etapeBatisRiche(){
   MAT.taille=matTexture(ctai,2.0,{rugo:0.86});
   phAppliquer(MAT.taille,'white_sandstone_blocks_02',0.5,0.5,1.0);
   ajouter(b.taille,MAT.taille,true,true);
+  /* Des matériaux nommés : sans cela le sondeur (ESPACE3D.sonder) ne peut
+     dire que « sans nom », et on ne sait pas si une surface suspendue est
+     une toiture, une corniche ou un mur. */
+  for(f=0;f<NB_FAM;f++){ MAT.murs[f].name='mur f'+f; MAT.rdcs[f].name='rdc f'+f; }
+  MAT.rdcC.name='rdc commerce'; MAT.mursS.name='mur ecole'; MAT.mursEg.name='mur eglise';
+  MAT.mursI.name='mur bardage'; MAT.annexes.name='annexe'; MAT.corn.name='corniche';
+  MAT.toits.name='toit tuiles'; MAT.toits2.name='toit tuiles 2'; MAT.toitsA.name='toit ardoise';
+  MAT.toitsM.name='toit bardage'; MAT.plats.name='toit plat'; MAT.deco.name='deco';
+  MAT.zinc.name='zinc'; MAT.chem.name='cheminee'; MAT.bronze.name='bronze'; MAT.taille.name='pierre de taille';
 }
 ETAPES.forEach(function(e){ if(e[1]===etapeBatis){ e[1]=etapeBatisRiche; e[0]='Bâtiments : façades, toitures, cheminées'; } });
 /* =================================================================
@@ -12154,6 +12460,31 @@ window.ESPACE3D.cliche=function(qualite){
   return renderer.domElement.toDataURL('image/jpeg',qualite||0.72);
 };
 
+/* Que touche-t-on à cet endroit de l'écran ? Un rayon depuis la caméra, et
+   le nom du matériau, le point touché et la normale. C'est ce qui permet
+   de nommer un toit qui flotte au lieu de le deviner : on demande au
+   moteur de quel maillage il sort et à quelle hauteur.
+   sx, sy : fractions de l'image, 0,0 en haut à gauche.                  */
+window.ESPACE3D.sonder=function(sx,sy,combien){
+  if(!construit || !renderer) return null;
+  var r=new THREE.Raycaster();
+  r.setFromCamera(new THREE.Vector2(sx*2-1, 1-sy*2), camera);
+  r.far=1200;
+  var t=r.intersectObjects(scene.children,true), out=[];
+  for(var i=0;i<t.length && out.length<(combien||4);i++){
+    var h=t[i];
+    if(!h.object || !h.object.visible) continue;
+    var m=h.object.material||{};
+    out.push({
+      quoi:(m.name||h.object.name||'(sans nom)'),
+      dist:+h.distance.toFixed(1),
+      point:[+h.point.x.toFixed(1), +h.point.y.toFixed(1), +h.point.z.toFixed(1)],
+      normale:h.face?[+h.face.normal.x.toFixed(2),+h.face.normal.y.toFixed(2),+h.face.normal.z.toFixed(2)]:null
+    });
+  }
+  return out;
+};
+
 /* =================================================================
    Relevé photographique du 17 septembre 2026 : ce que le terrain dit.
 
@@ -12233,6 +12564,19 @@ function releveProche(cx,cz){
     if(d<22 && (!best || d<best.d)) best={d:d, o:RELEVE_XZ[i].o};
   }
   return best ? best.o : null;
+}
+
+/* ---------- emprises reprises par un monument ----------
+   La Porte Chalon est bâtie sur les deux emprises OSM de ses pavillons. Si
+   on laisse en plus la 3D y dresser ses bâtiments ordinaires, les deux se
+   superposent : c'est ce qui donnait, sur la capture du terrain, des
+   balustrades et des entablements paraissant flotter au-dessus de maisons à
+   volets. Ces emprises sont donc écartées de la boucle des bâtiments. */
+function repriseParMonument(cx,cz){
+  if(!window.PORTE) return false;
+  var d1=Math.hypot(pX(PORTE.pavA.lo)-cx, pZ(PORTE.pavA.la)-cz);
+  var d2=Math.hypot(pX(PORTE.pavB.lo)-cx, pZ(PORTE.pavB.la)-cz);
+  return Math.min(d1,d2)<7;
 }
 
 /* ---------- un bâtiment institutionnel se reconnaît à sa forme ----------
@@ -12559,7 +12903,7 @@ function texFerronnerie(){
    pavillons de 11 × 9 m et 11 m de haut, balustrade de 1,1 m, murs
    concaves de 7,2 m, arche de 4,6 m d'ouverture sous un entablement à
    12,4 m. La pierre est un calcaire pâle, plus sombre au pied.          */
-var PORTE={
+window.PORTE={
   /* Centres des deux pavillons, tels qu'ils sont dans les emprises OSM. Ils
      encadrent le point « Porte Chalon » à dix mètres de part et d'autre,
      exactement : ce sont bien eux, et l'arche est à leur milieu.
@@ -12569,6 +12913,7 @@ var PORTE={
   pavA:{la:46.413171, lo:-0.205419},
   pavB:{la:46.413089, lo:-0.205648}
 };
+var PORTE=window.PORTE;
 function porteChalon(){
   if(!BAT || !BAT.taille) return;
   var pierre=teinte(0xd7cfbc), pierreO=teinte(0xbdb5a2), corniche=teinte(0xe2dbca);
@@ -12835,9 +13180,12 @@ function monumentDenfert(){
    outils/relever_batiments.js, donc pas devinés. « dec » décale le long du
    mur, « bas » donne la hauteur du bord inférieur.                       */
 var ENSEIGNES=[
-  {la:46.414651, lo:-0.201840, az:152, dec:0,    bas:3.30, l:6.0, ht:1.15,
+  /* Le mur touché ne fait que 9,5 m : une enseigne de 6 m y tient, mais
+     celle d'à côté décalée de 9,5 m tombait au-delà du pignon et flottait
+     au-dessus d'un toit. Les deux se partagent maintenant le mur. */
+  {la:46.414651, lo:-0.201840, az:152, dec:1.1,  bas:3.30, l:4.8, ht:1.05,
    texte:'HUMAN', sous:'immobilier', fond:'#1b7cb0', encre:'#ffffff'},
-  {la:46.414651, lo:-0.201840, az:152, dec:-9.5, bas:3.30, l:4.2, ht:1.00,
+  {la:46.414651, lo:-0.201840, az:152, dec:-3.2, bas:3.30, l:2.9, ht:0.85,
    texte:'ORPI', sous:'VINET', fond:'#f2f2ef', encre:'#14539e', encre2:'#5a6472'},
   {la:46.414825, lo:-0.201839, az:150, dec:0,    bas:6.10, l:4.0, ht:1.10,
    texte:'HOTEL', espace:true, fond:'#e9e4d6', encre:'#1b4f96'},

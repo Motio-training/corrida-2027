@@ -89,3 +89,30 @@ tranche *k* couvre les azimuts [30k, 30k+30], donc x = 0 correspond au nord —
 c'est ce qui permet à l'application de caler la bande sur la boussole.
 
 Comme pour les vignettes, **à relancer avec `--refaire` quand la 3D change**.
+
+## `verifier_toitures.js`
+
+Contrôle géométrique des toitures, sans navigateur : les 3 573 emprises qui
+reçoivent une toiture à deux pentes sont éprouvées en deux secondes, là où un
+rendu en demande deux minutes.
+
+```sh
+node outils/verifier_toitures.js             # le bilan
+node outils/verifier_toitures.js --details   # et les emprises fautives
+```
+
+Quatre invariants, qui sont exactement les quatre façons dont j'ai vu la
+toiture se tromper :
+
+1. **toute l'emprise est couverte** — pas de trou dans le toit ;
+2. **rien ne dépasse de plus d'un mètre du contour** — pas de pan suspendu
+   dans le vide (le débord de toit vaut 38 cm) ;
+3. **chaque triangle de pan** a une normale franche tournée vers le haut, et
+   tourne dans le sens de cette normale — sinon le moteur l'efface ou
+   l'éclaire par en dessous, et il apparaît en noir ;
+4. **chaque bande de pignon** ferme l'écart entre le haut du mur et le
+   rampant, et tourne aussi dans le bon sens.
+
+Le contrôle sort en échec (code 1) au premier défaut, et il attrape bien les
+régressions : en reposant la toiture sur la boîte englobante, ou en posant les
+bandes de pignon sans vérifier leur sens, il signale les 3 573 emprises.
