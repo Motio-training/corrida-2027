@@ -134443,7 +134443,23 @@ function donnee(id){
   }
   return DONNEES_CACHE[id];
 }
-window.CONSULTATION=false;
+/* Mode consultation, comme sur la page principale : écran tactile et petit
+   écran, ou ?consultation=1 ; ?edition=1 force l'autre. Il allège l'interface
+   3D et laisse de côté les modèles de piétons les plus lourds — sur le
+   terrain, en données mobiles, cela fait une vingtaine de mégaoctets de
+   moins à télécharger. */
+window.CONSULTATION=(function(){
+  try{
+    var q=String(location.search||'')+String(location.hash||'');
+    if(/edition=1/.test(q)) return false;
+    if(/consultation=1/.test(q)) return true;
+  }catch(e){}
+  try{
+    var tactile=!!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+    var petit=Math.min(screen.width,screen.height)<=820;
+    return tactile && petit;
+  }catch(e){ return false; }
+})();
 
 /* Tracé de démonstration le long des rues : remplacé par le relevé GPS
    de la sortie 360 dès qu'il sera là. */
@@ -134500,11 +134516,14 @@ window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree
     if(e3) e3.hidden=false;
     if(voile){ voile.hidden=false; voile.classList.remove('parti'); }
     var n=0;
-    C.fichiers.reduce(function(p,f){
+    var L=C.fichiers.filter(function(f){
+      return !(window.CONSULTATION && (C.mobiles_sans||[]).indexOf(f)>=0);
+    });
+    L.reduce(function(p,f){
       return p.then(function(){
         n++;
-        if(txt) txt.textContent='Téléchargement de la 3D ('+n+' / '+C.fichiers.length+')…';
-        if(jauge) jauge.style.width=Math.round(n/C.fichiers.length*100)+'%';
+        if(txt) txt.textContent='Téléchargement de la 3D ('+n+' / '+L.length+')…';
+        if(jauge) jauge.style.width=Math.round(n/L.length*100)+'%';
         return charger(f);
       });
     },Promise.resolve()).then(function(){
