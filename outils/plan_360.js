@@ -141,9 +141,9 @@ for(const e of aretes){
       compte.set(bi,(compte.get(bi)||0)+1);
       if(!dmin.has(bi)||d<dmin.get(bi)) dmin.set(bi,d);
     }
-    const bons=[];
-    for(const [bi,c] of compte) if(c>=COL_MIN) bons.push(bi);
-    e.vues.push({x,z,bons});
+    const bons=[], dbons=[];
+    for(const [bi,c] of compte) if(c>=COL_MIN){ bons.push(bi); dbons.push(dmin.get(bi)); }
+    e.vues.push({x,z,bons,dbons});
     nPoints++;
   }
 }
@@ -220,6 +220,8 @@ if(ARG.includes('--suivre')){
   process.exit(0);
 }
 
+const ETAPES_F=opt('etapes');
+
 /* ------------------------------------------------- construction gloutonne - */
 const DEPART=(opt('depart')||'').split(',');
 let noeudCourant;
@@ -245,11 +247,20 @@ function gainArete(e){
      n'apporte pas le bâtiment mais la médiane et la détection d'erreur */
   return neufs.size + 0.6*seconds.size;
 }
+const distances=new Map();        /* bâtiment → distances de tous ses points de vue */
 function encaisser(e){
   if(!e.vues) return;
-  for(const v of e.vues) for(const b of v.bons) vus.set(b,(vus.get(b)||0)+1);
+  for(const v of e.vues) v.bons.forEach((b,i)=>{
+    vus.set(b,(vus.get(b)||0)+1);
+    if(!distances.has(b)) distances.set(b,[]);
+    distances.get(b).push(v.dbons[i]);
+  });
   marchees.add(e.id);
 }
+/* La distance qui renseigne n'est pas la plus courte — collée à un mur on ne
+   voit qu'une lichette de façade — mais celle du gros des vues. */
+const medDist=b=>{ const a=(distances.get(b)||[]).slice().sort((x,y)=>x-y);
+  return a.length?a[a.length>>1]:null; };
 
 /* On peut borner les rues candidates sans borner le réseau : traverser reste
    permis, mais on ne va pas chercher des bâtiments à un kilomètre tant que
@@ -297,7 +308,38 @@ if(RAYON>0 && DEPART.length===2){
   console.log('rues candidates bornées à '+RAYON+' m du départ : '+hors+' tronçons écartés');
 }
 
-for(;;){
+/* ------------------------- ou bien : passer par des points imposés --------
+   Pour un essai court, ce qu'on veut n'est pas la couverture maximale mais
+   quelques bâtiments remarquables relevés proprement. On donne alors la liste
+   des points à visiter, dans l'ordre, et l'itinéraire les relie par le
+   réseau : la boucle passe où il faut au lieu d'aller chercher des maisons
+   anonymes au fond d'une ruelle parce qu'elles rapportent un point de plus. */
+if(ETAPES_F){
+  const cibles=ETAPES_F.split(';').map(t=>t.split(',')).filter(c=>c.length===2)
+    .map(c=>({x:pX(+c[1]), z:pZ(+c[0])}));
+  if(cibles.length<2){ console.error('--etapes demande au moins deux points « la,lo » séparés par ;'); process.exit(1); }
+  const proche=q=>{ let m=null, bd=1e9;
+    for(const [k,p] of noeuds){ const d=Math.hypot(p[0]-q.x,p[1]-q.z); if(d<bd){ bd=d; m=k; } }
+    return m; };
+  const sommets=cibles.map(proche);
+  sommets.push(sommets[0]);                     /* refermer la boucle */
+  const suite=[];
+  for(let i=1;i<sommets.length;i++){
+    const {prec}=chemin(sommets[i-1],(id,L)=>L);
+    const r=remonter(prec,sommets[i]);
+    if(!r.length && sommets[i]!==sommets[i-1]){
+      console.error('étape '+i+' non reliée au réseau'); process.exit(1);
+    }
+    for(const pas of r) suite.push(pas);
+  }
+  let L=0;
+  for(const pas of suite){ itineraire.push(pas); L+=aretes[pas.id].L; encaisser(aretes[pas.id]); }
+  longueur=L;
+  console.log('itinéraire imposé : '+cibles.length+' étapes, '+(L/1000).toFixed(2)+' km');
+}
+
+
+if(!ETAPES_F) for(;;){
   /* les tronçons déjà parcourus ne coûtent presque rien : repasser dans une
      rue déjà faite est le prix normal d'un aller-retour en cul-de-sac */
   const {d,prec}=chemin(noeudCourant,(id,L)=>marchees.has(id)?L*0.35:L);
@@ -329,7 +371,7 @@ for(;;){
 }
 
 /* retour au départ, pour boucler */
-if(DEPART.length===2){
+if(DEPART.length===2 && !ETAPES_F){
   const dx=pX(+DEPART[1]), dz=pZ(+DEPART[0]);
   let cible=null, bd=1e9;
   for(const [k,q] of noeuds){ const d=Math.hypot(q[0]-dx,q[1]-dz); if(d<bd){ bd=d; cible=k; } }
@@ -370,6 +412,52 @@ const photos=Math.round(longueur/PAS);
 console.log('  à une photo tous les '+PAS+' m : environ '+photos+' images, '+
             Math.round(longueur/1000/4.8*60)+' min de marche à 4,8 km/h');
 
+/* ------------------------------------------- les points remarquables ----
+   Sur un essai court, le chiffre qui compte n'est pas un pourcentage sur
+   quatre cents maisons : c'est de savoir si la mairie, l'église et les
+   commerces sont vus, et de combien de points de vue. On relit donc les
+   objets nommés de l'export et on regarde le bâtiment qui les porte. */
+const POIS=[];
+if(OSM && fs.existsSync(OSM)){
+  const geo=JSON.parse(fs.readFileSync(OSM,'utf8'));
+  const INTERESSANT=t=>t.shop||t.office||t.craft||
+    (t.amenity && !['parking','bench','waste_basket','bicycle_parking','recycling',
+                    'post_box','crossing','drinking_water','atm'].includes(t.amenity))||
+    t.tourism||t.historic||(t.building && ['church','chapel','public','civic'].includes(t.building));
+  for(const f of geo.features||[]){
+    const t=f.properties||{}, g=f.geometry;
+    if(!g || !INTERESSANT(t)) continue;
+    let sx=0,sz=0,n=0;
+    (function s(c){ if(typeof c[0]==='number'){ sx+=pX(c[0]); sz+=pZ(c[1]); n++; } else c.forEach(s); })(g.coordinates);
+    const x=sx/n, z=sz/n;
+    /* le bâtiment qui le porte : le plus proche à moins de vingt mètres */
+    let bi=-1, bd=20;
+    for(const b of BATS){ const d=Math.hypot(b.cx-x,b.cz-z); if(d<bd){ bd=d; bi=b.i; } }
+    if(bi<0) continue;
+    const quoi=t.shop||t.amenity||t.tourism||t.historic||t.office||t.craft||t.building;
+    const ds=(distances.get(bi)||[]).slice().sort((x,y)=>x-y);
+    POIS.push({bi, quoi, nom:t.name||'', vues:vus.get(bi)||0,
+               dmed:ds.length?Math.round(ds[ds.length>>1]):null,
+               dmin:ds.length?Math.round(ds[0]):null,
+               dmax:ds.length?Math.round(ds[ds.length-1]):null});
+  }
+}
+if(POIS.length){
+  /* un bâtiment peut porter plusieurs objets : on garde le plus parlant */
+  const parBat=new Map();
+  for(const o of POIS){
+    const v=parBat.get(o.bi);
+    if(!v || (o.nom && !v.nom)) parBat.set(o.bi,o);
+  }
+  const liste=[...parBat.values()].sort((a,b)=>b.vues-a.vues);
+  const dedans=liste.filter(o=>o.vues>0);
+  console.log('');
+  console.log('points remarquables relevés : '+dedans.length+' sur '+liste.length+' dans la carte');
+  dedans.slice(0,+opt('combien',30)).forEach(o=>console.log('  '+String(o.vues).padStart(3)+
+    ' vues   de '+String(o.dmin).padStart(2)+' à '+String(o.dmax).padStart(2)+
+    ' m, médiane '+String(o.dmed).padStart(2)+' m   '+o.quoi.padEnd(18)+o.nom));
+}
+
 /* la trace, en points géographiques */
 const trace=[];
 for(const pas of itineraire){
@@ -396,9 +484,11 @@ for(const pas of itineraire){
   else etapes.push({nom,L});
 }
 const fusion=etapes.filter(e=>e.L>=25);
+/* l'intervalle qui correspond au pas d'échantillonnage, à 4,8 km/h */
+const SECONDES=Math.round(PAS/(4.8/3.6));
 let md='# Relevé 360 — itinéraire\n\n'+
- '**'+(longueur/1000).toFixed(2)+' km**, environ '+photos+' photos à une toutes les dix secondes, '+
- Math.round(longueur/1000/4.8*60)+' minutes de marche.\n\n'+
+ '**'+(longueur/1000).toFixed(2)+' km**, environ '+photos+' photos à une toutes les '+
+ SECONDES+' secondes, '+Math.round(longueur/1000/4.8*60)+' minutes de marche sans les arrêts.\n\n'+
  'Couverture : '+couverts1+' bâtiments vus au moins une fois et '+couverts2+
  ' de deux points de vue, sur '+atteignables.size+' visibles depuis une rue ('+BATS.length+
  ' emprises au total — les remises de fond de jardin ne se voient d’aucune rue).\n\n'+
@@ -407,6 +497,17 @@ let md='# Relevé 360 — itinéraire\n\n'+
    'points de vue ('+(coeurVus/coeur*100).toFixed(0)+' % au moins une fois).\n\n') : '')+
  '## Dans l’ordre\n\n';
 fusion.forEach((e,i)=>{ md+=(i+1)+'. **'+e.nom+'** — '+Math.round(e.L)+' m\n'; });
+if(typeof POIS!=='undefined' && POIS.length){
+  const parBat2=new Map();
+  for(const o of POIS){ const v=parBat2.get(o.bi); if(!v || (o.nom && !v.nom)) parBat2.set(o.bi,o); }
+  const d2=[...parBat2.values()].filter(o=>o.vues>0).sort((a,b)=>b.vues-a.vues);
+  if(d2.length){
+    md+='\n## Points remarquables relevés\n\n'+
+        '| objet | nom | points de vue | distances |\n|---|---|---|---|\n';
+    d2.forEach(o=>{ md+='| '+o.quoi+' | '+(o.nom||'—')+' | '+o.vues+' | '+
+      o.dmin+' à '+o.dmax+' m (médiane '+o.dmed+') |\n'; });
+  }
+}
 md+='\nLes tronçons de moins de 25 m (traversées, raccords) ne sont pas listés ; '+
     'la trace GPX les contient.\n';
 fs.writeFileSync(SORTIE+'.md',md);

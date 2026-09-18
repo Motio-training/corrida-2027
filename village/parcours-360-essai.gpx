@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="plan_360.js" xmlns="http://www.topografix.com/GPX/1/1">
+ <metadata><name>Relevé 360 — parcours-360-essai</name>
+  <desc>0.61 km, 83 bâtiments vus de deux points de vue</desc>
+ </metadata>
+ <trk><name>Relevé 360</name><trkseg>
+  <trkpt lat="46.3605918" lon="-0.1126588"/>
+  <trkpt lat="46.3604245" lon="-0.1125015"/>
+  <trkpt lat="46.3602400" lon="-0.1129966"/>
+  <trkpt lat="46.3604955" lon="-0.1131798"/>
+  <trkpt lat="46.3605945" lon="-0.1131902"/>
+  <trkpt lat="46.3607186" lon="-0.1131759"/>
+  <trkpt lat="46.3609355" lon="-0.1132370"/>
+  <trkpt lat="46.3610245" lon="-0.1132461"/>
+  <trkpt lat="46.3613088" lon="-0.1132967"/>
+  <trkpt lat="46.3610245" lon="-0.1132461"/>
+  <trkpt lat="46.3609355" lon="-0.1132370"/>
+  <trkpt lat="46.3609391" lon="-0.1131798"/>
+  <trkpt lat="46.3610011" lon="-0.1127055"/>
+  <trkpt lat="46.3609453" lon="-0.1126445"/>
+  <trkpt lat="46.3608878" lon="-0.1125886"/>
+  <trkpt lat="46.3606746" lon="-0.1124782"/>
+  <trkpt lat="46.3606728" lon="-0.1123053"/>
+  <trkpt lat="46.3606944" lon="-0.1121780"/>
+  <trkpt lat="46.3605585" lon="-0.1120390"/>
+  <trkpt lat="46.3606287" lon="-0.1118623"/>
+  <trkpt lat="46.3605585" lon="-0.1120390"/>
+  <trkpt lat="46.3604137" lon="-0.1119116"/>
+  <trkpt lat="46.3606368" lon="-0.1114101"/>
+  <trkpt lat="46.3606107" lon="-0.1113841"/>
+  <trkpt lat="46.3606575" lon="-0.1112724"/>
+  <trkpt lat="46.3606107" lon="-0.1113841"/>
+  <trkpt lat="46.3606368" lon="-0.1114101"/>
+  <trkpt lat="46.3604137" lon="-0.1119116"/>
+  <trkpt lat="46.3603336" lon="-0.1120780"/>
+  <trkpt lat="46.3602454" lon="-0.1122872"/>
+  <trkpt lat="46.3602445" lon="-0.1123235"/>
+  <trkpt lat="46.3604245" lon="-0.1125015"/>
+  <trkpt lat="46.3605918" lon="-0.1126588"/>
+ </trkseg></trk>
+</gpx>
