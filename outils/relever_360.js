@@ -51,6 +51,24 @@ const PAGE=opt('page','index.html');
 const SORTIE=opt('sortie', path.join(DOSSIER,'releve.json'));
 const CAP_IMPOSE=opt('cap')!==undefined?+opt('cap'):null;
 const VERITE=ARG.includes('--verite');
+/* Sur des panoramas de synthèse, la position est exacte : le contrôle serait
+   flatteur, puisque c'est elle qui donne la distance et donc la hauteur. Un
+   GPS de téléphone ou de GoPro se trompe de quelques mètres. --bruit-gps
+   déplace chaque prise de vue d'autant, pour chiffrer ce que cette erreur
+   coûte sur la hauteur relevée avant d'aller sur le terrain. */
+const BRUIT=+opt('bruit-gps',0);
+/* Étalonnage des couleurs. Une photo ne donne pas la couleur d'un enduit,
+   elle donne celle que la lumière du jour en a faite : sur ces panoramas de
+   synthèse, la façade mesurée vaut 0,70 / 0,65 / 0,61 fois la couleur de
+   base donnée au matériau, et de 0,47 à 0,80 selon qu'elle est au soleil ou
+   à l'ombre. Reporter la couleur mesurée telle quelle dans le moteur la
+   ferait éclairer une seconde fois, et la ville s'assombrirait à chaque
+   passe.
+   D'où --etalon : un second lot de panoramas, rendu du modèle courant aux
+   mêmes points par rendre_equirect.js. La même bande y est mesurée, et c'est
+   le rapport des deux mesures qui corrige la couleur de base — la lumière,
+   commune aux deux, s'élimine. */
+const ETALON=opt('etalon');
 
 /* grille de travail : 0,25° par pixel, en azimut comme en élévation */
 const GW=1440, GH=720, BINS=28;
@@ -156,10 +174,20 @@ const TYPES={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png',
   '.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8',
   '.json':'application/json; charset=utf-8'};
 
-/* profils par colonne, calculés dans le navigateur (seul à savoir décoder
-   un JPEG ici) : la silhouette, le sol, et des couleurs par tranche */
-const LIRE=async (page,url)=>page.evaluate(async o=>{
-  const {url,GW,GH,BINS}=o;
+/* --------------------------------------------------- lecture des images ---
+   Le navigateur est le seul ici à savoir décoder un JPEG. On y fait donc
+   deux passes. La première classe les pixels et remonte la silhouette, ce
+   qui tient en deux nombres par colonne. La seconde, une fois qu'on connaît
+   par la géométrie quel bâtiment occupe quelle colonne et à quelle distance,
+   relève la couleur sur des bandes calculées pour ce bâtiment-là.
+
+   C'est l'ordre inverse qui m'a coûté un essai : en renvoyant d'abord des
+   couleurs par tranches fixes de l'image, les tranches valaient près de
+   treize degrés — plus de quatre mètres de façade à vingt mètres — et celle
+   du bas mordait sur la chaussée. Les murs de la vieille ville ressortaient
+   gris sombre alors qu'ils sont crème.                                    */
+const PASSE_A=async (page,url,nom)=>page.evaluate(async o=>{
+  const {url,nom,GW,GH}=o;
   const img=new Image();
   img.src=url;
   await img.decode();
@@ -171,61 +199,134 @@ const LIRE=async (page,url)=>page.evaluate(async o=>{
   const lum=new Float32Array(GW*GH);
   for(let i=0,k=0;i<P.length;i+=4,k++) lum[k]=0.299*P[i]+0.587*P[i+1]+0.114*P[i+2];
 
-  /* Classement de chaque pixel, une fois pour toute l'image : le premier
-     jet reclassait les mêmes pixels neuf fois en cherchant la silhouette,
-     et une photo demandait une dizaine de secondes pour rien.
-       c ciel · v verdure · n sombre (vitre, ombre portée) · m matière     */
+  /* Ce qu'est le ciel ne se décide pas à un seuil de clarté. Mon premier
+     essai demandait une luminance supérieure à 118 : le ciel bleu franc de
+     ces rendus vaut 117, il passait donc pour de la matière, la silhouette
+     se lisait au zénith dans toutes les colonnes et 6 828 colonnes sur
+     8 640 étaient rejetées pour « hauteur hors bornes ». Un ciel couvert,
+     un ciel de fin de journée ou un ciel d'orage auraient chacun demandé
+     un autre seuil.
+
+     Ce qu'on sait à coup sûr d'une image équirectangulaire prise dehors,
+     c'est que le zénith est du ciel. On apprend donc la couleur du ciel
+     dans la bande haute — six pour cent, soit au-dessus de 79° d'élévation,
+     qu'aucun bâtiment n'atteint depuis la rue — en remplissant une grille
+     grossière du cube RVB, dilatée d'une case pour suivre le dégradé du
+     bleu vers l'horizon.                                                 */
+  const Q=4, NB=1<<(8-Q);                        /* 16 cases par axe, larges de 16 */
+  const modele=new Uint8Array(NB*NB*NB), dilate=new Uint8Array(NB*NB*NB);
+  const seau=(r,g,b)=>(((r>>Q)*NB)+(g>>Q))*NB+(b>>Q);
+  const bande=Math.max(4,Math.round(GH*0.06));
+  for(let v=0;v<bande;v++) for(let u=0;u<GW;u++){
+    const i=(v*GW+u)*4; modele[seau(P[i],P[i+1],P[i+2])]=1;
+  }
+  for(let r=0;r<NB;r++) for(let g=0;g<NB;g++) for(let b=0;b<NB;b++){
+    if(!modele[(r*NB+g)*NB+b]) continue;
+    for(let dr=-1;dr<=1;dr++) for(let dg=-1;dg<=1;dg++) for(let db=-1;db<=1;db++){
+      const rr=r+dr, gg=g+dg, bb=b+db;
+      if(rr<0||rr>=NB||gg<0||gg>=NB||bb<0||bb>=NB) continue;
+      dilate[(rr*NB+gg)*NB+bb]=1;
+    }
+  }
   const CL=new Uint8Array(GW*GH);
   const C_CIEL=1, C_VERT=2, C_NOIR=3, C_MAT=4;
+  function lisse(u,v,L){
+    let m=0;
+    for(let dv=-2;dv<=2;dv++){
+      const vv=v+dv; if(vv<0||vv>=GH) continue;
+      const d=Math.abs(lum[vv*GW+u]-L); if(d>m) m=d;
+    }
+    return m<14;
+  }
+  /* Trois façons d'être du ciel, et la finesse des cases y est décisive.
+
+     Au deuxième essai les cases faisaient trente-deux niveaux de large et
+     la dilatation portait donc à ±32 : un blanc de nuage (230, 235, 245) et
+     un enduit crème (238, 233, 222) tombaient dans la même case. Toutes les
+     façades claires passaient pour du ciel, la silhouette descendait jusqu'à
+     une fenêtre et les hauteurs relevées tombaient à trois mètres. À seize
+     niveaux, les deux sont à deux cases l'une de l'autre et ne se confondent
+     plus.
+
+     Le bleu franc, lui, n'a besoin d'aucun modèle : aucune maçonnerie n'est
+     à ce point dominée par le bleu. Et pour le pâle — nuage appris ou nuage
+     bas que la bande haute n'a pas vu — on exige en plus la douceur : un mur
+     porte des bords de fenêtre, un nuage n'en a pas.
+
+     Ce qui rattrape le cas limite, c'est qu'entre le ciel et le mur il y a
+     un toit. Tuile ou ardoise, il n'est ni bleu franc ni pâle et lisse : la
+     silhouette s'arrête donc sur lui, ce qui est bien ce qu'on cherche.   */
   for(let v=0;v<GH;v++) for(let u=0;u<GW;u++){
     const k=v*GW+u, i=k*4, r=P[i], g=P[i+1], b=P[i+2], L=lum[k];
     const mx=Math.max(r,g,b), mn=Math.min(r,g,b), sat=mx?(mx-mn)/mx:0;
     if(g>r*1.04 && g>b*1.06 && sat>0.10){ CL[k]=C_VERT; continue; }
     if(L<42){ CL[k]=C_NOIR; continue; }
-    if(L>118 && (b>r*1.02 || sat<0.10)){
-      /* Ce qui distingue un ciel couvert d'un enduit clair n'est ni sa
-         couleur ni sa clarté — c'est qu'il est lisse. Contraste local
-         vertical, sur cinq lignes : un mur en a toujours un peu. */
-      let m=0;
-      for(let dv=-2;dv<=2;dv++){
-        const vv=v+dv; if(vv<0||vv>=GH) continue;
-        const d=Math.abs(lum[vv*GW+u]-L); if(d>m) m=d;
-      }
-      if(m<12){ CL[k]=C_CIEL; continue; }
-    }
+    if(b>r*1.15 && b>=g*0.98){ CL[k]=C_CIEL; continue; }
+    if(dilate[seau(r,g,b)] && sat<0.20 && lisse(u,v,L)){ CL[k]=C_CIEL; continue; }
+    if(L>150 && sat<0.12 && lisse(u,v,L)){ CL[k]=C_CIEL; continue; }
     CL[k]=C_MAT;
   }
 
-  /* la silhouette : en descendant du zénith, le premier non-ciel suivi de
-     huit non-ciel d'affilée — un fil ou un oiseau ne la déplace pas */
+  /* La silhouette, colonne par colonne, en descendant du zénith.
+
+     Le modèle de couleur seul ne suffit pas : les nuages sont blancs, un
+     enduit crème l'est presque, et la dilatation d'une case suffit à les
+     confondre. Le deuxième essai a ainsi mangé les façades claires — la
+     silhouette descendait jusqu'à une fenêtre et les hauteurs relevées
+     tombaient à trois ou quatre mètres. Ce qui sépare les deux, ce n'est
+     pas la couleur, c'est la marche : un bord de toiture est plus sombre
+     que le ciel qui le surmonte, même quand les deux sont pâles. On
+     descend donc en comparant chaque pixel à la moyenne des six qui le
+     précèdent dans la même colonne, et on s'arrête au premier décrochement
+     confirmé sur huit lignes — un fil ou un oiseau ne l'arrête pas.      */
   const silhouette=new Int16Array(GW).fill(-1);
+  const silVerdure=new Uint8Array(GW);
   const horizon=Math.round(GH/2);
   for(let u=0;u<GW;u++){
     for(let v=2;v<horizon;v++){
       if(CL[v*GW+u]===C_CIEL) continue;
-      let n=0;
-      for(let k=0;k<8 && v+k<GH;k++) if(CL[(v+k)*GW+u]!==C_CIEL) n++;
-      if(n>=7){ silhouette[u]=v; break; }
+      /* confirmé sur huit lignes : un fil, un oiseau ou un bord de nuage
+         mal classé ne déplacent pas la silhouette */
+      let n=0, vv=0;
+      for(let j=0;j<8;j++){
+        const w=v+j; if(w>=GH) break;
+        const kk=w*GW+u;
+        if(CL[kk]!==C_CIEL) n++;
+        if(CL[kk]===C_VERT) vv++;
+      }
+      if(n>=7){ silhouette[u]=v; silVerdure[u]=(vv>=5)?1:0; break; }
     }
   }
-  /* couleurs par tranche verticale, matière seulement */
-  const som=new Float64Array(GW*BINS*3), cnt=new Float64Array(GW*BINS);
-  const veg=new Float64Array(GW*BINS), noir=new Float64Array(GW*BINS), tot=new Float64Array(GW*BINS);
-  for(let v=0;v<GH;v++){
-    const k=Math.min(BINS-1, Math.floor(v/GH*BINS));
-    for(let u=0;u<GW;u++){
-      const o=u*BINS+k, c=CL[v*GW+u];
-      tot[o]++;
-      if(c===C_VERT){ veg[o]++; continue; }
-      if(c===C_NOIR){ noir[o]++; continue; }
-      if(c===C_CIEL) continue;
-      const i=(v*GW+u)*4;
-      som[o*3]+=P[i]; som[o*3+1]+=P[i+1]; som[o*3+2]+=P[i+2]; cnt[o]++;
+  /* on garde les pixels pour la seconde passe : six images tiennent en une
+     vingtaine de mégaoctets */
+  window.__IMG=window.__IMG||{};
+  window.__IMG[nom]={P,CL,GW,GH};
+  return {large:img.naturalWidth, haut:img.naturalHeight,
+          silhouette:Array.from(silhouette), silVerdure:Array.from(silVerdure)};
+},{url,nom,GW,GH});
+
+/* Deuxième passe : la couleur de la matière sur des bandes demandées.
+   bandes : [{u, v0, v1}] en lignes de la grille de travail.
+   rend   : [[r,g,b,n,fractionDeVerdure], …] dans le même ordre.          */
+const PASSE_B=async (page,nom,bandes)=>page.evaluate(o=>{
+  const {nom,bandes}=o;
+  const I=window.__IMG&&window.__IMG[nom];
+  if(!I) return null;
+  const {P,CL,GW,GH}=I, C_VERT=2, C_MAT=4;
+  const out=new Array(bandes.length);
+  for(let b=0;b<bandes.length;b++){
+    const {u,v0,v1}=bandes[b];
+    let sr=0,sg=0,sb=0,n=0,veg=0,tot=0;
+    for(let v=Math.max(0,v0);v<Math.min(GH,v1);v++){
+      const k=v*GW+u; tot++;
+      if(CL[k]===C_VERT){ veg++; continue; }
+      if(CL[k]!==C_MAT) continue;
+      const i=k*4; sr+=P[i]; sg+=P[i+1]; sb+=P[i+2]; n++;
     }
+    out[b]=n?[sr/n,sg/n,sb/n,n,tot?veg/tot:0]:[0,0,0,0,tot?veg/tot:0];
   }
-  return {silhouette:Array.from(silhouette), som:Array.from(som), cnt:Array.from(cnt),
-          veg:Array.from(veg), noir:Array.from(noir), tot:Array.from(tot)};
-},{url,GW,GH,BINS});
+  return out;
+},{nom,bandes});
 
 /* ------------------------------------------------------------- manifeste */
 function lireManifeste(){
@@ -355,12 +456,33 @@ if(ARG.includes('--essai-geometrie')){
 
   /* la trace, pour le cap de marche et pour ordonner les photos */
   M.photos.forEach(p=>{ p.x=pX(p.lo); p.z=pZ(p.la); });
+  if(BRUIT>0){
+    /* tirage reproductible : la même graine donne le même bruit d'un essai
+       à l'autre, sinon on comparerait deux hasards */
+    let g=12345;
+    const uni=()=>{ g=(g*1103515245+12345)&0x7fffffff; return g/0x7fffffff; };
+    const normal=()=>Math.sqrt(-2*Math.log(1-uni()))*Math.cos(2*PI*uni());
+    let som=0;
+    M.photos.forEach(p=>{ const dx=normal()*BRUIT/Math.SQRT2, dz=normal()*BRUIT/Math.SQRT2;
+      p.x+=dx; p.z+=dz; som+=Math.hypot(dx,dz); });
+    console.log('bruit GPS simulé : '+BRUIT.toFixed(1)+' m visé, '+
+      (som/M.photos.length).toFixed(2)+' m de déplacement moyen');
+  }
   if(M.photos.every(p=>p.t)) M.photos.sort((a,b)=>String(a.t).localeCompare(String(b.t)));
 
   const srv=http.createServer((rq,rs)=>{
     const u=decodeURIComponent(rq.url.split('?')[0]);
-    const f=u.startsWith('/img/')?path.join(path.resolve(DOSSIER),u.slice(5)):path.join(RACINE,u);
-    if(!f.startsWith(path.resolve(DOSSIER)) && !f.startsWith(RACINE)){ rs.writeHead(403); rs.end(); return; }
+    /* Une page d'accueil en HTML, et rien d'autre : le navigateur ne sert ici
+       qu'à décoder les JPEG et à lire leurs pixels. Elle doit être servie
+       depuis la même origine que les images, sinon getImageData() se heurte
+       à une toile marquée d'origine croisée. */
+    if(u==='/'){ rs.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+      rs.end('<!doctype html><meta charset=utf-8><title>relevé 360</title>'); return; }
+    const f=u.startsWith('/img/')?path.join(path.resolve(DOSSIER),u.slice(5))
+           :u.startsWith('/etalon/')?path.join(path.resolve(ETALON||DOSSIER),u.slice(8))
+           :path.join(RACINE,u);
+    const permis=[path.resolve(DOSSIER), RACINE].concat(ETALON?[path.resolve(ETALON)]:[]);
+    if(!permis.some(d=>f.startsWith(d))){ rs.writeHead(403); rs.end(); return; }
     fs.readFile(f,(e,d)=>{ if(e){ rs.writeHead(404); rs.end(); return; }
       rs.writeHead(200,{'Content-Type':TYPES[path.extname(f).toLowerCase()]||'application/octet-stream'});
       rs.end(d); });
@@ -369,18 +491,35 @@ if(ARG.includes('--essai-geometrie')){
   const base='http://localhost:'+srv.address().port;
   const nav=await chromium.launch({args:['--js-flags=--max-old-space-size=3072']});
   const page=await (await nav.newContext({viewport:{width:200,height:200}})).newPage();
-  await page.goto(base+'/outils/README.md',{waitUntil:'domcontentloaded'}).catch(()=>{});
-  await page.setContent('<!doctype html><meta charset=utf-8><title>relevé</title>');
+  await page.goto(base+'/',{waitUntil:'domcontentloaded'});
 
   /* --- première passe : profils d'image et visibilité prédite --- */
   const lots=[];
+  let malCadrees=0;
   for(const p of M.photos){
-    const prof=await LIRE(page, base+'/img/'+encodeURIComponent(p.fichier));
+    const prof=await PASSE_A(page, base+'/img/'+encodeURIComponent(p.fichier), p.fichier);
+    /* Une image équirectangulaire fait exactement deux fois plus large que
+       haute : 360° d'azimut pour 180° d'élévation. Si le rapport n'y est
+       pas, ce n'est pas un panoramique — c'est une vue recadrée exportée
+       depuis l'application, et toute la correspondance colonne → azimut
+       s'effondre sans rien signaler. On le dit ici plutôt que de rendre
+       des hauteurs fausses. */
+    const rap=prof.large/prof.haut;
+    if(rap<1.94 || rap>2.06){
+      malCadrees++;
+      if(malCadrees<=3) console.log('\n  ⚠ '+p.fichier+' : '+prof.large+' × '+prof.haut+
+        ' (rapport '+rap.toFixed(2)+'), ce n’est pas une image équirectangulaire');
+    }
     const vis=visibilite(p.x,p.z);
     lots.push({p,prof,vis});
     process.stdout.write('\r  lu '+lots.length+'/'+M.photos.length+'   ');
   }
   console.log('');
+  if(malCadrees){
+    console.error('  '+malCadrees+' image(s) sur '+M.photos.length+' ne sont pas en projection '+
+      'équirectangulaire : réexporter le lot en « 360 / équirectangulaire », sans recadrage.');
+    if(malCadrees>M.photos.length/2) process.exit(1);
+  }
 
   /* --- décalage d'orientation : un seul angle pour tout le lot --- */
   let decal=0;
@@ -393,6 +532,7 @@ if(ARG.includes('--essai-geometrie')){
       let s=0, n=0;
       for(const l of lots){
         for(let u=0;u<GW;u+=2){
+          if(l.prof.silVerdure[u]) continue;   /* un arbre ne dit rien du bâti */
           const bat=l.vis.bat[(u+d)%GW]>=0;
           const vue=l.prof.silhouette[u]>=0;
           s+=(bat===vue)?1:-1; n++;
@@ -404,47 +544,110 @@ if(ARG.includes('--essai-geometrie')){
     console.log('décalage résolu : '+decal.toFixed(1)+'°   (accord silhouette '+((meilleur+1)/2*100).toFixed(1)+' %)');
   }
 
-  /* --- deuxième passe : hauteurs et couleurs --- */
+  /* --- deuxième passe : hauteurs, puis couleurs sur bandes mesurées --- */
   const par=new Map();
+  const rejet={'colonnes vues':0,'sans emprise prédite':0,'hors portée':0,'sans silhouette':0,
+               'silhouette de verdure':0,'élévation nulle':0,'hauteur hors bornes':0,'retenues':0};
   for(const l of lots){
     const d=(decal===null? l.p.cap : decal);
     const dU=Math.round(d/360*GW);
+    const bandesMur=[], bandesToit=[], quiMur=[], quiToit=[];
     for(let u=0;u<GW;u++){
+      rejet['colonnes vues']++;
       const uv=((u+dU)%GW+GW)%GW;            /* colonne du monde */
       const bi=l.vis.bat[uv], dist=l.vis.dist[uv];
-      if(bi<0 || dist>PORTEE) continue;
+      if(bi<0){ rejet['sans emprise prédite']++; continue; }
+      if(dist>PORTEE){ rejet['hors portée']++; continue; }
       const sv=l.prof.silhouette[u];
-      if(sv<0) continue;                     /* pas de ciel au-dessus : toit caché */
+      if(sv<0){ rejet['sans silhouette']++; continue; }   /* pas de ciel au-dessus */
+      if(l.prof.silVerdure[u]){ rejet['silhouette de verdure']++; continue; }
       /* élévation du haut de la silhouette, au centre du pixel */
       const el=(90-(sv+0.5)/GH*180)*PI/180;
-      if(el<=0.02) continue;
+      if(el<=0.02){ rejet['élévation nulle']++; continue; }
       const haut=M.h+dist*Math.tan(el);
-      if(haut<2 || haut>42) continue;
+      if(haut<2 || haut>42){ rejet['hauteur hors bornes']++; continue; }
+      rejet['retenues']++;
       if(!par.has(bi)) par.set(bi,{h:[], abs:[], mur:[], toit:[], vues:0, d:[]});
       const e=par.get(bi);
       e.h.push(haut); e.d.push(dist); e.vues++;
       if(l.p.solCamera!==undefined) e.abs.push(l.p.solCamera+haut);
-      /* couleur de mur : les tranches entre le tiers bas du bâti et le haut
-         de la façade, sans verdure ni vitre */
-      const vFaite=sv, vSol=Math.round(GH/2+ (GH/2)*0.10);
-      const k0=Math.min(BINS-1,Math.floor((vFaite+(vSol-vFaite)*0.35)/GH*BINS));
-      const k1=Math.min(BINS-1,Math.floor((vFaite+(vSol-vFaite)*0.85)/GH*BINS));
-      for(let k=k0;k<=k1;k++){
-        const o=u*BINS+k;
-        if(!l.prof.cnt[o]) continue;
-        if(l.prof.veg[o]>l.prof.tot[o]*0.30) continue;
-        e.mur.push([l.prof.som[o*3]/l.prof.cnt[o], l.prof.som[o*3+1]/l.prof.cnt[o], l.prof.som[o*3+2]/l.prof.cnt[o]]);
+
+      /* Bas de la façade : là où le mur rencontre le sol, à une élévation de
+         -atan(hauteur de caméra / distance). Je l'avais posé à -9° pour
+         toutes les distances, ce qui ne vaut que vers douze mètres : à
+         quarante, le pied du mur est à -2,7° et la bande de couleur mordait
+         sur la chaussée. */
+      const vSol=Math.min(GH-1, Math.round(GH/2 + Math.atan(M.h/dist)/PI*GH));
+      const hautPx=vSol-sv;
+      if(hautPx>=6){
+        bandesMur.push({u:u, v0:Math.round(sv+hautPx*0.10), v1:Math.round(sv+hautPx*0.45)});
+        quiMur.push(bi);
       }
-      /* couleur de toit : la tranche juste sous la silhouette, seulement si
-         on est assez loin pour voir le rampant (au-delà de la hauteur) */
-      if(dist>haut*1.1){
-        const k=Math.min(BINS-1,Math.floor((vFaite+3)/GH*BINS)), o=u*BINS+k;
-        if(l.prof.cnt[o] && l.prof.veg[o]<l.prof.tot[o]*0.25)
-          e.toit.push([l.prof.som[o*3]/l.prof.cnt[o], l.prof.som[o*3+1]/l.prof.cnt[o], l.prof.som[o*3+2]/l.prof.cnt[o]]);
+      /* Couleur de toit : le rampant n'est visible que d'assez loin. Depuis
+         la rue, à quinze mètres d'une maison de dix, on voit la façade jusqu'à
+         la corniche puis le ciel — le pan est de l'autre côté du faîte. Au-delà
+         de deux fois la hauteur, la bande juste sous la silhouette est du toit.
+         Plus près, on s'abstient plutôt que de relever la corniche en croyant
+         relever l'ardoise. */
+      if(dist>2.2*haut && hautPx>=8){
+        bandesToit.push({u:u, v0:sv+1, v1:Math.round(sv+Math.max(3,hautPx*0.22))});
+        quiToit.push(bi);
       }
     }
+    /* un seul aller-retour par photo et par usage, plutôt qu'un par colonne */
+    if(bandesMur.length){
+      const c=await PASSE_B(page,l.p.fichier,bandesMur);
+      if(c) c.forEach((v,i)=>{ if(v[3]>=3 && v[4]<0.30) par.get(quiMur[i]).mur.push([v[0],v[1],v[2]]); });
+    }
+    if(bandesToit.length){
+      const c=await PASSE_B(page,l.p.fichier,bandesToit);
+      if(c) c.forEach((v,i)=>{ if(v[3]>=2 && v[4]<0.25) par.get(quiToit[i]).toit.push([v[0],v[1],v[2]]); });
+    }
+    l.bandes={mur:bandesMur, quiMur:quiMur, toit:bandesToit, quiToit:quiToit};
+  }
+
+  /* --- étalonnage : les mêmes bandes sur les panoramas du modèle courant ---
+     La lumière est commune aux deux lots : c'est le rapport des deux mesures
+     qui porte l'information, pas la mesure brute. */
+  const etalons=new Map();
+  if(ETALON){
+    let vus=0;
+    for(const l of lots){
+      const f=path.join(ETALON,l.p.fichier);
+      if(!fs.existsSync(f)){ continue; }
+      await PASSE_A(page, base+'/etalon/'+encodeURIComponent(l.p.fichier), 'E:'+l.p.fichier);
+      vus++;
+      if(l.bandes.mur.length){
+        const c=await PASSE_B(page,'E:'+l.p.fichier,l.bandes.mur);
+        if(c) c.forEach((v,i)=>{
+          if(v[3]<3 || v[4]>=0.30) return;
+          const bi=l.bandes.quiMur[i];
+          if(!etalons.has(bi)) etalons.set(bi,[]);
+          etalons.get(bi).push([v[0],v[1],v[2]]);
+        });
+      }
+    }
+    console.log('étalon : '+vus+' panoramas du modèle courant relus dans '+ETALON);
   }
   await nav.close(); srv.close();
+  console.log('tri des colonnes :');
+  Object.entries(rejet).forEach(([k,v])=>console.log('  '+String(v).padStart(7)+'  '+k));
+
+  /* Les couleurs de base que le modèle donne aujourd'hui, pour y appliquer
+     le gain. Elles viennent de verite.json quand il est là — c'est-à-dire
+     quand les panoramas d'étalonnage ont été rendus par rendre_equirect.js. */
+  const BASE_MUR=new Map();
+  {
+    const fv=path.join(ETALON||DOSSIER,'verite.json');
+    if(fs.existsSync(fv)){
+      const V=JSON.parse(fs.readFileSync(fv,'utf8'));
+      const cle=o=>Math.round(pX(o.lo))+'_'+Math.round(pZ(o.la));
+      const idx=new Map(); V.forEach(v=>idx.set(cle(v),v));
+      BATS.forEach(b=>{ const v=idx.get(Math.round(b.cx)+'_'+Math.round(b.cz));
+        if(v&&v.mur){ const n=parseInt(v.mur.slice(2),16);
+          BASE_MUR.set(b.i,[n>>16&255,n>>8&255,n&255]); } });
+    }
+  }
 
   /* --- agrégation : médiane par bâtiment --- */
   const med=a=>{ if(!a.length) return null; const b=a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
@@ -457,16 +660,36 @@ if(ARG.includes('--essai-geometrie')){
     if(e.h.length<6) continue;                 /* trop peu de colonnes : on s'abstient */
     const b=BATS[bi];
     const h=med(e.h);
+    /* La silhouette donne le faîte de la toiture, pas le haut des murs, et
+       c'est le haut des murs qui compte les niveaux. Le moteur monte son
+       faîte de min(L × 0,72 ; 3,4) où L est la demi-largeur du petit côté
+       augmentée du débord : on connaît ces côtés par l'emprise OSM, on peut
+       donc retrancher la même chose au lieu de compter un étage de trop. */
+    const rise=Math.min((Math.min(b.ow,b.ol)/2+0.38)*0.72, 3.4);
+    const hMurs=Math.max(2.4, h-rise);
     /* dispersion : si les colonnes ne s'accordent pas, on ne publie pas */
     const tri=e.h.slice().sort((x,y)=>x-y);
     const q1=tri[Math.floor(tri.length*0.25)], q3=tri[Math.floor(tri.length*0.75)];
     const etal=q3-q1;
+    /* Couleur corrigée : couleur de base actuelle × (photo / rendu). Faute
+       d'étalon on rend la mesure brute, en le disant dans le fichier. */
+    let murCor=medC(e.mur), gain=null;
+    if(ETALON && etalons.has(bi) && etalons.get(bi).length>=3 && murCor){
+      const ref=medC(etalons.get(bi));
+      if(ref && ref.every(v=>v>10)){
+        gain=[0,1,2].map(c=>Math.max(0.25,Math.min(4, murCor[c]/ref[c])));
+        const base=BASE_MUR.get(bi);
+        if(base) murCor=[0,1,2].map(c=>Math.round(Math.max(0,Math.min(255,base[c]*gain[c]))));
+      }
+    }
     releve.push({
       i:bi, la:+laDeZ(b.cz).toFixed(6), lo:+loDeX(b.cx).toFixed(6),
-      haut:+h.toFixed(1), etalement:+etal.toFixed(1),
+      haut:+h.toFixed(1), murs:+hMurs.toFixed(1), etalement:+etal.toFixed(1),
       faite:(e.abs.length? +med(e.abs).toFixed(1) : null),
-      niv:Math.max(1,Math.round((h-1.1)/3.15)),
-      mur:hex(medC(e.mur)), toit:hex(medC(e.toit)),
+      niv:Math.max(1,Math.round((hMurs-1.1)/3.15)),
+      mur:hex(murCor), murMesure:hex(medC(e.mur)),
+      gain:gain?gain.map(v=>+v.toFixed(2)):null,
+      toit:hex(medC(e.toit)),
       colonnes:e.h.length, vues:e.vues, dist:+med(e.d).toFixed(0),
       aire:b.aire, ow:+b.ow.toFixed(1), ol:+b.ol.toFixed(1)
     });
@@ -475,8 +698,13 @@ if(ARG.includes('--essai-geometrie')){
   fs.writeFileSync(SORTIE, JSON.stringify({page:PAGE, decalage:decal, photos:M.photos.length,
       hauteurCamera:M.h, batiments:releve},null,1));
   console.log('=== '+releve.length+' bâtiments relevés sur '+BATS.length+' → '+SORTIE+' ===');
-  const sur=releve.filter(r=>r.etalement<2.5);
-  console.log('    dont '+sur.length+' avec un étalement inférieur à 2,5 m');
+  /* Ce qu'on publie : les bâtiments vus assez large, d'assez près, et dont
+     les colonnes s'accordent. Les fautifs du contrôle étaient tous des
+     façades vues en biais à cinquante ou soixante mètres sur six à dix
+     colonnes — une lichette de mur, où une erreur d'un pixel de silhouette
+     vaut un mètre de hauteur. */
+  const sur=releve.filter(r=>r.etalement<2.5 && r.colonnes>=12 && r.dist<=45);
+  console.log('    dont '+sur.length+' retenus (étalement < 2,5 m, 12 colonnes, 45 m)');
 
   if(VERITE){
     const fv=path.join(DOSSIER,'verite.json');
@@ -507,8 +735,15 @@ if(ARG.includes('--essai-geometrie')){
         console.log('    '+nom.padEnd(26)+' médiane '+q(0.5).toFixed(2)+' m   '+
           'q90 '+q(0.9).toFixed(2)+' m   max '+a[a.length-1].toFixed(2)+' m   ('+a.length+' bâtiments)');
       };
-      ligne('écart de hauteur', paires.filter(([r,v])=>r.faite!==null).map(([r,v])=>Math.abs(r.faite-v.faite)));
-      ligne('écart, étalement < 2,5 m', paires.filter(([r,v])=>r.faite!==null&&r.etalement<2.5).map(([r,v])=>Math.abs(r.faite-v.faite)));
+      const bons=paires.filter(([r,v])=>r.faite!==null&&r.etalement<2.5&&r.colonnes>=12&&r.dist<=45);
+      ligne('faîte, tous', paires.filter(([r,v])=>r.faite!==null).map(([r,v])=>Math.abs(r.faite-v.faite)));
+      ligne('faîte, retenus', bons.map(([r,v])=>Math.abs(r.faite-v.faite)));
+      /* le haut des murs : le faîte moins le relèvement estimé de la toiture */
+      ligne('haut des murs, retenus', bons.map(([r,v])=>Math.abs((r.faite-(r.haut-r.murs))-v.murs)));
+      const nv=bons.map(([r,v])=>Math.abs(r.niv-Math.max(1,Math.round((v.murs-v.sol-1.1)/3.15))));
+      if(nv.length) console.log('    niveaux justes               '+
+        (nv.filter(x=>x===0).length/nv.length*100).toFixed(0)+' %   à un près '+
+        (nv.filter(x=>x<=1).length/nv.length*100).toFixed(0)+' %   ('+nv.length+' bâtiments)');
       /* couleurs : distance dans le cube RVB, en pas de 0 à 255 */
       const dc=(a,b)=>{ const x=parseInt(a.slice(2),16), y=parseInt(b.slice(2),16);
         return Math.hypot((x>>16&255)-(y>>16&255), (x>>8&255)-(y>>8&255), (x&255)-(y&255)); };
@@ -532,6 +767,7 @@ if(ARG.includes('--essai-geometrie')){
   sur.slice(0,+opt('combien',40)).forEach(r=>{
     console.log('  {la:'+r.la.toFixed(6)+', lo:'+r.lo.toFixed(6)+', niv:'+r.niv+
       ', mur:'+r.mur+(r.toit?', toit:'+r.toit:'')+
-      ', note:\'relevé 360, '+r.haut.toFixed(1)+' m sur '+r.colonnes+' colonnes\'},');
+      ', note:\'relevé 360, murs '+r.murs.toFixed(1)+' m, faîte '+r.haut.toFixed(1)+
+      ' m sur '+r.colonnes+' colonnes\'},');
   });
 })();

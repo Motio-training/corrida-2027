@@ -43,10 +43,21 @@ const OEIL=+opt('hauteur-oeil',1.9);      /* perche au-dessus de la tête */
 const QUALITE=+opt('qualite',0.86);
 const REFAIRE=ARG.includes('--refaire');
 
-/* tranches : six azimuts, trois élévations. Champ horizontal 60° sur une
-   fenêtre de 768 × 960, soit 71,7° de champ vertical : à ±58° d'élévation,
-   les trois bandes couvrent le zénith et le nadir avec du recouvrement. */
-const TRANCHE_L=768, TRANCHE_H=960, CHAMP=60;
+/* Tranches : six azimuts, trois élévations. Le champ horizontal est de 70°
+   pour six tranches espacées de 60° — dix degrés de recouvrement, voulus.
+   Au premier essai il valait 60° : les tranches se touchaient tout juste,
+   et comme on écarte le dernier pour cent de chaque bord (là où l'image
+   perspective est la plus étirée), il restait un trou d'un degré à chaque
+   raccord. Cela donnait six barres noires verticales dans le panorama, une
+   tous les 60°, visibles seulement près de l'horizon — au-dessus et en
+   dessous, les tranches inclinées s'élargissent en azimut et bouchaient le
+   trou. Sur une barre noire, la silhouette se lit en haut de l'image et la
+   hauteur relevée part à quarante mètres.
+
+   Fenêtre de 768 × 960 : à 70° de champ horizontal, 82,2° de champ vertical,
+   soit ±41°. Avec les élévations à ±58°, les trois bandes couvrent le zénith
+   et le nadir avec du recouvrement là aussi.                              */
+const TRANCHE_L=768, TRANCHE_H=960, CHAMP=70;
 const AZIMUTS=[0,60,120,180,240,300], ELEVATIONS=[58,0,-58];
 
 const TYPES={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8',
@@ -86,7 +97,20 @@ const TYPES={'.html':'text/html; charset=utf-8','.js':'application/javascript; c
                source:'rendre_equirect.js', page:PAGE, photos:[]};
   for(const p of POINTS){
     const fichier=path.join(SORTIE,p.nom+'.jpg');
-    if(fs.existsSync(fichier) && !REFAIRE){ console.log('  '+p.nom+' : déjà là'); manif.photos.push(entree(p)); continue; }
+    if(fs.existsSync(fichier) && !REFAIRE){
+      /* Image déjà rendue : on refait tout de même le déplacement et une vue
+         pour relever le niveau du sol sous la caméra. Sans lui le manifeste
+         est incomplet, et la comparaison à la vérité mesure la pente du
+         terrain au lieu de la justesse du relevé. */
+      const e=entree(p);
+      if(await page.evaluate(o=>window.ESPACE3D.vueDepuis(o),{la:p.la,lo:p.lo,az:0,champ:CHAMP})){
+        const r=await page.evaluate(o=>window.ESPACE3D.clicheLibre(o,0),{la:p.la,lo:p.lo,h:OEIL,az:0,el:0,champ:CHAMP});
+        if(r && r.oeil) e.solCamera=+(r.oeil[1]-OEIL).toFixed(2);
+      }
+      manif.photos.push(e);
+      console.log('  '+p.nom+' : déjà là'+(e.solCamera!==undefined?'  (sol '+e.solCamera+' m)':''));
+      continue;
+    }
     /* d'abord amener le monde autour du point : le décor se charge par
        morceaux autour du coureur, pas autour de la caméra */
     const ok=await page.evaluate(o=>window.ESPACE3D.vueDepuis(o),{la:p.la,lo:p.lo,az:0,champ:CHAMP});
@@ -141,6 +165,26 @@ const TYPES={'.html':'text/html; charset=utf-8','.js':'application/javascript; c
             const ndx=(X/-Z)/t.tanH, ndy=(Y/-Z)/t.tanV;
             if(ndx<-0.985||ndx>0.985||ndy<-0.985||ndy>0.985) continue;
             best=k; bd=pr; bu=(ndx+1)/2*(L-1); bv=(1-ndy)/2*(Ht-1);
+          }
+          /* Repli : si aucune tranche ne prend ce pixel dans sa zone sûre,
+             on reprend la meilleure en acceptant son bord, plutôt que de
+             laisser du noir — un pixel noir se lit comme du bâti. */
+          if(best<0){
+            let bp=-2;
+            for(let k=0;k<tranches.length;k++){
+              const t=tranches[k];
+              const pr=dx*t.f[0]+dy*t.f[1]+dz*t.f[2];
+              if(pr<=bp || pr<=0.05) continue;
+              const Z=dx*t.zc[0]+dy*t.zc[1]+dz*t.zc[2];
+              if(Z>=-1e-6) continue;
+              const X=dx*t.xc[0]+dy*t.xc[1]+dz*t.xc[2];
+              const Y=dx*t.yc[0]+dy*t.yc[1]+dz*t.yc[2];
+              let ndx=(X/-Z)/t.tanH, ndy=(Y/-Z)/t.tanV;
+              if(ndx<-1||ndx>1||ndy<-1||ndy>1) continue;
+              best=k; bp=pr;
+              bu=(Math.max(-1,Math.min(1,ndx))+1)/2*(L-1);
+              bv=(1-Math.max(-1,Math.min(1,ndy)))/2*(Ht-1);
+            }
           }
           const o4=(v*W+u)*4;
           if(best<0){ D[o4]=0; D[o4+1]=0; D[o4+2]=0; D[o4+3]=255; continue; }

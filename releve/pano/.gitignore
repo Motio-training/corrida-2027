@@ -1,0 +1,8 @@
+# Panoramas de synthèse et vérité de référence : refabriqués en huit minutes
+# par « node outils/rendre_equirect.js releve/pano/points.json --sortie
+# releve/pano --page / », et pesant quelques mégaoctets. Seuls les points de
+# prise de vue sont versionnés.
+*.jpg
+verite.json
+manifeste.json
+releve.json

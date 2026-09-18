@@ -1960,6 +1960,7 @@ function construireBatis(bats){
   return BAT;
 }
 function toitPlat(tas,p,top,cm,ct){
+  FAITE_TOIT=top+0.10;
   var n=p.length/2, q=[], j;
   for(j=0;j<n;j++) q.push(p[j*2],p[j*2+1]);
   polyPlat(tas,q,top+0.10,melange(ct,teinte(0x8f9298),0.55));
@@ -3940,6 +3941,12 @@ function majJoueur(dt){
 var Dzones=null, Dvoies=null, Dlignes=null, Dbats=null, Darbres=[], Dgros=null;
 /* ce que la construction des bâtiments a posé, pour l'outillage de contrôle */
 var BATIS_POSES=[];
+/* Le point le plus haut de la dernière toiture posée. « top » est le haut des
+   murs : une toiture à deux pentes ajoute son faîte par-dessus, jusqu'à 3,4 m.
+   Un relevé 360 lit la silhouette, donc le faîte, et le comparer au haut des
+   murs donnerait un écart systématique de deux à trois mètres qui n'est pas
+   une erreur de mesure. Chaque fonction de toit note donc ici où elle monte. */
+var FAITE_TOIT=0;
 var construit=false, enConstruction=false, sale={route:false, jalons:false}, minuteurSync=0;
 
 function lireDonnees(){
@@ -10455,6 +10462,7 @@ function toitTente(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique,ctx){
   var co=Math.cos(ang), si=Math.sin(ang), ov=0.38;
   var W=w/2+ov, L=l/2+ov;
   var rise=Math.min(L*0.72,3.4)*(fpente||1);
+  FAITE_TOIT=top+rise;
   function P(u,v,y){ return [cx+u*co-v*si, y, cz+u*si+v*co]; }
   function yDe(v){ var a=1-Math.abs(v)/L; return top+rise*(a>0?a:0); }
   var Q=(ctx&&ctx.p)?empriseToit(ctx.p,ctx.n,cx,cz,co,si,ov):null;
@@ -10748,16 +10756,8 @@ construireBatis=function(bats){
     var cta=melange(blanc,teinte(0xd6dbe2),r2);
     if(milit && !ardoise) ct=melange(ct,teinte(0xc8cdd4),0.5);
     var tuiles=(r3>0.5)?BAT.toits2:BAT.toits, riseMairie=0;
-    /* Ce que la 3D a réellement posé ici : hauteur, couleur de mur, couleur
-       de toit. C'est la vérité contre laquelle on mesure l'outil de relevé
-       360 — on lui donne des panoramas rendus de ce monde-ci, et on compare
-       ce qu'il retrouve à ce qui a été bâti, à la place d'aller vérifier sur
-       le terrain ce qu'on ne sait pas encore mesurer. */
-    BATIS_POSES.push({la:laDeZ(cz), lo:loDeX(cx), h:+h.toFixed(2),
-      sol:+base.toFixed(2), faite:+top.toFixed(2),
-      mur:cm.slice(), toit:(ardoise?cta:ct).slice(),
-      fam:fam, type:type||null, aire:aire, ow:+ow.toFixed(1), ol:+ol.toFixed(1)});
     CTX_TOIT={mur:tasHaut, col:cm, base:base, h:h, p:p, n:n};
+    FAITE_TOIT=top;
     if(type==='G'||type==='I'){
       if(rect>=70 && Math.min(ow,ol)>6) toitDeuxPentes(BAT.toitsM,cx,cz,ang,ow,ol,top,gris,0.32,0,1,brique);
       else toitPlat(BAT.plats,p,top,cm,ct);
@@ -10771,6 +10771,17 @@ construireBatis=function(bats){
       if(milit && !petit && h>6) gardeCorps(BAT.deco,p,top);
     }
     CTX_TOIT=null;
+    if(riseMairie) FAITE_TOIT=Math.max(FAITE_TOIT,top+riseMairie);
+    /* Ce que la 3D a réellement posé ici : hauteur des murs, faîte de la
+       toiture, couleur de mur, couleur de toit. C'est la vérité contre
+       laquelle on mesure l'outil de relevé 360 — on lui donne des panoramas
+       rendus de ce monde-ci et on compare ce qu'il retrouve à ce qui a été
+       bâti, au lieu d'aller vérifier sur le terrain ce qu'on ne sait pas
+       encore mesurer. Noté après la toiture, pour disposer du faîte. */
+    BATIS_POSES.push({la:laDeZ(cz), lo:loDeX(cx), h:+h.toFixed(2),
+      sol:+base.toFixed(2), murs:+top.toFixed(2), faite:+FAITE_TOIT.toFixed(2),
+      mur:cm.slice(), toit:(ardoise?cta:ct).slice(),
+      fam:fam, type:type||null, aire:aire, ow:+ow.toFixed(1), ol:+ol.toFixed(1)});
     if(type==='E' && aire>120) clocher(cx,cz,ang,ow,ol,base,top,cm,cta);
     if(type==='M') drapeau(cx,cz,ang,top+(riseMairie||0.4));
     marquerPoly(p);
@@ -12527,7 +12538,7 @@ window.ESPACE3D.batisPoses=function(){
   if(!construit) return null;
   var c=new THREE.Color();
   return BATIS_POSES.map(function(b){
-    return {la:+b.la.toFixed(7), lo:+b.lo.toFixed(7), h:b.h, sol:b.sol, faite:b.faite,
+    return {la:+b.la.toFixed(7), lo:+b.lo.toFixed(7), h:b.h, sol:b.sol, murs:b.murs, faite:b.faite,
             mur:'0x'+c.fromArray(b.mur).getHexString(), toit:'0x'+c.fromArray(b.toit).getHexString(),
             fam:b.fam, type:b.type, aire:b.aire, ow:b.ow, ol:b.ol};
   });

@@ -252,5 +252,62 @@ devant — plutôt que sur le terrain. Pris à l'envers, chaque mur balayait
 l'horizon entier et occultait le village derrière lui ; le contrôle le voit.
 
 `--verite` compare aux hauteurs connues. Sur des panoramas de synthèse,
-`ESPACE3D.batisPoses()` donne ce que la 3D a réellement bâti — hauteur,
-couleur de mur, couleur de toit — et sert de vérité de référence.
+`ESPACE3D.batisPoses()` donne ce que la 3D a réellement bâti et sert de
+vérité de référence. Il rend deux hauteurs, et la distinction compte : `murs`
+est le haut des murs, `faite` le point le plus haut de la toiture. Un relevé
+360 lit la silhouette, donc le faîte ; le comparer au haut des murs
+afficherait un écart systématique de deux à trois mètres qui n'est pas une
+erreur de mesure.
+
+`--bruit-gps 4` déplace chaque prise de vue de quatre mètres au hasard, avec
+un tirage reproductible. Sur des panoramas de synthèse la position est
+exacte, et comme c'est elle qui donne la distance et donc la hauteur, le
+contrôle serait flatteur : un GPS de téléphone ou de GoPro se trompe de
+quelques mètres, et cette option chiffre ce que cela coûte avant d'aller sur
+le terrain.
+
+Les clochers sont des exceptions attendues : `clocher()` monte bien au-dessus
+du faîte des murs de l'église, et la silhouette le voit.
+
+### Ce que le contrôle donne
+
+Six panoramas de synthèse au centre de Saint-Maixent, 83 bâtiments relevés,
+36 retenus après filtrage (étalement inférieur à 2,5 m, au moins 12 colonnes,
+45 m au plus) :
+
+| mesure | écart médian | q90 |
+|---|---|---|
+| faîte, tous les bâtiments relevés | 1,15 m | 8,55 m |
+| faîte, bâtiments retenus | 0,86 m | 3,62 m |
+| haut des murs, bâtiments retenus | 1,65 m | 3,40 m |
+
+Niveaux : 42 % justes, 94 % à un niveau près. Le cap de la colonne zéro est
+retrouvé à un demi-degré près — c'était la pièce la plus incertaine du
+procédé, et c'est celle qui marche le mieux.
+
+L'écart sur le haut des murs est le double de celui sur le faîte parce qu'on
+y retranche un relèvement de toiture estimé depuis la boîte OSM, alors que le
+moteur calcule le sien sur une boîte réorientée et avec une pente qui dépend
+du matériau. C'est cette estimation, et non la mesure, qui limite le comptage
+des niveaux.
+
+Les plus fautifs sont tous des façades vues en biais à cinquante ou soixante
+mètres sur six à dix colonnes — une lichette de mur, où une erreur d'un pixel
+de silhouette vaut un mètre de hauteur. D'où le filtre de publication.
+
+### Tolérance au GPS
+
+`--bruit-gps` chiffre ce que coûte une position approximative. C'est
+l'inconnue qui compte le plus, puisque la distance donne la hauteur :
+
+| erreur GPS | faîte, écart médian | niveaux à un près | cap retrouvé |
+|---|---|---|---|
+| 0 m | 0,86 m | 94 % | oui |
+| 2 m | 0,86 m | 97 % | oui |
+| 4 m | 1,50 m | 97 % | oui |
+| 8 m | 5,85 m | 53 % | non (207° au lieu de 0°) |
+
+Jusqu'à quatre mètres le procédé tient ; à huit, la résolution du cap
+décroche et tout s'effondre avec elle. La suite évidente est de recaler la
+trace sur le réseau de voies : l'essentiel de l'erreur d'un GPS piéton est
+latérale, et une rue connue la contraint.
