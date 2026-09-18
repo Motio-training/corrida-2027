@@ -8981,6 +8981,17 @@ var _mobY=mobilierLignes;
 mobilierLignes=function(){
   return _mobY().filter(function(l){ var c=l.split('\t'); return c.length<3 || !dansPlace(pX(+c[2]),pZ(+c[1]),1); });
 };
+/* Le mémorial du mobilier urbain (type M) est un socle blanc nu : là où le
+   monument Denfert-Rochereau est modelé pour de bon, on l'efface, sans
+   quoi les deux se superposent. */
+var _mobZ=mobilierLignes;
+mobilierLignes=function(){
+  return _mobZ().filter(function(l){
+    var c=l.split('\t');
+    if(c.length<3 || c[0]!=='M') return true;
+    return Math.hypot(pX(+c[2])-pX(MONUMENT.lo), pZ(+c[1])-pZ(MONUMENT.la))>6;
+  });
+};
 var _canopY=semerArbresCanopee;
 semerArbresCanopee=function(arbres,voies,max){
   var n0=arbres.length;
@@ -13274,7 +13285,14 @@ function porteChalon(){
    libre-002 (219°, à 52 m) : les deux rayons se croisent à x=762, z=-167.
    Socle en pyramide tronquée à cannelures, lion de bronze couché contre
    la face avant, statue en capote et képi au sommet, bornes et chaînes.  */
-var MONUMENT={la:46.415199, lo:-0.199738, az:130};
+/* Le monument est dans les données : le mobilier urbain OSM porte un
+   mémorial (type M) à cet endroit, et c'est lui que la 3D dessinait en
+   socle blanc nu. Ma position venait de la triangulation des caps de deux
+   photos — deux relevés de boussole concordants, mais treize mètres à
+   côté du point OSM, qui fait foi. « az » est ici la direction vers
+   laquelle la statue regarde : l'axe de l'avenue, donc le rond-point, à
+   92 m de là — c'est aussi de ce côté que les deux photos sont prises. */
+var MONUMENT={la:46.415308, lo:-0.199700, az:242};
 /* ================================================================
    Le monument Denfert-Rochereau, refait d'après la photo libre-001.
 
@@ -13298,14 +13316,12 @@ var MONUMENT={la:46.415199, lo:-0.199738, az:130};
 function monumentDenfert(){
   if(!BAT || !BAT.taille) return;
   var mx=pX(MONUMENT.lo), mz=pZ(MONUMENT.la), sol=hauteur(mx,mz);
-  /* MONUMENT.az est le cap de la photo libre-001, donc la direction dans
-     laquelle regardait l'appareil : la face gravée, le lion et la statue
-     sont tournés à l'opposé, vers l'objectif. Je les avais mis dos à la
-     rue — l'inscription et le lion restaient invisibles. */
-  var a=(MONUMENT.az+180)*PI/180, nx=Math.sin(a), nz=-Math.cos(a);
+  var a=MONUMENT.az*PI/180, nx=Math.sin(a), nz=-Math.cos(a);   /* la face */
   var ux=-nz, uz=nx;                                            /* le long */
   var pierre=teinte(0xe6e2d4), pierreO=teinte(0xd4cebc), gris=teinte(0xc2bbaa);
-  var bronze=teinte(0x333b33), bronzeC=teinte(0x404940);
+  /* deux bronzes : la patine sombre du corps, et un ton plus clair pour ce
+     qui doit se détacher — la crinière du lion, le képi, les mitrons */
+  var bronze=teinte(0x333b33), bronzeC=teinte(0x4d5749);
 
   function P(u,v){ return [mx+ux*u+nx*v, mz+uz*u+nz*v]; }
   function carre(r,y0,y1,col,ct,ech){
@@ -13363,83 +13379,117 @@ function monumentDenfert(){
           [id[0],sol+3.40+hp,id[1]],[ig[0],sol+3.40+hp,ig[1]],
           [nx,0,nz], tp, {rugo:0.92});
 
-  /* --- le lion couché, sur son corbeau, devant le dé ---
-     Posé sur la seule plinthe, sa moitié avant débordait dans le vide : la
-     photo montre bien une tablette saillante qui le porte. */
+  /* --- le lion de bronze, sur son corbeau, devant le dé ---
+     C'est une réplique du Lion de Belfort de Bartholdi : couché, mais la
+     poitrine soulevée et la tête haute, tournée vers le passant. Il est
+     donc bâti autour d'une ligne de dos qui monte de la croupe au
+     poitrail, et non d'un corps horizontal. */
   boiteQuad(BAT.taille,P(-0.95,0.95),P(0.95,0.95),P(0.95,2.05),P(-0.95,2.05),
             sol+0.86,sol+1.16,pierre,pierre,1.0);
-  var lx=mx+nx*1.46, lz=mz+nz*1.46, ly=sol+1.16;
-  var lu=0.30;                                        /* un peu à gauche */
-  lx+=ux*lu; lz+=uz*lu;
-  /* Le corps est une capsule couchée le long de la façade, et non un
-     empilement de boules : à l'essai, trois sphères et quatre tubes ne
-     faisaient qu'un tas de formes. La tête, la crinière et les pattes
-     tendues se greffent dessus. */
-  var qx=lx-ux*0.52, qz=lz-uz*0.52;                   /* arrière-train */
-  var tx=lx+ux*0.50, tz=lz+uz*0.50;                   /* poitrail */
-  tube(BAT.bronze,qx,ly+0.30,qz,tx,ly+0.34,tz,0.27,0.31,12,bronze,true,true);
-  boule(BAT.bronze,qx-ux*0.10,ly+0.30,qz-uz*0.10,0.30,0.92,10,bronze);
-  /* crinière, tête et museau, dressés au-dessus du poitrail */
-  boule(BAT.bronze,tx+ux*0.16,ly+0.62,tz+uz*0.16,0.31,1.02,12,bronzeC);
-  boule(BAT.bronze,tx+ux*0.30,ly+0.64,tz+uz*0.30,0.19,1.00,10,bronze);
-  tube(BAT.bronze,tx+ux*0.34,ly+0.60,tz+uz*0.34,tx+ux*0.54,ly+0.54,tz+uz*0.54,
-       0.115,0.085,8,bronze,false,true);
-  /* les deux pattes avant tendues à plat devant lui */
-  [-1,1].forEach(function(c){
-    var vx=nx*c*0.15, vz=nz*c*0.15;
-    tube(BAT.bronze,tx-ux*0.02+vx,ly+0.24,tz-uz*0.02+vz,
-         tx+ux*0.62+vx,ly+0.09,tz+uz*0.62+vz,0.105,0.085,8,bronze,false,true);
-    boule(BAT.bronze,tx+ux*0.66+vx,ly+0.09,tz+uz*0.66+vz,0.11,0.75,8,bronze);
-    /* les pattes arrière, repliées sous le corps */
-    tube(BAT.bronze,qx+vx*1.2,ly+0.26,qz+vz*1.2,qx-ux*0.22+vx*1.3,ly+0.11,qz-uz*0.22+vz*1.3,
-         0.12,0.095,8,bronze,false,true);
+  var ly=sol+1.16, ech=0.80;          /* 1,55 m du museau à la croupe */
+  function L(u,v){ return P(0.05+u*ech, 1.42+v*ech); }
+  function Y(h){ return ly+h*ech; }
+  function R(r){ return r*ech; }
+  /* Le corps : une seule capsule effilée de la croupe au poitrail, et non
+     une file de boules — les raccords se voyaient et l'ensemble tenait du
+     phoque. La crinière, large et plus claire, porte la tête haute : c'est
+     elle qui fait lire le fauve de loin. */
+  var Lq=L(-0.54,0), Lp=L(0.28,0), Lm=L(0.50,0.03), Lt=L(0.74,0.06);
+  boule(BAT.bronze,Lq[0],Y(0.31),Lq[1],R(0.28),0.92,16,bronze);                 /* croupe */
+  tube(BAT.bronze,Lq[0],Y(0.32),Lq[1],Lp[0],Y(0.44),Lp[1],R(0.26),R(0.29),16,bronze,false,false);
+  boule(BAT.bronze,Lp[0],Y(0.48),Lp[1],R(0.29),1.02,16,bronze);                 /* poitrail */
+  boule(BAT.bronze,Lm[0],Y(0.68),Lm[1],R(0.38),1.04,18,bronzeC);                /* crinière */
+  boule(BAT.bronze,Lm[0],Y(0.44),Lm[1],R(0.30),0.85,16,bronzeC);                /* le poitrail sous la crinière */
+  boule(BAT.bronze,Lt[0],Y(0.82),Lt[1],R(0.20),1.00,16,bronze);                 /* tête */
+  var Lmu=L(0.92,0.07);
+  tube(BAT.bronze,Lt[0],Y(0.80),Lt[1],Lmu[0],Y(0.74),Lmu[1],R(0.135),R(0.095),12,bronze,false,true);
+  [-1,1].forEach(function(c){                                                    /* oreilles */
+    var o=L(0.60,c*0.12);
+    boule(BAT.bronze,o[0],Y(0.97),o[1],R(0.065),1.0,8,bronzeC);
   });
-  /* la queue, ramenée le long du flanc */
-  tube(BAT.bronze,qx-ux*0.26,ly+0.30,qz-uz*0.26,qx-ux*0.30+nx*0.34,ly+0.12,qz-uz*0.30+nz*0.34,
-       0.065,0.04,6,bronze,false,true);
-  /* la palme de bronze, posée devant les pattes */
-  boule(BAT.bronze,tx+ux*0.80,ly+0.05,tz+uz*0.80,0.26,0.11,8,bronzeC);
+  [-1,1].forEach(function(c){
+    var e0=L(0.32,c*0.15), e1=L(0.92,c*0.16), e2=L(1.02,c*0.16);
+    tube(BAT.bronze,e0[0],Y(0.30),e0[1],e1[0],Y(0.08),e1[1],R(0.09),R(0.07),12,bronze,false,true);
+    boule(BAT.bronze,e2[0],Y(0.075),e2[1],R(0.10),0.70,10,bronze);              /* patte avant */
+    var a0=L(-0.46,c*0.20), a1=L(-0.14,c*0.25);
+    tube(BAT.bronze,a0[0],Y(0.26),a0[1],a1[0],Y(0.11),a1[1],R(0.115),R(0.09),12,bronze,false,true);
+  });
+  var t0=L(-0.68,0.04), t1=L(-0.60,-0.30), t2=L(-0.32,-0.36);
+  tube(BAT.bronze,t0[0],Y(0.30),t0[1],t1[0],Y(0.14),t1[1],R(0.06),R(0.045),8,bronze,false,false);
+  tube(BAT.bronze,t1[0],Y(0.14),t1[1],t2[0],Y(0.11),t2[1],R(0.045),R(0.035),8,bronze,false,true);
+  var pal=L(1.06,0);
+  boule(BAT.bronze,pal[0],Y(0.05),pal[1],R(0.23),0.11,10,bronzeC);              /* la palme */
 
-  /* --- le soldat : capote longue, képi, bras croisés --- */
+  /* --- le soldat : capote longue, képi, bras croisés, épée levée ---
+     La sculpture de Baujault le montre en uniforme, les bras croisés sur
+     la poitrine, l'épée tenue droite le long du corps et, dans l'autre
+     main, la lettre du général prussien Treskow. C'est cette pose, et non
+     un fusil à la bretelle, qui fait reconnaître le monument. */
   var sy=sol+4.02, sx=mx, sz=mz;
-  /* brodequins */
-  [-1,1].forEach(function(c){
+  [-1,1].forEach(function(c){                                                   /* brodequins */
+    var b=P(c*0.15,0.02);
     boiteQuad(BAT.bronze,
-      [sx+ux*(c*0.16-0.09)+nx*0.14, sz+uz*(c*0.16-0.09)+nz*0.14],
-      [sx+ux*(c*0.16+0.09)+nx*0.14, sz+uz*(c*0.16+0.09)+nz*0.14],
-      [sx+ux*(c*0.16+0.09)-nx*0.14, sz+uz*(c*0.16+0.09)-nz*0.14],
-      [sx+ux*(c*0.16-0.09)-nx*0.14, sz+uz*(c*0.16-0.09)-nz*0.14],
-      sy,sy+0.12,bronze,bronze,0.6);
+      [b[0]-ux*0.09+nx*0.15, b[1]-uz*0.09+nz*0.15],
+      [b[0]+ux*0.09+nx*0.15, b[1]+uz*0.09+nz*0.15],
+      [b[0]+ux*0.09-nx*0.13, b[1]+uz*0.09-nz*0.13],
+      [b[0]-ux*0.09-nx*0.13, b[1]-uz*0.09-nz*0.13],
+      sy,sy+0.13,bronze,bronze,0.6);
   });
-  tube(BAT.bronze,sx,sy+0.10,sz,sx,sy+1.12,sz,0.34,0.29,12,bronze,true,false);  /* capote */
-  tube(BAT.bronze,sx,sy+1.12,sz,sx,sy+1.66,sz,0.29,0.25,12,bronze,false,false); /* buste */
-  boule(BAT.bronze,sx,sy+1.64,sz,0.265,0.44,12,bronze);                         /* épaules */
-  tube(BAT.bronze,sx,sy+1.72,sz,sx,sy+1.80,sz,0.105,0.115,8,bronze,false,false);/* col */
-  boule(BAT.bronze,sx,sy+1.92,sz,0.145,1.05,12,bronze);                         /* tête */
-  tube(BAT.bronze,sx,sy+1.98,sz,sx,sy+2.09,sz,0.170,0.180,12,bronzeC,false,true);/* képi */
-  boule(BAT.bronze,sx,sy+2.09,sz,0.185,0.18,12,bronzeC);                        /* plateau */
-  var vi=P(0,0.17);
-  boule(BAT.bronze,vi[0],sy+1.99,vi[1],0.115,0.22,8,bronze);                    /* visière */
-  /* les deux bras croisés sur la poitrine : c'est la pose qui rend la
-     statue reconnaissable de loin */
-  tube(BAT.bronze,sx+ux*0.27,sy+1.56,sz+uz*0.27,
-       sx-ux*0.10+nx*0.26,sy+1.30,sz-uz*0.10+nz*0.26,0.095,0.075,8,bronze,false,true);
-  tube(BAT.bronze,sx-ux*0.27,sy+1.52,sz-uz*0.27,
-       sx+ux*0.12+nx*0.27,sy+1.36,sz+uz*0.12+nz*0.27,0.095,0.075,8,bronze,false,true);
-  /* le fusil, posé debout contre sa jambe droite, baïonnette au canon */
-  var fu=P(0.34,0.16);
-  tube(BAT.bronze,fu[0],sy+0.04,fu[1],fu[0],sy+1.42,fu[1],0.036,0.028,6,bronze,false,false);
-  tube(BAT.bronze,fu[0],sy+1.42,fu[1],fu[0],sy+1.86,fu[1],0.018,0.010,4,bronzeC,false,true);
+  /* la capote : évasée du bas, resserrée à la taille, avec le pli du
+     devant marqué par une arête un peu saillante */
+  /* La capote tombe droit, à peine évasée : en cône marqué, la statue
+     prenait l'allure d'un pion d'échecs. */
+  tube(BAT.bronze,sx,sy+0.09,sz,sx,sy+0.70,sz,0.345,0.325,16,bronze,true,false);
+  tube(BAT.bronze,sx,sy+0.70,sz,sx,sy+1.14,sz,0.325,0.295,16,bronze,false,false);
+  var pli=P(0,0.29);
+  tube(BAT.bronze,pli[0],sy+0.12,pli[1],pli[0],sy+1.10,pli[1],0.05,0.042,8,bronzeC,false,false);
+  var cei=P(0,0);
+  tube(BAT.bronze,cei[0],sy+1.14,cei[1],cei[0],sy+1.22,cei[1],0.302,0.300,16,bronzeC,false,false);/* ceinturon */
+  tube(BAT.bronze,sx,sy+1.22,sz,sx,sy+1.60,sz,0.295,0.255,16,bronze,false,false);/* buste */
+  boule(BAT.bronze,sx,sy+1.62,sz,0.270,0.44,16,bronze);                          /* épaules */
+  /* le col relevé de la capote, puis la tête et le képi */
+  tube(BAT.bronze,sx,sy+1.70,sz,sx,sy+1.84,sz,0.150,0.112,14,bronzeC,false,false);
+  boule(BAT.bronze,sx,sy+1.865,sz,0.120,1.06,16,bronze);
+  /* Le képi d'une seule pièce, fermé par son fond plat. J'avais posé
+     par-dessus une calotte sphérique très aplatie : vue d'en bas, on n'en
+     voyait que l'hémisphère inférieur, et elle sortait de part et d'autre
+     de la tête comme deux ailes. */
+  tube(BAT.bronze,sx,sy+1.905,sz,sx,sy+2.005,sz,0.140,0.152,16,bronzeC,false,true);
+  /* Visière : une plaque mince accrochée au bas du bandeau. Posée plus
+     haut, elle se détachait au-dessus du crâne quand on regarde la statue
+     d'en bas — ce qu'on fait toujours, elle est à six mètres. */
+  var v1=P(-0.130,0.04), v2=P(0.130,0.04), v3=P(0.110,0.195), v4=P(-0.110,0.195);
+  boiteQuad(BAT.bronze,v1,v2,v3,v4,sy+1.885,sy+1.905,bronze,bronze,0.4);
+  /* les bras croisés : l'avant-bras droit passe devant le gauche */
+  var eD=P(0.26,0.06), mD=P(-0.13,0.25), eG=P(-0.26,0.06), mG=P(0.15,0.27);
+  tube(BAT.bronze,eD[0],sy+1.55,eD[1],mD[0],sy+1.31,mD[1],0.100,0.078,10,bronze,false,true);
+  tube(BAT.bronze,eG[0],sy+1.52,eG[1],mG[0],sy+1.37,mG[1],0.100,0.078,10,bronze,false,true);
+  /* l'épée, tenue droite contre le flanc droit, la pointe au-dessus de
+     l'épaule : c'est la ligne verticale qu'on lit sur la photo */
+  var g0=P(0.30,0.22), g1=P(0.38,0.10);
+  tube(BAT.bronze,g0[0],sy+1.18,g0[1],g1[0],sy+2.36,g1[1],0.030,0.013,8,bronzeC,false,true);
+  boule(BAT.bronze,g0[0],sy+1.14,g0[1],0.055,1.0,8,bronzeC);                     /* pommeau */
+  var gg=P(0.30,0.22), gd=P(0.30,0.22);
+  tube(BAT.bronze,gg[0]-ux*0.10,sy+1.27,gg[1]-uz*0.10,gd[0]+ux*0.10,sy+1.27,gd[1]+uz*0.10,
+       0.022,0.022,6,bronzeC,true,true);                                          /* garde */
+  /* la lettre, tenue dans la main gauche */
+  var le=P(0.14,0.31);
+  boiteQuad(BAT.bronze,
+    [le[0]-ux*0.10-nx*0.02, le[1]-uz*0.10-nz*0.02],
+    [le[0]+ux*0.10-nx*0.02, le[1]+uz*0.10-nz*0.02],
+    [le[0]+ux*0.10+nx*0.02, le[1]+uz*0.10+nz*0.02],
+    [le[0]-ux*0.10+nx*0.02, le[1]-uz*0.10+nz*0.02],
+    sy+1.28,sy+1.46,bronzeC,bronzeC,0.4);
   /* le paquetage à ses pieds, à gauche */
-  var pq=P(-0.46,0.02);
+  var pq=P(-0.44,0.04);
   boiteQuad(BAT.bronze,[pq[0]-ux*0.20-nx*0.15,pq[1]-uz*0.20-nz*0.15],
             [pq[0]+ux*0.20-nx*0.15,pq[1]+uz*0.20-nz*0.15],
             [pq[0]+ux*0.20+nx*0.15,pq[1]+uz*0.20+nz*0.15],
             [pq[0]-ux*0.20+nx*0.15,pq[1]-uz*0.20+nz*0.15],
             sy,sy+0.30,bronze,bronzeC,0.6);
-  boule(BAT.bronze,pq[0],sy+0.36,pq[1],0.17,0.55,8,bronzeC);
-  var cq=P(-0.30,0.30);
-  boule(BAT.bronze,cq[0],sy+0.14,cq[1],0.14,0.9,8,bronzeC);      /* le clairon roulé */
+  boule(BAT.bronze,pq[0],sy+0.36,pq[1],0.17,0.55,10,bronzeC);
+  var cq=P(-0.28,0.30);
+  boule(BAT.bronze,cq[0],sy+0.14,cq[1],0.14,0.9,10,bronzeC);      /* le clairon roulé */
 
   /* --- bornes et chaînes --- */
   var R=4.30, NB=10, prec=null, fonte=teinte(0x4b4d4a);
