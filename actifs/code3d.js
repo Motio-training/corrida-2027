@@ -13620,7 +13620,11 @@ function monumentDenfert(){
    sortante de ce mur — tous deux calculés sur les emprises OSM par
    outils/relever_batiments.js, donc pas devinés. « dec » décale le long du
    mur, « bas » donne la hauteur du bord inférieur.                       */
-var ENSEIGNES=[
+/* Les enseignes relevées sur les photos de Saint-Maixent. Une autre carte
+   pose les siennes dans window.CARTE_ENSEIGNES avant de charger ce fichier —
+   celles du village sont fabriquées depuis les noms d'OpenStreetMap par
+   outils/enseignes_depuis_osm.js, faute de photos à relever une par une. */
+var ENSEIGNES=(typeof window!=='undefined' && window.CARTE_ENSEIGNES) || [
   /* Le mur touché ne fait que 9,5 m : une enseigne de 6 m y tient, mais
      celle d'à côté décalée de 9,5 m tombait au-delà du pignon et flottait
      au-dessus d'un toit. Les deux se partagent maintenant le mur. */

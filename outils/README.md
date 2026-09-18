@@ -447,3 +447,35 @@ prenait toutes les mesures et donnait au terme de fond un poids calculé sur
 quatre fois la longueur de lissage, si bien que les contributions lointaines
 portaient la moitié du poids partout et que le relief sortait écrasé vers la
 moyenne. C'est le voisinage borné qui l'a corrigé.
+
+## `enseignes_depuis_osm.js`
+
+Les enseignes des commerces, depuis les noms d'OpenStreetMap.
+
+```sh
+node outils/enseignes_depuis_osm.js village/export-osm.geojson \
+     --page village/index.html --sortie village/enseignes.html
+```
+
+Ce qui fait reconnaître une rue, ce n'est pas seulement la hauteur des
+façades, c'est ce qui est écrit dessus. À Saint-Maixent les sept enseignes de
+la 3D ont été relevées une à une sur les photos, avec leurs couleurs et leur
+position au lancer de rayon — un travail à la main qu'on ne recommence pas
+pour chaque bourg. Or OSM porte déjà l'essentiel : le nom du commerce et sa
+nature.
+
+Le mur choisi est celui qui donne sur la rue : pour chaque côté de l'emprise
+on mesure la distance de son milieu à la chaussée la plus proche, et on garde
+le plus proche **dont la normale sorte du bâtiment**. Sans ce dernier test une
+enseigne sur deux se retrouvait à l'intérieur, donc invisible. Deux objets sur
+le même mur sont décalés de part et d'autre au lieu de se superposer.
+
+Les commerces reçoivent un bandeau (`PHARMACIE` en vert, `LA POSTE` en jaune,
+le nom quand OSM le donne), les bâtiments publics une plaque gravée (`MAIRIE`,
+`ÉCOLE`, `MÉDIATHÈQUE`). Les couleurs sont celles de l'usage, pas d'un
+relevé : une photo les corrigera. Les églises n'ont pas d'enseigne.
+
+`actifs/code3d.js` lit `window.CARTE_ENSEIGNES` quand la page en pose une, et
+retombe sinon sur sa table de Saint-Maixent. Sur La Mothe-Saint-Héray : treize
+enseignes, dont la mairie, les deux pharmacies, la boulangerie, le Crédit
+Mutuel, le café, La Poste, l'école, le collège et la médiathèque.

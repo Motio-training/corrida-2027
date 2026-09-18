@@ -23,6 +23,7 @@ const drapeau=n=>args.indexOf('--'+n)>=0;
 
 const PAGE=opt('page','index.html');
 const DONNEES=opt('donnees','village/donnees.html');
+const ENSEIGNES=opt('enseignes','village/enseignes.html');
 const SORTIE=opt('sortie','village/index.html');
 const TITRE=opt('titre','La Mothe-Saint-Héray');
 const OSM=opt('osm');
@@ -137,6 +138,9 @@ if(OSM && !drapeau('sans-boucle')){
 
 /* -------------------------------------------------------------- écriture */
 const donnees=fs.readFileSync(DONNEES,'utf8');
+/* Les enseignes, si elles ont été fabriquées : code3d.js lit
+   window.CARTE_ENSEIGNES à la place de sa table de Saint-Maixent. */
+const enseignes=fs.existsSync(ENSEIGNES)?fs.readFileSync(ENSEIGNES,'utf8'):'';
 const trace=JSON.stringify(TRACE.map(p=>[+p[0].toFixed(7),+p[1].toFixed(7)]));
 
 const page=`<!doctype html>
@@ -155,6 +159,7 @@ ${styles.join('\n')}
 ${e3}
 
 ${donnees}
+${enseignes}
 <script>
 /* Les blocs sont lus une seule fois puis vidés, comme sur la page principale. */
 var DONNEES_CACHE={};
@@ -262,4 +267,5 @@ fs.mkdirSync(path.dirname(path.resolve(SORTIE)),{recursive:true});
 fs.writeFileSync(SORTIE,page);
 console.log('=== '+SORTIE+' ===');
 console.log('  '+styles.length+' blocs de style repris, bloc 3D de '+e3.length+' octets');
-console.log('  données : '+(donnees.length/1024).toFixed(0)+' Ko   page : '+(page.length/1024).toFixed(0)+' Ko');
+console.log('  données : '+(donnees.length/1024).toFixed(0)+' Ko   page : '+(page.length/1024).toFixed(0)+' Ko'+
+            (enseignes?('   enseignes : '+(enseignes.match(/\{/g)||[]).length):'   (pas d’enseignes)'));
