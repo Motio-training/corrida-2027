@@ -429,89 +429,212 @@ if(ARG.includes('--essai-geometrie')){
   }
 
   /* --- décalage d'orientation : un seul angle pour tout le lot --- */
+  const correler=(mes,pre)=>{
+    const sc=new Float32Array(GW);
+    for(let d=0;d<GW;d++){
+      let n=0,sx=0,sy=0,sxx=0,syy=0,sxy=0;
+      for(let k=0;k<mes.length;k++){
+        const tn=mes[k], pr=pre[k];
+        for(let u=0;u<GW;u++){
+          const x=tn[u]; if(!(x===x)) continue;
+          const y=pr[(u+d)%GW]; if(!(y===y)) continue;
+          n++; sx+=x; sy+=y; sxx+=x*x; syy+=y*y; sxy+=x*y;
+        }
+      }
+      if(n<50){ sc[d]=0; continue; }
+      const cov=sxy/n-(sx/n)*(sy/n), vx=sxx/n-(sx/n)*(sx/n), vy=syy/n-(sy/n)*(sy/n);
+      sc[d]=(vx>0&&vy>0)?cov/Math.sqrt(vx*vy):0;
+    }
+    let best=-2, dB=0;
+    for(let d=0;d<GW;d++) if(sc[d]>best){ best=sc[d]; dB=d; }
+    /* le second candidat, hors du pic : le pic de corrélation est large,
+       un point à dix degrés en fait encore partie */
+    let sec=null;
+    for(let d=0;d<GW;d++){
+      const e=Math.min(Math.abs(d-dB), GW-Math.abs(d-dB));
+      if(e*360/GW<25) continue;
+      if(!sec || sc[d]>sec[0]) sec=[sc[d],d];
+    }
+    return {decal:dB/GW*360, r:best, second:sec};
+  };
   let decal=0;
   if(CAP_IMPOSE!==null){ decal=CAP_IMPOSE; console.log('cap imposé : '+decal.toFixed(1)+'°'); }
   else if(M.photos.every(p=>p.cap!==undefined && p.cap!==null)){
     decal=null; console.log('cap lu dans l’EXIF de chaque photo');
   } else {
-    let meilleur=-1;
-    for(let d=0;d<GW;d++){
-      let s=0, n=0;
-      for(const l of lots){
-        for(let u=0;u<GW;u+=2){
-          if(l.prof.silVerdure[u]) continue;   /* un arbre ne dit rien du bâti */
-          const bat=l.vis.bat[(u+d)%GW]>=0;
-          const vue=l.prof.silhouette[u]>=0;
-          s+=(bat===vue)?1:-1; n++;
-        }
+    /* Retrouver l'orientation demande un signal qui ait de la structure, et
+       « y a-t-il un bâtiment dans cette direction » n'en a pas dans un bourg :
+       à soixante-dix mètres on touche quelque chose dans 96 % des directions,
+       et l'accord reste à 93 % quelle que soit la rotation. Mon premier jet
+       comptait ces accords-là ; il tombait sur 269° au lieu de 0 à La
+       Mothe-Saint-Héray, avec un maximum parfaitement plat, et toutes les
+       hauteurs suivaient — quatre mètres d'écart médian au lieu d'un.
+
+       Ce qui a de la structure, c'est la hauteur apparente. Un bâtiment de
+       hauteur h vu à la distance d se termine à tan(élévation) = (h − œil)/d :
+       à hauteur de bâti à peu près constante dans un bourg, l'élévation de la
+       silhouette varie comme l'inverse de la distance. On corrèle donc, pour
+       chaque décalage, la tangente de l'élévation mesurée avec l'inverse de
+       la distance prédite. Le maximum est franc : il faut que les creux de
+       rue et les façades proches tombent en face les uns des autres.       */
+    const mesure=[], predit=[];
+    for(const l of lots){
+      const tn=new Float32Array(GW).fill(NaN), iv=new Float32Array(GW).fill(NaN);
+      for(let u=0;u<GW;u++){
+        if(l.prof.silVerdure[u]) continue;
+        const sv=l.prof.silhouette[u];
+        if(sv<0) continue;
+        const el=(90-(sv+0.5)/GH*180)*PI/180;
+        if(el>0.02 && el<1.4) tn[u]=Math.tan(el);
       }
-      const q=s/n;
-      if(q>meilleur){ meilleur=q; decal=d/GW*360; }
+      for(let u=0;u<GW;u++){
+        const bi=l.vis.bat[u], d=l.vis.dist[u];
+        if(bi<0 || d>PORTEE || d<2) continue;
+        iv[u]=1/d;
+      }
+      mesure.push(tn); predit.push(iv);
     }
-    console.log('décalage résolu : '+decal.toFixed(1)+'°   (accord silhouette '+((meilleur+1)/2*100).toFixed(1)+' %)');
+    const gros=correler(mesure,predit);
+    decal=gros.decal;
+    console.log('décalage résolu : '+decal.toFixed(1)+'°   (corrélation '+gros.r.toFixed(3)+
+      (gros.second?(', second candidat '+(gros.second[1]/GW*360).toFixed(0)+'° à '+
+                    gros.second[0].toFixed(3)):'')+')');
+    if(gros.second && gros.second[0]>gros.r*0.85)
+      console.log('  ⚠ le maximum n’est pas franc : vérifier le cap sur une photo repère');
   }
 
-  /* --- deuxième passe : hauteurs, puis couleurs sur bandes mesurées --- */
-  const par=new Map();
+  /* --- mesure : hauteurs, puis couleurs sur des bandes calculées ---
+     Appelée deux fois : une première fois avec le cap grossier, une seconde
+     avec le cap affiné sur les hauteurs de la première. */
   const rejet={'colonnes vues':0,'sans emprise prédite':0,'hors portée':0,'sans silhouette':0,
                'silhouette de verdure':0,'élévation nulle':0,'hauteur hors bornes':0,'retenues':0};
-  for(const l of lots){
-    const d=(decal===null? l.p.cap : decal);
-    const dU=Math.round(d/360*GW);
-    const bandesMur=[], bandesToit=[], quiMur=[], quiToit=[];
-    for(let u=0;u<GW;u++){
-      rejet['colonnes vues']++;
-      const uv=((u+dU)%GW+GW)%GW;            /* colonne du monde */
-      const bi=l.vis.bat[uv], dist=l.vis.dist[uv];
-      if(bi<0){ rejet['sans emprise prédite']++; continue; }
-      if(dist>PORTEE){ rejet['hors portée']++; continue; }
-      const sv=l.prof.silhouette[u];
-      if(sv<0){ rejet['sans silhouette']++; continue; }   /* pas de ciel au-dessus */
-      if(l.prof.silVerdure[u]){ rejet['silhouette de verdure']++; continue; }
-      /* élévation du haut de la silhouette, au centre du pixel */
-      const el=(90-(sv+0.5)/GH*180)*PI/180;
-      if(el<=0.02){ rejet['élévation nulle']++; continue; }
-      const haut=M.h+dist*Math.tan(el);
-      if(haut<2 || haut>42){ rejet['hauteur hors bornes']++; continue; }
-      rejet['retenues']++;
-      if(!par.has(bi)) par.set(bi,{h:[], abs:[], mur:[], toit:[], vues:0, d:[]});
-      const e=par.get(bi);
-      e.h.push(haut); e.d.push(dist); e.vues++;
-      if(l.p.solCamera!==undefined) e.abs.push(l.p.solCamera+haut);
+  async function mesurer(decalage, compter){
+    const par=new Map();
+    for(const l of lots){
+      const d=(decalage===null? l.p.cap : decalage);
+      const dU=Math.round(d/360*GW);
+      const bandesMur=[], bandesToit=[], quiMur=[], quiToit=[];
+      for(let u=0;u<GW;u++){
+        if(compter) rejet['colonnes vues']++;
+        const uv=((u+dU)%GW+GW)%GW;            /* colonne du monde */
+        const bi=l.vis.bat[uv], dist=l.vis.dist[uv];
+        if(bi<0){ if(compter) rejet['sans emprise prédite']++; continue; }
+        if(dist>PORTEE){ if(compter) rejet['hors portée']++; continue; }
+        const sv=l.prof.silhouette[u];
+        if(sv<0){ if(compter) rejet['sans silhouette']++; continue; }   /* pas de ciel au-dessus */
+        if(l.prof.silVerdure[u]){ if(compter) rejet['silhouette de verdure']++; continue; }
+        /* élévation du haut de la silhouette, au centre du pixel */
+        const el=(90-(sv+0.5)/GH*180)*PI/180;
+        if(el<=0.02){ if(compter) rejet['élévation nulle']++; continue; }
+        const haut=M.h+dist*Math.tan(el);
+        if(haut<2 || haut>42){ if(compter) rejet['hauteur hors bornes']++; continue; }
+        if(compter) rejet['retenues']++;
+        if(!par.has(bi)) par.set(bi,{h:[], abs:[], mur:[], toit:[], vues:0, d:[]});
+        const e=par.get(bi);
+        e.h.push(haut); e.d.push(dist); e.vues++;
+        if(l.p.solCamera!==undefined) e.abs.push(l.p.solCamera+haut);
 
-      /* Bas de la façade : là où le mur rencontre le sol, à une élévation de
-         -atan(hauteur de caméra / distance). Je l'avais posé à -9° pour
-         toutes les distances, ce qui ne vaut que vers douze mètres : à
-         quarante, le pied du mur est à -2,7° et la bande de couleur mordait
-         sur la chaussée. */
-      const vSol=Math.min(GH-1, Math.round(GH/2 + Math.atan(M.h/dist)/PI*GH));
-      const hautPx=vSol-sv;
-      if(hautPx>=6){
-        bandesMur.push({u:u, v0:Math.round(sv+hautPx*0.10), v1:Math.round(sv+hautPx*0.45)});
-        quiMur.push(bi);
+        /* Bas de la façade : là où le mur rencontre le sol, à une élévation de
+           -atan(hauteur de caméra / distance). Je l'avais posé à -9° pour
+           toutes les distances, ce qui ne vaut que vers douze mètres : à
+           quarante, le pied du mur est à -2,7° et la bande de couleur mordait
+           sur la chaussée. */
+        const vSol=Math.min(GH-1, Math.round(GH/2 + Math.atan(M.h/dist)/PI*GH));
+        const hautPx=vSol-sv;
+        if(hautPx>=6){
+          bandesMur.push({u:u, v0:Math.round(sv+hautPx*0.10), v1:Math.round(sv+hautPx*0.45)});
+          quiMur.push(bi);
+        }
+        /* Couleur de toit : le rampant n'est visible que d'assez loin. Depuis
+           la rue, à quinze mètres d'une maison de dix, on voit la façade jusqu'à
+           la corniche puis le ciel — le pan est de l'autre côté du faîte. Au-delà
+           de deux fois la hauteur, la bande juste sous la silhouette est du toit.
+           Plus près, on s'abstient plutôt que de relever la corniche en croyant
+           relever l'ardoise. */
+        if(dist>2.2*haut && hautPx>=8){
+          bandesToit.push({u:u, v0:sv+1, v1:Math.round(sv+Math.max(3,hautPx*0.22))});
+          quiToit.push(bi);
+        }
       }
-      /* Couleur de toit : le rampant n'est visible que d'assez loin. Depuis
-         la rue, à quinze mètres d'une maison de dix, on voit la façade jusqu'à
-         la corniche puis le ciel — le pan est de l'autre côté du faîte. Au-delà
-         de deux fois la hauteur, la bande juste sous la silhouette est du toit.
-         Plus près, on s'abstient plutôt que de relever la corniche en croyant
-         relever l'ardoise. */
-      if(dist>2.2*haut && hautPx>=8){
-        bandesToit.push({u:u, v0:sv+1, v1:Math.round(sv+Math.max(3,hautPx*0.22))});
-        quiToit.push(bi);
+      /* un seul aller-retour par photo et par usage, plutôt qu'un par colonne */
+      if(bandesMur.length){
+        const c=await PASSE_B(page,l.p.fichier,bandesMur);
+        if(c) c.forEach((v,i)=>{ if(v[3]>=3 && v[4]<0.30) par.get(quiMur[i]).mur.push([v[0],v[1],v[2]]); });
       }
+      if(bandesToit.length){
+        const c=await PASSE_B(page,l.p.fichier,bandesToit);
+        if(c) c.forEach((v,i)=>{ if(v[3]>=2 && v[4]<0.25) par.get(quiToit[i]).toit.push([v[0],v[1],v[2]]); });
+      }
+      l.bandes={mur:bandesMur, quiMur:quiMur, toit:bandesToit, quiToit:quiToit};
     }
-    /* un seul aller-retour par photo et par usage, plutôt qu'un par colonne */
-    if(bandesMur.length){
-      const c=await PASSE_B(page,l.p.fichier,bandesMur);
-      if(c) c.forEach((v,i)=>{ if(v[3]>=3 && v[4]<0.30) par.get(quiMur[i]).mur.push([v[0],v[1],v[2]]); });
-    }
-    if(bandesToit.length){
-      const c=await PASSE_B(page,l.p.fichier,bandesToit);
-      if(c) c.forEach((v,i)=>{ if(v[3]>=2 && v[4]<0.25) par.get(quiToit[i]).toit.push([v[0],v[1],v[2]]); });
-    }
-    l.bandes={mur:bandesMur, quiMur:quiMur, toit:bandesToit, quiToit:quiToit};
+    return par;
   }
+
+  let par=await mesurer(decal,false);
+
+  /* --- affinage du cap : la dispersion des hauteurs d'un même bâtiment -----
+     La corrélation entre tangente de l'élévation et inverse de la distance
+     trouve le bon pic mais pas son sommet : elle suppose une hauteur de bâti
+     constante, et le biais qui en résulte s'est mesuré à quatre degrés sur le
+     village comme à cinq sur Saint-Maixent — les deux moitiés du lot donnant
+     la même valeur, ce n'est pas du bruit. Quatre degrés coûtent trente-cinq
+     centimètres sur les hauteurs.
+
+     Le bon critère ne demande pas de modèle : au bon cap, les colonnes qui
+     visent un même bâtiment lui donnent toutes la même hauteur ; au mauvais,
+     elles mélangent des distances qui appartiennent à ses voisins et la
+     dispersion explose. On cherche donc le décalage qui minimise la variance
+     intra-bâtiment, ce qui est exactement ce qu'on veut obtenir.          */
+  if(CAP_IMPOSE===null && decal!==null){
+    const NB=BATS.length;
+    const cnt=new Float64Array(NB), som=new Float64Array(NB), som2=new Float64Array(NB);
+    const tanEl=[], biCol=[], dCol=[];
+    for(const l of lots){
+      const tn=new Float32Array(GW).fill(NaN);
+      for(let u=0;u<GW;u++){
+        if(l.prof.silVerdure[u]) continue;
+        const sv=l.prof.silhouette[u];
+        if(sv<0) continue;
+        const el=(90-(sv+0.5)/GH*180)*PI/180;
+        if(el>0.02 && el<1.4) tn[u]=Math.tan(el);
+      }
+      tanEl.push(tn); biCol.push(l.vis.bat); dCol.push(l.vis.dist);
+    }
+    let best=Infinity, dB=Math.round(decal/360*GW);
+    /* on ne balaie que ±25° autour du pic grossier : au-delà, le critère a
+       ses propres minima parasites là où presque aucune colonne n'est valide */
+    const centre=Math.round(decal/360*GW), demi=Math.round(25/360*GW);
+    for(let k=-demi;k<=demi;k++){
+      const d=((centre+k)%GW+GW)%GW;
+      cnt.fill(0); som.fill(0); som2.fill(0);
+      for(let j=0;j<tanEl.length;j++){
+        const tn=tanEl[j], bat=biCol[j], dist=dCol[j];
+        for(let u=0;u<GW;u++){
+          const x=tn[u]; if(!(x===x)) continue;
+          const v=(u+d)%GW;
+          const bi=bat[v], dd=dist[v];
+          if(bi<0 || dd>PORTEE || dd<2) continue;
+          const h=M.h+dd*x;
+          if(h<2 || h>42) continue;
+          cnt[bi]++; som[bi]+=h; som2[bi]+=h*h;
+        }
+      }
+      let sse=0, n=0;
+      for(let i=0;i<NB;i++){
+        if(cnt[i]<6) continue;
+        sse+=som2[i]-som[i]*som[i]/cnt[i];
+        n+=cnt[i];
+      }
+      if(n<200) continue;
+      const v=sse/n;
+      if(v<best){ best=v; dB=d; }
+    }
+    const affine=dB/GW*360;
+    console.log('cap affiné sur la dispersion : '+affine.toFixed(1)+'°   (écart type intra-bâtiment '+
+      Math.sqrt(best).toFixed(2)+' m, déplacement de '+(((affine-decal+540)%360)-180).toFixed(1)+'°)');
+    decal=affine;
+  }
+  par=await mesurer(decal,true);
 
   /* --- étalonnage : les mêmes bandes sur les panoramas du modèle courant ---
      La lumière est commune aux deux lots : c'est le rapport des deux mesures

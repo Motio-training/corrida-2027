@@ -245,6 +245,27 @@ paramètre partagé par cent photos est cent fois mieux contraint qu'un
 paramètre par photo. Si l'EXIF porte un cap (`GPSImgDirection`), on le prend
 à la place.
 
+La résolution se fait en deux temps, et les deux ont été trouvés en se
+trompant. Le premier jet comptait les colonnes où prédiction et mesure
+s'accordaient sur « y a-t-il un bâtiment ici » : dans un bourg on touche
+quelque chose dans 96 % des directions à soixante-dix mètres, l'accord reste
+à 93 % quelle que soit la rotation, et le maximum n'est plus que du bruit —
+269° au lieu de 0 à La Mothe-Saint-Héray, et quatre mètres d'écart médian sur
+les hauteurs au lieu d'un. L'indice de Jaccard n'y changeait rien.
+
+Ce qui a de la structure, c'est la hauteur apparente : à hauteur de bâti à
+peu près constante, l'élévation de la silhouette varie comme l'inverse de la
+distance. La corrélation entre les deux trouve le bon pic — mais pas son
+sommet, parce que les bâtiments n'ont justement pas tous la même hauteur : il
+restait quatre degrés de biais au village et cinq à Saint-Maixent, les deux
+moitiés du lot donnant la même valeur, donc un biais et non du bruit.
+
+Le second temps ne demande aucun modèle : au bon cap, les colonnes qui visent
+un même bâtiment lui donnent toutes la même hauteur ; au mauvais, elles
+mélangent les distances de ses voisins et la dispersion explose. On minimise
+donc la variance intra-bâtiment autour du pic. Le cap tombe alors à moins
+d'un degré du vrai, et c'est exactement le critère qu'on cherche à optimiser.
+
 Le lancer de rayon en azimut est la pièce dont tout le reste dépend :
 `--essai-geometrie` le vérifie sur un cas calculable à la main — un carré de
 10 m dont la face nord est à 15 m occupe ±18,43° et se tient à 15 m droit
@@ -271,25 +292,31 @@ du faîte des murs de l'église, et la silhouette le voit.
 
 ### Ce que le contrôle donne
 
-Six panoramas de synthèse au centre de Saint-Maixent, 83 bâtiments relevés,
-36 retenus après filtrage (étalement inférieur à 2,5 m, au moins 12 colonnes,
-45 m au plus) :
+Deux jeux de panoramas de synthèse, l'un au centre de Saint-Maixent, l'autre
+le long de l'itinéraire prévu à La Mothe-Saint-Héray. Les bâtiments retenus
+sont ceux vus sur au moins 12 colonnes, à 45 m au plus, avec un étalement
+inférieur à 2,5 m :
 
-| mesure | écart médian | q90 |
+| | Saint-Maixent (6 vues) | La Mothe (8 vues) |
 |---|---|---|
-| faîte, tous les bâtiments relevés | 1,15 m | 8,55 m |
-| faîte, bâtiments retenus | 0,86 m | 3,62 m |
-| haut des murs, bâtiments retenus | 1,65 m | 3,40 m |
+| bâtiments relevés | 83 | 111 |
+| dont retenus | 35 | 67 |
+| cap retrouvé | 357,8° pour 0 | 359,3° pour 0 |
+| faîte, retenus | 0,94 m | **0,79 m** |
+| haut des murs, retenus | 1,94 m | 1,50 m |
+| niveaux justes | 40 % | **60 %** |
+| niveaux à un près | 94 % | **97 %** |
 
-Niveaux : 42 % justes, 94 % à un niveau près. Le cap de la colonne zéro est
-retrouvé à un demi-degré près — c'était la pièce la plus incertaine du
-procédé, et c'est celle qui marche le mieux.
+Le village fait mieux que la ville : le bâti y est plus bas et plus régulier,
+les rues plus larges, et l'itinéraire a été calculé pour voir chaque façade
+d'assez près. C'est le jeu qui compte, puisque c'est là que la sortie aura
+lieu.
 
 L'écart sur le haut des murs est le double de celui sur le faîte parce qu'on
 y retranche un relèvement de toiture estimé depuis la boîte OSM, alors que le
 moteur calcule le sien sur une boîte réorientée et avec une pente qui dépend
 du matériau. C'est cette estimation, et non la mesure, qui limite le comptage
-des niveaux.
+des niveaux : la silhouette, elle, est lue à moins d'un mètre.
 
 Les plus fautifs sont tous des façades vues en biais à cinquante ou soixante
 mètres sur six à dix colonnes — une lichette de mur, où une erreur d'un pixel
