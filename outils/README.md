@@ -311,3 +311,112 @@ Jusqu'à quatre mètres le procédé tient ; à huit, la résolution du cap
 décroche et tout s'effondre avec elle. La suite évidente est de recaler la
 trace sur le réseau de voies : l'essentiel de l'erreur d'un GPS piéton est
 latérale, et une rue connue la contraint.
+
+## `carte.js`
+
+La carte du moteur, lue depuis une page, et qui voit quoi depuis un point.
+
+```js
+const C=require('./carte.js').charger({page:'village/index.html', gw:1440, portee:70});
+C.visibilite(x,z)   // → {bat, dist} : pour chaque colonne d'azimut,
+                    //   l'emprise la plus proche et sa distance
+```
+
+Ce n'est pas un outil mais la pièce commune à `relever_360.js`, qui mesure
+les bâtiments sur les photos, et `plan_360.js`, qui décide où il faut passer.
+Le lancer de rayon en azimut est ce dont dépendent toutes les hauteurs
+relevées : en garder deux copies, c'est se préparer à les voir diverger. Le
+projet a déjà payé deux fois le prix d'une fonction dupliquée sous le même
+nom — `triOriente`, puis `panneau`.
+
+`remplacerBatiments()` sert aux auto-contrôles, qui vérifient le lancer de
+rayon sur un carré posé à la main plutôt que sur la carte réelle.
+
+## `plan_360.js`
+
+Où faut-il passer avec la caméra 360 pour voir le bourg en entier.
+
+```sh
+node outils/plan_360.js --page village/index.html \
+     --osm village/export-osm.geojson \
+     --depart 46.360453,-0.112819 --budget 5200 --rayon 450 --coeur 400 \
+     --sortie village/parcours-360
+```
+
+Le relevé mesure un bâtiment quand il l'a vu assez large et d'assez près :
+au moins trois degrés d'azimut, quarante-cinq mètres au plus, et de deux
+points de vue pour pouvoir prendre une médiane. Cela ne dépend que de la
+géométrie, qu'on possède déjà — l'itinéraire se calcule donc avant d'aller
+marcher, au lieu de découvrir au dépouillement qu'une rue manque.
+
+Le réseau piéton est échantillonné tous les quatorze mètres, le pas d'une
+photo toutes les dix secondes à cinq kilomètres-heure, et chaque point de vue
+est évalué au lancer de rayon. Les rues sont ensuite choisies une par une :
+celle qui rapporte le plus de bâtiments neufs par mètre parcouru, détour
+compris. Glouton, donc non optimal — le problème est celui du facteur rural
+— mais sur un bourg la différence ne vaut pas le temps de la chercher.
+
+Deux bornes possibles pour les rues candidates, sans borner le réseau
+(traverser reste permis) : `--rayon` autour du départ, ou `--trace` +
+`--corridor` le long d'un tracé, ce qu'il faudra pour un parcours de course.
+Sans borne, le glouton part chercher quelques fermes à un kilomètre alors
+qu'il reste des ruelles du centre à faire.
+
+`--osm` sert à nommer les rues, que `d-voies` ne porte pas : l'itinéraire
+écrit dit « remonte la rue de la Chamoiserie » au lieu d'afficher une trace.
+
+Sorties : un GPX à charger dans n'importe quelle appli de marche, et un
+itinéraire en Markdown, rue par rue.
+
+### Ce que ça donne sur La Mothe-Saint-Héray
+
+769 des 1 542 emprises du bourg sont visibles depuis une rue à moins de
+45 m — les remises de fond de jardin ne se voient d'aucune :
+
+| longueur | photos | durée | bourg vu 1 fois | vu de 2 points de vue |
+|---|---|---|---|---|
+| 3,8 km | 270 | 47 min | 70 % | 63 % |
+| 4,5 km | 322 | 56 min | 79 % | 72 % |
+| **5,3 km** | **381** | **67 min** | **85 %** | **78 %** |
+| 8,1 km | 575 | 101 min | 93 % | 86 % |
+
+## `relief_depuis_gps.js`
+
+Le relief du village, depuis les altitudes GPS de la sortie.
+
+```sh
+node outils/relief_depuis_gps.js trace.gpx releve/photos-360/ \
+     --donnees village/donnees.html
+```
+
+La carte sort du convertisseur sur une nappe plate : aucune source
+d'altitude n'est joignable depuis l'environnement de développement. Pour un
+bourg de vallée, ça se voit. Ce que la sortie rapporte comble ce trou — une
+altitude par point de passage, bruitée, et seulement le long des rues, mais
+un profil de vallée approché vaut mieux qu'une table.
+
+L'altitude GPS se trompe de deux façons : un bruit de haute fréquence, que
+la médiane puis la moyenne glissantes enlèvent, et une dérive lente de
+plusieurs mètres, qu'aucun lissage n'enlève. On interpole ensuite sur la
+grille du moteur en 1/(d² + s²) sur les vingt-quatre mesures les plus
+proches, avec un terme de fond placé à cent cinquante mètres qui ne pèse que
+là où il n'y a vraiment rien.
+
+Un décalage constant est invisible : le moteur n'utilise que des altitudes
+relatives. Que le GPS donne la hauteur sur l'ellipsoïde ou sur le géoïde ne
+change donc rien.
+
+Éprouvé sur une trace de synthèse suivant l'itinéraire prévu, avec un profil
+de vallée connu, un bruit de 2 m d'écart type et une dérive en marche
+aléatoire bornée à 6 m :
+
+| | écart médian | q90 |
+|---|---|---|
+| sur la trace | 1,29 m | 2,62 m |
+| dans les 400 m du départ | 2,76 m | 7,70 m |
+
+Le premier jet donnait trois mètres d'écart *sur la trace elle-même* : il
+prenait toutes les mesures et donnait au terme de fond un poids calculé sur
+quatre fois la longueur de lissage, si bien que les contributions lointaines
+portaient la moitié du poids partout et que le relief sortait écrasé vers la
+moyenne. C'est le voisinage borné qui l'a corrigé.

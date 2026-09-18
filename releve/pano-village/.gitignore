@@ -1,0 +1,9 @@
+# Panoramas de synthèse et vérité de référence : refabriqués par
+#   node outils/rendre_equirect.js releve/pano-village/points.json \
+#        --sortie releve/pano-village --page /village/
+# et pesant quelques mégaoctets. Seuls les points de prise de vue sont
+# versionnés — ils suffisent à tout refaire.
+*.jpg
+verite.json
+manifeste.json
+releve.json
