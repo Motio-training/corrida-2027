@@ -691,12 +691,24 @@ if(ARG.includes('--essai-geometrie')){
     const b=BATS[bi];
     const h=med(e.h);
     /* La silhouette donne le faîte de la toiture, pas le haut des murs, et
-       c'est le haut des murs qui compte les niveaux. Le moteur monte son
-       faîte de min(L × 0,72 ; 3,4) où L est la demi-largeur du petit côté
-       augmentée du débord : on connaît ces côtés par l'emprise OSM, on peut
-       donc retrancher la même chose au lieu de compter un étage de trop. */
+       c'est le haut des murs qui compte les niveaux.
+
+       Le débord de toiture rend le service : de très près, il masque le
+       faîte et la silhouette est l'égout, donc le haut du mur ; de loin, le
+       faîte réapparaît par-dessus. On sépare donc les vues rapprochées des
+       vues éloignées au lieu de retrancher un relèvement estimé sur la boîte
+       OSM — estimation qui laissait deux mètres et demi d'écart, alors que
+       le faîte lui-même est lu à moins d'un mètre. L'estimation ne sert plus
+       que de recours quand un bâtiment n'a été vu que d'une seule tranche de
+       distances. */
+    const proches=[], loins=[];
+    for(let k=0;k<e.h.length;k++){
+      if(e.d[k]<1.3*h) proches.push(e.h[k]);
+      else if(e.d[k]>2.0*h) loins.push(e.h[k]);
+    }
     const rise=Math.min((Math.min(b.ow,b.ol)/2+0.38)*0.72, 3.4);
-    const hMurs=Math.max(2.4, h-rise);
+    const hMurs=Math.max(2.4, (proches.length>=5)?med(proches):(h-rise));
+    const hFaite=(loins.length>=5)?med(loins):h;
     /* dispersion : si les colonnes ne s'accordent pas, on ne publie pas */
     const tri=e.h.slice().sort((x,y)=>x-y);
     const q1=tri[Math.floor(tri.length*0.25)], q3=tri[Math.floor(tri.length*0.75)];
@@ -714,7 +726,8 @@ if(ARG.includes('--essai-geometrie')){
     }
     releve.push({
       i:bi, la:+laDeZ(b.cz).toFixed(6), lo:+loDeX(b.cx).toFixed(6),
-      haut:+h.toFixed(1), murs:+hMurs.toFixed(1), etalement:+etal.toFixed(1),
+      haut:+hFaite.toFixed(1), murs:+hMurs.toFixed(1), etalement:+etal.toFixed(1),
+      vuesProches:proches.length, vuesLoin:loins.length,
       faite:(e.abs.length? +med(e.abs).toFixed(1) : null),
       niv:Math.max(1,Math.round((hMurs-1.1)/3.15)),
       mur:hex(murCor), murMesure:hex(medC(e.mur)),
