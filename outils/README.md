@@ -116,3 +116,33 @@ toiture se tromper :
 Le contrôle sort en échec (code 1) au premier défaut, et il attrape bien les
 régressions : en reposant la toiture sur la boîte englobante, ou en posant les
 bandes de pignon sans vérifier leur sens, il signale les 3 573 emprises.
+
+## `carte_depuis_osm.js`
+
+Fabrique les blocs de données du moteur à partir d'un export OpenStreetMap.
+
+```sh
+node outils/carte_depuis_osm.js export.geojson \
+     --sortie village/donnees.html --centre 46.3617,-0.0703 --rayon 900 --sol 95
+```
+
+Le moteur ne lit pas d'OSM : il lit des blocs de texte tabulés, en
+décimètres dans un repère local. Ces blocs existaient pour Saint-Maixent
+sans qu'aucun outil ne sache les refaire — c'est ce trou que comble ce
+script, pour monter une deuxième carte et, plus tard, remettre à jour la
+première.
+
+Entrée : un export GeoJSON d'overpass-turbo (les tags OSM dans
+`properties`). Sortie : un fichier de blocs `<script>` prêt à inclure,
+plus `window.CARTE_ORIGINE`, que `actifs/code3d.js` lit désormais pour son
+origine et son emprise de relief au lieu des constantes de Saint-Maixent.
+
+Correspondances : `building` → `d-bats` (avec boîte d'aire minimale,
+rectangularité, niveaux) et `d-types` pour la fonction (mairie, église,
+école, commerce…) ; `highway` → `d-voies` avec une largeur par classe ;
+`landuse`/`natural`/`leisure` → `d-zones` ; `barrier` → `d-lignes` ;
+`waterway` → `d-topo` ; le mobilier ponctuel → `d-mobilier`.
+
+Le relief sort en nappe plate : aucune source d'altitude n'est accessible
+depuis l'environnement de développement. Il sera affiné par les altitudes
+GPS de la sortie 360.

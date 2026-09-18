@@ -6,7 +6,12 @@ if(!window.THREE){ window.ESPACE3D={indisponible:true}; return; }
    Repère local en mètres : x vers l'est, z vers le sud, y vers le haut.
 ================================================================= */
 var PI=Math.PI;
-var LA0=46.4136975, LO0=-0.2096655;
+/* Origine du repère local et emprise de la grille de relief. Saint-Maixent
+   par défaut ; une autre carte (le bourg de La Mothe-Saint-Héray, pour
+   éprouver le relevé 360) pose window.CARTE_ORIGINE avant de charger ce
+   fichier, et outils/carte_depuis_osm.js écrit ce bloc pour elle. */
+var ORIG=(typeof window!=='undefined' && window.CARTE_ORIGINE) || {};
+var LA0=(ORIG.la!==undefined)?ORIG.la:46.4136975, LO0=(ORIG.lo!==undefined)?ORIG.lo:-0.2096655;
 var _f=LA0*PI/180;
 var MLAT=111132.92-559.82*Math.cos(2*_f)+1.175*Math.cos(4*_f)-0.0023*Math.cos(6*_f);
 var MLON=111412.84*Math.cos(_f)-93.5*Math.cos(3*_f)+0.118*Math.cos(5*_f);
@@ -14,7 +19,8 @@ function pX(lo){ return (lo-LO0)*MLON; }
 function pZ(la){ return (LA0-la)*MLAT; }
 
 /* grille de relief */
-var GLA0=46.40464, GLA1=46.42275, GLO0=-0.22524, GLO1=-0.19409;
+var GLA0=(ORIG.gla0!==undefined)?ORIG.gla0:46.40464, GLA1=(ORIG.gla1!==undefined)?ORIG.gla1:46.42275;
+var GLO0=(ORIG.glo0!==undefined)?ORIG.glo0:-0.22524, GLO1=(ORIG.glo1!==undefined)?ORIG.glo1:-0.19409;
 var GROWS=33, GCOLS=41;
 var XMIN=pX(GLO0), XMAX=pX(GLO1), ZMAX=pZ(GLA0), ZMIN=pZ(GLA1);
 var PASX=(XMAX-XMIN)/(GCOLS-1), PASZ=(ZMAX-ZMIN)/(GROWS-1);
@@ -8606,8 +8612,14 @@ lireDonnees=function(){
   /* lecture d'origine (ancien relief 25 m, zones, voies…), puis relief fin et creusement */
   _lireDonneesX();
   var s=(texteBrut('d-ele5')||'').split('\n').filter(function(v){ return v!==''; });
-  if(s.length!==404*480) return;
-  GROWS=404; GCOLS=480;
+  /* 404 × 480 pour Saint-Maixent ; une autre carte donne sa propre taille
+     dans window.CARTE_ORIGINE, et une grille carrée est admise telle quelle */
+  var nr=(ORIG.grows||404), nc=(ORIG.gcols||480);
+  if(s.length!==nr*nc){
+    var cote=Math.round(Math.sqrt(s.length));
+    if(cote*cote===s.length && cote>8){ nr=nc=cote; } else return;
+  }
+  GROWS=nr; GCOLS=nc;
   PASX=(XMAX-XMIN)/(GCOLS-1); PASZ=(ZMAX-ZMIN)/(GROWS-1);
   ELE=new Float32Array(s.length);
   for(var i=0;i<s.length;i++) ELE[i]=(+s[i])/100;
