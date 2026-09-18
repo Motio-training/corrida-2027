@@ -12584,8 +12584,23 @@ window.ESPACE3D.clicheLibre=function(o,qualite){
    de nommer un toit qui flotte au lieu de le deviner : on demande au
    moteur de quel maillage il sort et à quelle hauteur.
    sx, sy : fractions de l'image, 0,0 en haut à gauche.                  */
+/* Nommer les matériaux avant de sonder : « (sans nom) » n'apprend rien, et
+   c'est précisément quand on ne reconnaît pas ce qu'on voit qu'on sonde. Les
+   matériaux nommés à la main gardent leur nom ; les autres prennent leur clé
+   dans MAT, et faute de nom on rend la couleur — une barre verte de sept
+   mètres au milieu du bourg ne se laisse pas identifier autrement. */
+function nommerMateriaux(){
+  for(var k in MAT){
+    var m=MAT[k];
+    if(!m) continue;
+    if(Array.isArray(m)){
+      for(var i=0;i<m.length;i++) if(m[i] && m[i].isMaterial && !m[i].name) m[i].name=k+'['+i+']';
+    } else if(m.isMaterial && !m.name) m.name=k;
+  }
+}
 window.ESPACE3D.sonder=function(sx,sy,combien){
   if(!construit || !renderer) return null;
+  nommerMateriaux();
   var r=new THREE.Raycaster();
   r.setFromCamera(new THREE.Vector2(sx*2-1, 1-sy*2), camera);
   r.far=1200;
@@ -12594,8 +12609,11 @@ window.ESPACE3D.sonder=function(sx,sy,combien){
     var h=t[i];
     if(!h.object || !h.object.visible) continue;
     var m=h.object.material||{};
+    var quoi=m.name||h.object.name||(h.object.parent&&h.object.parent.name)||'';
+    if(!quoi) quoi='(sans nom'+(m.color?(', couleur #'+m.color.getHexString()):'')+
+                   (m.map?', texturé':'')+(m.alphaTest?', découpé':'')+')';
     out.push({
-      quoi:(m.name||h.object.name||'(sans nom)'),
+      quoi:quoi,
       dist:+h.distance.toFixed(1),
       point:[+h.point.x.toFixed(1), +h.point.y.toFixed(1), +h.point.z.toFixed(1)],
       normale:h.face?[+h.face.normal.x.toFixed(2),+h.face.normal.y.toFixed(2),+h.face.normal.z.toFixed(2)]:null
