@@ -1,0 +1,38 @@
+[
+ {
+  "nom": "sm026",
+  "la": 46.413387,
+  "lo": -0.205506,
+  "sujet": "Porte Chalon"
+ },
+ {
+  "nom": "sm310",
+  "la": 46.409739,
+  "lo": -0.203673,
+  "sujet": "Seconde porte de ville"
+ },
+ {
+  "nom": "sm314",
+  "la": 46.410696,
+  "lo": -0.203153,
+  "sujet": "Abbatiale Saint-Maixent"
+ },
+ {
+  "nom": "sm320",
+  "la": 46.411034,
+  "lo": -0.202936,
+  "sujet": "Place du Marché"
+ },
+ {
+  "nom": "sm337",
+  "la": 46.413526,
+  "lo": -0.203493,
+  "sujet": "Mairie"
+ },
+ {
+  "nom": "sm343",
+  "la": 46.412371,
+  "lo": -0.203109,
+  "sujet": "km 8.867"
+ }
+]

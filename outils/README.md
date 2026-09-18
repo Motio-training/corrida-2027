@@ -146,3 +146,111 @@ rectangularité, niveaux) et `d-types` pour la fonction (mairie, église,
 Le relief sort en nappe plate : aucune source d'altitude n'est accessible
 depuis l'environnement de développement. Il sera affiné par les altitudes
 GPS de la sortie 360.
+
+## `page_village.js`
+
+Monte la page du banc d'essai du village à partir de la page principale.
+
+```sh
+node outils/page_village.js \
+     --page index.html --donnees village/donnees.html \
+     --osm export.geojson --sortie village/index.html \
+     --titre "La Mothe-Saint-Héray"
+```
+
+Le but n'est pas un deuxième site, c'est un terrain d'essai pour le relevé
+360. On reprend donc de `index.html` ce qui fait la vue 3D — les styles et
+le bloc `e3` —, on y branche les données du village, et on remplace tout le
+reste (carte 2D, synchronisation, jalonneurs, tracé de la Corrida) par la
+surface minimale que `code3d.js` attend : un `window.CARTE` dont chaque
+fonction rend la forme vide attendue.
+
+`--osm` sert seulement à tracer une boucle de démonstration le long des
+rues réelles, par un Dijkstra sur le réseau piéton entre la mairie,
+l'église, le temple, l'Orangerie et les lavoirs. Sans lui, ou avec
+`--sans-boucle`, la page s'ouvre sans parcours.
+
+## `verifier_noms.js`
+
+Refuse une collision de nom de fonction dans `code3d.js`.
+
+```sh
+node outils/verifier_noms.js
+```
+
+Le moteur est écrit en passes : une section tardive redéclare une fonction
+d'une section antérieure pour la remplacer, volontairement — 27 noms du
+fichier sont dans ce cas et tous vont bien. Le même mécanisme produit
+pourtant le pire défaut silencieux du projet quand le nom est repris par
+erreur pour une fonction qui n'a rien à voir : les déclarations remontent en
+tête de portée, la dernière gagne, et les appels de la première partent vers
+la seconde sans qu'aucune erreur ne soit levée.
+
+C'est arrivé deux fois : `triOriente()`, où mon aide au sens de rotation a
+écrasé celle du moteur, et `panneau()`, où mon panneau d'enseigne a écrasé
+le panneau de feuillage des arbres — 5 511 géométries en NaN à chaque
+construction du monde, invisibles à Saint-Maixent parce que les arbres en
+volume se posaient par-dessus.
+
+Ce qui sépare les deux familles se lit sans exécuter le fichier : une passe
+qui remplace garde la signature, ou l'étend d'un paramètre. Aucune des 27
+redéclarations légitimes ne perd de paramètre ; les deux collisions en
+perdaient, 9 → 7 et 10 → 7. Le contrôle échoue donc sur une redéclaration
+qui réduit le nombre de paramètres, et signale seulement, sans échouer,
+celles qui les renomment.
+
+## `rendre_equirect.js`
+
+Panoramas équirectangulaires depuis la 3D, pour éprouver le relevé 360 sans
+attendre le terrain.
+
+```sh
+node outils/rendre_equirect.js points.json \
+     --sortie releve/pano --page /village/ --large 2880
+```
+
+La GoPro Max rend une image 360° × 180° : la colonne donne l'azimut, la
+ligne l'élévation. Il faut les mêmes images, mais prises d'un monde dont on
+connaît déjà chaque hauteur et chaque couleur. Le moteur ne sait rendre que
+des vues perspectives : on en prend dix-huit (six azimuts × trois
+élévations) et on les reprojette dans la grille équirectangulaire, chaque
+pixel choisissant la tranche dont l'axe est le plus proche de sa direction.
+
+C'est pour cela que le moteur a reçu `ESPACE3D.clicheLibre()` : la vue
+subjective pose l'œil à 15 cm devant le coureur, dans la direction du
+regard, et en tournant le centre de projection décrirait un cercle de 30 cm
+— près d'un degré de décalage à dix mètres, soit 16 cm sur la hauteur
+relevée, ce que l'outil cherche justement à mesurer.
+
+## `relever_360.js`
+
+Relève la hauteur, les niveaux et les couleurs de chaque bâtiment depuis un
+lot de photos 360°.
+
+```sh
+node outils/relever_360.js releve/pano --page village/index.html --verite
+node outils/relever_360.js x --essai-geometrie      # auto-contrôle
+```
+
+Le principe est géométrique. Depuis le point GPS, les emprises OSM disent
+déjà quel bâtiment occupe quel azimut et à quelle distance — un lancer de
+rayon, avec occultation, sur des données qu'on possède. Il ne reste à lire
+dans l'image que ce qu'elle seule sait : à quelle élévation s'arrête le
+bâti, et de quelle couleur il est. La hauteur suit,
+`hauteur = hauteur de la caméra + distance × tan(élévation du faîte)`.
+
+L'orientation de la caméra se résout en un seul angle pour tout le lot — la
+GoPro est portée de la même façon d'un bout à l'autre de la sortie, et un
+paramètre partagé par cent photos est cent fois mieux contraint qu'un
+paramètre par photo. Si l'EXIF porte un cap (`GPSImgDirection`), on le prend
+à la place.
+
+Le lancer de rayon en azimut est la pièce dont tout le reste dépend :
+`--essai-geometrie` le vérifie sur un cas calculable à la main — un carré de
+10 m dont la face nord est à 15 m occupe ±18,43° et se tient à 15 m droit
+devant — plutôt que sur le terrain. Pris à l'envers, chaque mur balayait
+l'horizon entier et occultait le village derrière lui ; le contrôle le voit.
+
+`--verite` compare aux hauteurs connues. Sur des panoramas de synthèse,
+`ESPACE3D.batisPoses()` donne ce que la 3D a réellement bâti — hauteur,
+couleur de mur, couleur de toit — et sert de vérité de référence.

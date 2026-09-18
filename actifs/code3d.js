@@ -3938,6 +3938,8 @@ function majJoueur(dt){
    Construction du monde, ouverture et synchronisation avec la carte
 ================================================================= */
 var Dzones=null, Dvoies=null, Dlignes=null, Dbats=null, Darbres=[], Dgros=null;
+/* ce que la construction des bâtiments a posé, pour l'outillage de contrôle */
+var BATIS_POSES=[];
 var construit=false, enConstruction=false, sale={route:false, jalons:false}, minuteurSync=0;
 
 function lireDonnees(){
@@ -10635,6 +10637,7 @@ toitDeuxPentes=function(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique){
 construireBatis=function(bats){
   indexerTypes();
   NB_TYPES={};
+  BATIS_POSES.length=0;      /* la fonction peut être rappelée : on repart de zéro */
   BAT={ murs:[], rdc:[], rdcC:new Tas(8192), mursS:new Tas(16384), mursEg:new Tas(8192), mursI:new Tas(16384),
         annexes:new Tas(16384), toits:new Tas(65536), toits2:new Tas(32768), toitsA:new Tas(16384), toitsM:new Tas(8192),
         plats:new Tas(16384), deco:new Tas(4096), corn:new Tas(65536), zinc:new Tas(65536), chem:new Tas(32768),
@@ -10745,6 +10748,15 @@ construireBatis=function(bats){
     var cta=melange(blanc,teinte(0xd6dbe2),r2);
     if(milit && !ardoise) ct=melange(ct,teinte(0xc8cdd4),0.5);
     var tuiles=(r3>0.5)?BAT.toits2:BAT.toits, riseMairie=0;
+    /* Ce que la 3D a réellement posé ici : hauteur, couleur de mur, couleur
+       de toit. C'est la vérité contre laquelle on mesure l'outil de relevé
+       360 — on lui donne des panoramas rendus de ce monde-ci, et on compare
+       ce qu'il retrouve à ce qui a été bâti, à la place d'aller vérifier sur
+       le terrain ce qu'on ne sait pas encore mesurer. */
+    BATIS_POSES.push({la:laDeZ(cz), lo:loDeX(cx), h:+h.toFixed(2),
+      sol:+base.toFixed(2), faite:+top.toFixed(2),
+      mur:cm.slice(), toit:(ardoise?cta:ct).slice(),
+      fam:fam, type:type||null, aire:aire, ow:+ow.toFixed(1), ol:+ol.toFixed(1)});
     CTX_TOIT={mur:tasHaut, col:cm, base:base, h:h, p:p, n:n};
     if(type==='G'||type==='I'){
       if(rect>=70 && Math.min(ow,ol)>6) toitDeuxPentes(BAT.toitsM,cx,cz,ang,ow,ol,top,gris,0.32,0,1,brique);
@@ -11322,6 +11334,12 @@ function etapeArbresChemin(){
   if(!window.CARTE || !CARTE.pisteObstacles || !Dvoies) return;
   var L=CARTE.pisteObstacles(), P={};
   L.forEach(function(o){ P[o.n]=[pX(o.lo),pZ(o.la)]; });
+  /* Cette étape borne le chemin sur les obstacles 1, 4, 16 et 17 de la piste,
+     et écarte ensuite les arbres des vingt obstacles. Sans piste — une autre
+     carte que Saint-Maixent — P est vide et P[1][0] jetait une exception qui
+     arrêtait la construction du monde entier. La garde sur CARTE.pisteObstacles
+     ne suffisait pas : la fonction existe, c'est sa liste qui est vide.      */
+  for(var np=1;np<=20;np++) if(!P[np]) return;
   var s1=[P[1],P[4]], s2=[P[16],P[17]];
   function coupe(a,b,c,d){
     var rx=b[0]-a[0], rz=b[1]-a[1], sx=d[0]-c[0], sz=d[1]-c[1], den=rx*sz-rz*sx;
@@ -12502,6 +12520,54 @@ window.ESPACE3D.cliche=function(qualite){
   return renderer.domElement.toDataURL('image/jpeg',qualite||0.72);
 };
 
+/* Ce que la 3D a bâti, bâtiment par bâtiment : sa hauteur au faîte des
+   murs et les couleurs qui lui ont été données. Sert de vérité connue pour
+   éprouver outils/relever_360.js sur des panoramas de synthèse.          */
+window.ESPACE3D.batisPoses=function(){
+  if(!construit) return null;
+  var c=new THREE.Color();
+  return BATIS_POSES.map(function(b){
+    return {la:+b.la.toFixed(7), lo:+b.lo.toFixed(7), h:b.h, sol:b.sol, faite:b.faite,
+            mur:'0x'+c.fromArray(b.mur).getHexString(), toit:'0x'+c.fromArray(b.toit).getHexString(),
+            fam:b.fam, type:b.type, aire:b.aire, ow:b.ow, ol:b.ol};
+  });
+};
+
+/* Une tranche de panorama, depuis un point et une direction donnés.
+
+   La vue subjective place l'oeil à 15 cm devant le coureur, dans la
+   direction du regard : en faisant le tour de l'horizon par tranches, le
+   centre de projection décrirait un cercle de 30 cm de diamètre. À dix
+   mètres cela décale les toits de près d'un degré, soit 16 cm de hauteur
+   relevée — exactement ce que le relevé 360 cherche à mesurer. Cette
+   fonction pose donc la caméra au point demandé, sans décalage.
+
+   Poser la caméra et lire l'image doivent tenir dans le même appel : entre
+   deux appels, la boucle d'animation la remettrait derrière le coureur.
+
+   o : {la, lo} ou {x, z} ; h hauteur de l'oeil au-dessus du sol (1,63 m par
+   défaut) ou y absolu ; az azimut et el élévation en degrés ; champ le
+   champ horizontal en degrés.                                            */
+window.ESPACE3D.clicheLibre=function(o,qualite){
+  if(!construit || !renderer) return null;
+  var x=(o.x!==undefined)?o.x:pX(o.lo), z=(o.z!==undefined)?o.z:pZ(o.la);
+  var y=(o.y!==undefined)?o.y:(hauteur(x,z)+((o.h!==undefined)?o.h:1.63));
+  var a=(o.az||0)*PI/180, el=(o.el||0)*PI/180;
+  var dx=Math.sin(a)*Math.cos(el), dy=Math.sin(el), dz=-Math.cos(a)*Math.cos(el);
+  var asp=camera.aspect||1.6, ch=(o.champ||60)*PI/180;
+  camera.fov=2*Math.atan(Math.tan(ch/2)/asp)*180/PI;
+  camera.position.set(x,y,z);
+  camera.up.set(0,1,0);
+  camera.lookAt(x+dx, y+dy, z+dz);
+  camera.updateProjectionMatrix();
+  renderer.render(scene,camera);
+  /* qualite = 0 : on ne réencode pas. L'appelant recopie la toile du moteur
+     dans la foulée, sans passer par un JPEG, et garde les pixels exacts. */
+  return {image:(qualite===0)?null:renderer.domElement.toDataURL('image/jpeg',qualite||0.85),
+          oeil:[x,y,z], aspect:asp, fovV:camera.fov,
+          large:renderer.domElement.width, haut:renderer.domElement.height};
+};
+
 /* Que touche-t-on à cet endroit de l'écran ? Un rayon depuis la caméra, et
    le nom du matériau, le point touché et la normale. C'est ce qui permet
    de nommer un toit qui flotte au lieu de le deviner : on demande au
@@ -12777,7 +12843,22 @@ function quadN(tas,A,B,C,D,n,uv,col){
    posée sur un mur. */
 var PANNEAU_UV=[0,0, 1,0, 1,1, 0,1];
 function droiteDe(n){ return [n[2],0,-n[0]]; }
-function panneau(A,B,C,D,n,toileP,opts){
+/* Une image posée sur un quadrilatère : enseigne, plaque, ferronnerie.
+
+   Elle s'appelait panneau(), et il y avait déjà, bien plus haut dans le
+   fichier, un panneau(tas,cx,cy,cz,ang,larg,haut,u0,u1,col) qui fabrique
+   les panneaux de feuillage des arbres. Les déclarations de fonction
+   remontent en tête de portée et la dernière gagne : depuis l'arrivée de
+   mes enseignes, tous les arbres du projet appelaient donc la mauvaise
+   fonction, avec un Tas là où elle attendait un point. Leurs feuillages
+   sortaient en NaN — 5 511 géométries à chaque construction du monde —
+   et disparaissaient à l'affichage.
+
+   Rien ne se voyait à Saint-Maixent : les vrais arbres en volume (ez-tree)
+   se posent par-dessus et masquaient l'absence. C'est la carte du village,
+   sans arbres modélisés, qui l'a révélé. Deuxième collision de nom du même
+   genre après triOriente() ; d'où ce nom-là, explicite.                  */
+function panneauImage(A,B,C,D,n,toileP,opts){
   var o=opts||{};
   var tas=new Tas(64);
   quadN(tas,A,B,C,D,n,PANNEAU_UV,teinte(0xffffff));
@@ -13125,7 +13206,7 @@ function porteChalon(){
   var vg=V1-0.45;
   var cg=P(0,vg);
   var tg=[cg[0]-rd[0]*OUV, cg[1]-rd[2]*OUV], td=[cg[0]+rd[0]*OUV, cg[1]+rd[2]*OUV];
-  panneau([tg[0],sol+NAI,tg[1]],[td[0],sol+NAI,td[1]],
+  panneauImage([tg[0],sol+NAI,tg[1]],[td[0],sol+NAI,td[1]],
           [td[0],sol+NAI+OUV,td[1]],[tg[0],sol+NAI+OUV,tg[1]],
           [nx,0,nz], texFerronnerie(), {transparent:true, double:true, rugo:0.55, metal:0.3});
   var tv0=P(-OUV,vg), tv1=P(OUV,vg);
@@ -13267,7 +13348,7 @@ function porteChalon(){
   var pc=P(13.30-2.05,5.52), tq=texPlaque(['PAVILLON','MUNICIPAL'],'#e6e2d6');
   var hq=0.46, lq=hq*tq.width/tq.height/2;
   var pg=[pc[0]-rd[0]*lq, pc[1]-rd[2]*lq], pd=[pc[0]+rd[0]*lq, pc[1]+rd[2]*lq];
-  panneau([pg[0],sol+4.55,pg[1]],[pd[0],sol+4.55,pd[1]],
+  panneauImage([pg[0],sol+4.55,pg[1]],[pd[0],sol+4.55,pd[1]],
           [pd[0],sol+4.55+hq,pd[1]],[pg[0],sol+4.55+hq,pg[1]],
           [nx,0,nz], tq, {rugo:0.9});
 
@@ -13387,7 +13468,7 @@ function monumentDenfert(){
   var ic=P(0,0.71), tp=texPlaque(['A DENFERT-ROCHEREAU'],'#cfc7b4');
   var hp=0.19, lp=Math.min(0.64, hp*tp.width/tp.height/2);
   var ig=[ic[0]-rd[0]*lp, ic[1]-rd[2]*lp], id=[ic[0]+rd[0]*lp, ic[1]+rd[2]*lp];
-  panneau([ig[0],sol+3.40,ig[1]],[id[0],sol+3.40,id[1]],
+  panneauImage([ig[0],sol+3.40,ig[1]],[id[0],sol+3.40,id[1]],
           [id[0],sol+3.40+hp,id[1]],[ig[0],sol+3.40+hp,ig[1]],
           [nx,0,nz], tp, {rugo:0.92});
 
@@ -13572,7 +13653,7 @@ function poserEnseignes(){
       C=[B[0], sol+e.bas+hE, B[2]];
       Dd=[A[0], sol+e.bas+hE, A[2]];
     }
-    panneau(A,B,C,Dd,[nx,0,nz],toileE,{rugo:(e.noms||e.plaque)?0.92:0.55});
+    panneauImage(A,B,C,Dd,[nx,0,nz],toileE,{rugo:(e.noms||e.plaque)?0.92:0.55});
   });
 }
 

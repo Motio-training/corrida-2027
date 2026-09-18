@@ -254,6 +254,12 @@ for(const f of feats){
 const SOL=+opt('sol', 100);
 const GCOLS=Math.round(2*RAYON/5)+1, GROWS=GCOLS;
 const ele=new Array(GROWS*GCOLS).fill(Math.round(SOL*100)).join('\n');
+/* Le moteur lit d'abord l'ancien relief 25 m (« d-ele », grille fixe de
+   33 × 41 nœuds en décimètres) avant d'être écrasé par le relief fin.
+   Sans ce bloc, ELE serait un tableau vide et les premières lectures de
+   hauteur() rendraient NaN : on le remplit de la même nappe. */
+const ANC_ROWS=33, ANC_COLS=41;
+const eleAnc=new Array(ANC_ROWS*ANC_COLS).fill(Math.round(SOL*10)).join('\n');
 
 /* ------------------------------------------------------------- écriture */
 function bloc(id,lignes){
@@ -269,7 +275,7 @@ fs.mkdirSync(path.dirname(path.resolve(sortie)),{recursive:true});
 fs.writeFileSync(sortie, entete+
   bloc('d-bats',bats)+bloc('d-voies',voies)+bloc('d-zones',zones)+
   bloc('d-lignes',lgn)+bloc('d-types',types)+bloc('d-topo',topo)+
-  bloc('d-mobilier',mob)+bloc('d-ele5',[ele]));
+  bloc('d-mobilier',mob)+bloc('d-ele',[eleAnc])+bloc('d-ele5',[ele]));
 
 console.log('=== '+path.basename(entree)+' → '+sortie+' ===');
 console.log('  origine ('+LA0.toFixed(6)+', '+LO0.toFixed(6)+'), carte de '+(2*RAYON)+' × '+(2*RAYON)+' m');
