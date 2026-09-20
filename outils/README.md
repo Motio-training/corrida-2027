@@ -479,3 +479,61 @@ relevé : une photo les corrigera. Les églises n'ont pas d'enseigne.
 retombe sinon sur sa table de Saint-Maixent. Sur La Mothe-Saint-Héray : treize
 enseignes, dont la mairie, les deux pharmacies, la boulangerie, le Crédit
 Mutuel, le café, La Poste, l'école, le collège et la médiathèque.
+
+## `verifier_musique.js`
+
+La musique joue-t-elle les bonnes notes ?
+
+```sh
+node outils/verifier_musique.js [--morceau marche] [--secondes 20]
+```
+
+Je n'entends rien de ce que je fabrique : il faut donc mesurer. `actifs/musique.js`
+sait planifier dans n'importe quel contexte audio ; on lui en donne un hors
+ligne — un `OfflineAudioContext` rend le son dans un tableau au lieu de le
+jouer — et on retrouve la hauteur de chaque note par autocorrélation. C'est le
+même code de planification qu'en direct : un contrôle qui n'écouterait pas
+exactement ce que la page joue ne vaudrait rien.
+
+Ce qui est vérifié : le mélange n'est pas silencieux, il ne sature pas, et
+chaque note du chant sort à moins de 25 cents de sa fréquence. Sur la marche
+actuelle : 42 notes, écart médian 0 cent, crête 0,27.
+
+Le contrôle attrape bien un désaccord — désaccorder la voix d'un demi-ton le
+fait échouer sur 101 cents.
+
+## `melodie_depuis_audio.js`
+
+Une mélodie, depuis un enregistrement.
+
+```sh
+node outils/melodie_depuis_audio.js chant.m4a --tempo 112 --sortie part.txt
+node outils/melodie_depuis_audio.js --essai          # auto-contrôle
+```
+
+Je n'entends pas les fichiers qu'on m'envoie, mais je peux les mesurer. Le
+navigateur décode l'audio, on suit la hauteur image par image par
+autocorrélation, on découpe en notes, on quantifie sur une grille de doubles
+croches, et il en sort la partition au format du lecteur, prête à coller.
+
+Deux pièges, tous deux rencontrés et corrigés :
+
+**L'erreur d'octave.** Le décalage d'une période double corrèle presque aussi
+bien que celui d'une période, et parfois mieux. Le premier jet la faisait à
+chaque attaque et rendait 77 notes là où il y en a 42, farcies de graves
+inventés. On reprend donc le plus petit décalage qui atteint 88 % du maximum,
+et non le maximum.
+
+**Les notes répétées.** Deux notes identiques qui se suivent n'en faisaient
+qu'une, faute de savoir où l'une finit. Une attaque se voit à l'énergie, qui
+remonte après avoir creusé : on coupe quand le niveau dépasse de moitié le
+creux des trois trames précédentes.
+
+`--essai` est l'auto-contrôle : on rend la voix de chant du lecteur, dont la
+partition est connue, et on vérifie qu'on la retrouve. **42 notes écrites, 42
+retrouvées, 42 à la bonne place.** Les durées, elles, dérivent d'un pas ici ou
+là — les hauteurs sont exactes, le rythme est à relire.
+
+Ça marche sur une voix à la fois : chant a cappella, sifflement, clavier,
+trompette. Sur un chœur avec accompagnement, la basse et les harmoniques
+brouillent la piste.

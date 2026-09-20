@@ -3445,6 +3445,7 @@ function brancherInterface(){
     else if(k==='p') basculerPanneau();
     else if(k==='g') basculerDetail();
     else if(k==='m') basculerCarteGlobale();
+    else if(k==='b') basculerSon();
     else if(k==='escape') echap();
   });
   addEventListener('keyup',function(e){ touches[e.key.toLowerCase()]=false; });
@@ -3529,6 +3530,11 @@ function brancherInterface(){
   $e('e3-auto').onclick=basculerAuto;
   $e('e3-nuit').onclick=basculerNuit;
   $e('e3-detail').onclick=basculerDetail;
+  var bSon=$e('e3-son');
+  if(bSon){
+    if(!window.MUSIQUE || !MUSIQUE.pret()) bSon.hidden=true;
+    else { bSon.onclick=basculerSon; majBoutonSon(); }
+  }
   $e('e3-depart').onclick=function(){ if(VUE==='jal') sortirVueJal(); placerJoueur(0); dire('Retour au départ'); };
   $e('e3-liste').onclick=basculerPanneau;
   $e('e3-aide').onclick=basculerAide;
@@ -3609,6 +3615,23 @@ function basculerAuto(){
   dire(auto?'Visite guidée : le coureur suit le parcours':'Visite guidée arrêtée');
 }
 function basculerNuit(){ nuit=!nuit; appliquerCiel(); }
+/* La musique : une puce 8 bits, allumée ou éteinte, et le choix est retenu
+   d'une visite à l'autre. Éteinte par défaut — une page qui se met à jouer
+   toute seule dès qu'on l'ouvre est une page qu'on referme. */
+function majBoutonSon(){
+  var b=$e('e3-son');
+  if(!b || !window.MUSIQUE) return;
+  var on=MUSIQUE.actif();
+  b.classList.toggle('on',on);
+  b.textContent=on?'♪ Musique':'♪ Musique';
+  b.title=(on?'Couper la musique':'Musique 8 bits')+' (B)';
+}
+function basculerSon(){
+  if(!window.MUSIQUE || !MUSIQUE.pret()){ dire('Ce navigateur ne sait pas produire de son'); return; }
+  var on=MUSIQUE.basculer();
+  majBoutonSon();
+  dire(on?('Musique : '+MUSIQUE.titre()):'Musique coupée');
+}
 function basculerDetail(){
   detail=!detail; ombres=detail; lumDir.castShadow=detail;
   renderer.setPixelRatio(detail?Math.min(devicePixelRatio||1,1.8):1);
@@ -4125,6 +4148,9 @@ window.ESPACE3D={
     ouvert=true;
     document.body.classList.add('en-3d');
     $e('e3').hidden=false;
+    /* rouvrir la 3D remet la musique si elle était allumée : le clic qui
+       vient d'ouvrir la vue est le geste que le navigateur attendait */
+    try{ if(window.MUSIQUE){ MUSIQUE.reprendre(); majBoutonSon(); } }catch(e){}
     if(!renderer){ initTrois(); brancherInterface(); }
     redimensionner();
     if(construit){ synchroniser(true); demarrerBoucle(); }
@@ -4132,6 +4158,9 @@ window.ESPACE3D={
   },
   fermer:function(){
     if(VUE==='jal') sortirVueJal();
+    /* On quitte la 3D : la musique s'arrête. Le choix, lui, reste retenu —
+       arreter() l'oublierait, alors qu'on veut la retrouver en rouvrant. */
+    try{ if(window.MUSIQUE) MUSIQUE.pause(); }catch(e){}
     ouvert=false; touches={};
     document.body.classList.remove('en-3d');
     $e('e3').hidden=true;
@@ -11047,7 +11076,10 @@ function compacter3D(){
   var mAff=menu('👁 Afficher','Ce qui est affiché dans la scène',['e3-liste','e3-b-parc','e3-b-trace','e3-circ','e3-nuit','e3-detail']);
   var bv=$e('e3-b-veh'); if(bv) bv.textContent='🪖 Véhicules et 👮 policiers';
   var carte=$e('e3-carte'), save=$e('e3-save'), aide=$e('e3-aide');
-  var ordre=[carte,mVue,mPoser,mAff,save,aide];
+  /* la musique reste dans la barre, au premier niveau : c'est une bascule
+     qu'on cherche à portée de doigt, pas une option qu'on règle une fois */
+  var son=$e('e3-son');
+  var ordre=[carte,mVue,mPoser,mAff,son,save,aide];
   Array.prototype.slice.call(barre.children).forEach(function(e){ if(ordre.indexOf(e)<0) mAff.querySelector('.e3-pop').appendChild(e); });
   ordre.forEach(function(e){ if(e) barre.appendChild(e); });
   /* le menu Poser reste en surbrillance pendant une pose */
