@@ -530,11 +530,19 @@ le coureur entre dans un virage : c'est du retard de poursuite, pas un
 dépassement. Le banc ne retient donc que les instants où le cap du coureur
 bouge de moins de 5 °/s.
 
+Il rapporte aussi **l'arrondi des virages**, que le moteur mesure lui-même à
+la construction du parcours : le tracé est une ligne brisée, et en visite
+guidée le coureur y pivotait sur place à chaque angle de rue. Le parcours est
+donc rééchantillonné au mètre et lissé sur ±6 m — le tracé d'origine ne bouge
+pas, distances et bornes continuent de s'y référer. Sur le parcours de
+Saint-Maixent : rayon le plus serré **2,9 m**, le coureur coupe au plus
+**2,0 m**, et la rotation du cap à 13 km/h passe de **242 à 70 °/s**.
+
 Ce qu'il a trouvé et chiffré, aux deux vues et aux deux commandes :
 
 | | première personne | troisième personne |
 |---|---|---|
-| écart en visite guidée, sans y toucher | 0,0° | 5,7 à 7,6° (coureur en virage à 44 °/s) |
+| écart en visite guidée, sans y toucher | 0,0 à 0,8° | 4,1° (coureur en virage à 25 °/s) |
 | tenue après un geste | 5,0 s exactement | 5,0 s exactement |
 | retour à l'axe | 2,3 s, écart final 0,1° | 2,3 s, écart final 0,0° |
 | dépassement, cap stable | 1,0° sur 105 points | 0,1 à 0,5° sur 116 points |

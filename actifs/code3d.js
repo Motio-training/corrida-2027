@@ -1789,6 +1789,73 @@ function capSur(d){
   var p0=pointSur(Math.max(0,d-3)), p1=pointSur(Math.min(LONGUEUR,d+3));
   return Math.atan2(p1[1]-p0[1], p1[0]-p0[0]);
 }
+
+/* ---------------- le parcours arrondi, pour la visite guidée ----------------
+
+   Le tracé est une ligne brisée : à chaque angle de rue, le coureur pivote
+   sur place. C'est juste au mètre près et faux à l'œil — personne ne tourne
+   ainsi, et depuis que la caméra suit le cap, le à-coup se voit deux fois.
+
+   On rééchantillonne donc le parcours tous les mètres et on passe une
+   moyenne mobile en triangle sur ±ARR_RAYON mètres. Un angle droit devient
+   un arc : le coureur amorce son virage avant l'angle et le finit après,
+   comme il le ferait. Il coupe un peu — c'est aussi ce que fait un coureur.
+
+   Le tracé d'origine, lui, ne bouge pas : distances, bornes kilométriques,
+   affichage, tout continue de s'y référer. Seule la position suivie en
+   visite guidée passe par l'arrondi, et la fenêtre se rétrécit aux deux
+   bouts pour que le départ et l'arrivée restent en place.               */
+var ARRONDI=[], ARR_PAS=1.0, ARR_RAYON=6.0, ARR_BILAN=null;
+function construireArrondi(){
+  ARRONDI=[]; ARR_BILAN=null;
+  if(!TRACE.length || LONGUEUR<=2*ARR_PAS) return;
+  var n=Math.floor(LONGUEUR/ARR_PAS), i, k, brut=[];
+  for(i=0;i<=n;i++) brut.push(pointSur(i*ARR_PAS));
+  var f=Math.max(1,Math.round(ARR_RAYON/ARR_PAS)), ecMax=0;
+  for(i=0;i<=n;i++){
+    var sx=0, sz=0, sw=0;
+    for(k=-f;k<=f;k++){
+      var j=i+k;
+      if(j<0 || j>n) continue;
+      var w=1-Math.abs(k)/(f+1);
+      sx+=brut[j][0]*w; sz+=brut[j][1]*w; sw+=w;
+    }
+    var px=sx/sw, pz=sz/sw;
+    ARRONDI.push([px,pz]);
+    var e=Math.hypot(px-brut[i][0], pz-brut[i][1]);
+    if(e>ecMax) ecMax=e;
+  }
+  /* ce que l'arrondi a donné : rayon le plus serré, et vitesse de rotation
+     du cap avant et après, à l'allure de référence */
+  var vRef=13/3.6, kMax=0, tAvant=0, tApres=0;
+  for(i=4;i<n-4;i++){
+    var d=i*ARR_PAS;
+    var a=Math.atan2(ARRONDI[i][1]-ARRONDI[i-2][1], ARRONDI[i][0]-ARRONDI[i-2][0]);
+    var b=Math.atan2(ARRONDI[i+2][1]-ARRONDI[i][1], ARRONDI[i+2][0]-ARRONDI[i][0]);
+    var kk=Math.abs(ecartAngle(b-a))/(2*ARR_PAS);
+    if(kk>kMax) kMax=kk;
+    var ap=Math.abs(ecartAngle(capSur(d+0.5)-capSur(d-0.5)))/ARR_PAS;
+    if(ap>tAvant) tAvant=ap;
+    var aq=Math.abs(ecartAngle(capArrondi(d+0.5)-capArrondi(d-0.5)))/ARR_PAS;
+    if(aq>tApres) tApres=aq;
+  }
+  ARR_BILAN={rayon:+(kMax>0?1/kMax:999).toFixed(1),
+             tauxAvant:+(tAvant*vRef*180/PI).toFixed(0),
+             tauxApres:+(tApres*vRef*180/PI).toFixed(0),
+             ecart:+ecMax.toFixed(2), points:ARRONDI.length};
+}
+function pointArrondi(d){
+  if(!ARRONDI.length) return pointSur(d);
+  if(d<=0) return [ARRONDI[0][0],ARRONDI[0][1]];
+  var t=d/ARR_PAS, i=Math.floor(t);
+  if(i>=ARRONDI.length-1) return [ARRONDI[ARRONDI.length-1][0],ARRONDI[ARRONDI.length-1][1]];
+  var u=t-i, a=ARRONDI[i], b=ARRONDI[i+1];
+  return [a[0]+(b[0]-a[0])*u, a[1]+(b[1]-a[1])*u];
+}
+function capArrondi(d){
+  var p0=pointArrondi(Math.max(0,d-3)), p1=pointArrondi(Math.min(LONGUEUR,d+3));
+  return Math.atan2(p1[1]-p0[1], p1[0]-p0[0]);
+}
 function surLeParcours(x,z){
   var best=1e18, bd=0;
   for(var i=1;i<TRACE.length;i++){
@@ -2114,6 +2181,7 @@ function chargerTraceCarte(){
   CUMUL=[0];
   for(i=1;i<TRACE.length;i++) CUMUL.push(CUMUL[i-1]+Math.hypot(TRACE[i][0]-TRACE[i-1][0],TRACE[i][1]-TRACE[i-1][1]));
   LONGUEUR=CUMUL[CUMUL.length-1];
+  construireArrondi();
 }
 function liberer(o){
   o.traverse(function(x){
@@ -3725,8 +3793,8 @@ function boucle(){
     var vv=VITESSE*(vite?1.6:(lent?0.42:1));
     dAuto+=vv*dt;
     if(dAuto>=LONGUEUR){ dAuto=LONGUEUR; auto=false; $e('e3-auto').classList.remove('on'); dire('Arrivée !'); }
-    var p=pointSur(dAuto);
-    J.x=p[0]; J.z=p[1]; J.cap=capSur(dAuto); J.v=vv;
+    var p=pointArrondi(dAuto);
+    J.x=p[0]; J.z=p[1]; J.cap=capArrondi(dAuto); J.v=vv;
     recentrer=true;
     if(av||ar||ga||dr) basculerAuto();
   } else {
@@ -12642,7 +12710,7 @@ window.ESPACE3D.etat=function(){
     champV:+camera.fov.toFixed(1), sol:+hauteur(J.x,J.z).toFixed(1),
     /* de quoi mesurer le recentrage depuis l'extérieur : sans cela
        outils/essai_camera.js ne pourrait que regarder l'image et deviner */
-    temps:+TSIM.toFixed(2), images:IMAGES,
+    temps:+TSIM.toFixed(2), images:IMAGES, virages:ARR_BILAN,
     axe:{ camera:+(CAM.yaw*180/PI).toFixed(2), coureur:+(J.cap*180/PI).toFixed(2),
           taux:+(CAM.capTaux*180/PI).toFixed(1),
           ecart:+(ecartAngle(CAM.yaw-J.cap)*180/PI).toFixed(2),

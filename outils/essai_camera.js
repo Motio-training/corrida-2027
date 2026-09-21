@@ -88,6 +88,16 @@ const ecart=a=>{ a=(a+180)%360; if(a<0) a+=360; return a-180; };
   console.log('  cadence du banc : '+cadence.img.toFixed(1)+' image/s, soit '+
     (cadence.sim*100).toFixed(0)+' % du temps réel');
   dit(cadence.img>0.8,'la boucle tourne assez vite pour mesurer quelque chose');
+  /* l'arrondi des virages, mesuré par le moteur lui-même à la construction */
+  const V=(await etat()).virages;
+  if(V){
+    console.log('  virages arrondis : rayon le plus serré '+V.rayon+' m, le coureur coupe au plus '+
+      V.ecart+' m ; rotation du cap à 13 km/h '+V.tauxAvant+' °/s avant, '+V.tauxApres+' °/s après');
+    dit(V.rayon>=2,'le virage le plus sec garde un rayon d’au moins 2 m');
+    dit(V.tauxApres<V.tauxAvant*0.75,'la rotation du cap est nettement adoucie');
+    dit(V.ecart<=2.5,'le coureur ne coupe pas de plus de 2,5 m');
+  } else dit(false,'le moteur rend son bilan de virages');
+
   /* tout ce qui suit se compte en secondes de simulation, pas de montre */
   const TEMPS=()=>etat().then(e=>e.temps);
   async function attendre(sec, cap){
