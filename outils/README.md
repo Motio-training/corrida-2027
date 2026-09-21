@@ -654,6 +654,14 @@ indépendamment par `melodie_depuis_chant.py`. Et l'étendue sonnante de cette
 voix, transposée, est ré3–si bémol 3, au hertz près celle mesurée. Les deux
 méthodes, qui n'ont rien en commun, disent la même chose.
 
+**Le tempo est le seul endroit où la 3D s'écarte de la partition.** Celle-ci
+porte noire à 88, qui n'est pas une indication de style mais la cadence de
+marche de la Légion — 88 pas à la minute, la plus lente de l'armée française,
+et cohérente avec l'origine du chant. Le parcours étant à Saint-Maixent, où
+l'on marche au pas cadencé réglementaire, `actifs/musique.js` joue à 120 : la
+boucle passe de 88,6 à 65,0 secondes. L'outil, lui, rapporte toujours le tempo
+écrit.
+
 Le vocabulaire de glyphes est celui de cette gravure (Finale, police Maestro).
 Une autre police demanderait une autre table — la géométrie, elle, ne change
 pas.

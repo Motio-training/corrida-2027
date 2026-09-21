@@ -50,21 +50,31 @@ var PARTITIONS={
      si bémol mesuré sur le fichier ; et l'étendue sonnante de cette voix, une
      fois transposée, est ré3–si bémol 3, au hertz près celle mesurée.
 
-     Ce qui est écrit et gardé tel quel : les 65 mesures à 2/4, le tempo
-     (noire à 88), les deux voix, les accords chiffrés — d'où vient la basse —
-     et la reprise : la pièce se rejoue en entier, couplet 1 puis couplet 2,
-     ce que la boucle fait d'elle-même.
+     Ce qui est écrit et gardé tel quel : les 65 mesures à 2/4, les deux voix,
+     les accords chiffrés — d'où vient la basse — et la reprise : la pièce se
+     rejoue en entier, couplet 1 puis couplet 2, ce que la boucle fait
+     d'elle-même.
 
-     Ce qui est ajouté : la batterie, et l'octave. La clé de sol barrée d'un 8
-     sonne une octave sous ce qui est écrit ; le chant est ici joué à la
-     hauteur écrite, soit une octave au-dessus des voix d'hommes — le registre
-     de la puce, et de toute façon le grave est pris par la basse.
+     Ce qui est ajouté : la batterie, l'octave, et le tempo. La clé de sol
+     barrée d'un 8 sonne une octave sous ce qui est écrit ; le chant est ici
+     joué à la hauteur écrite, soit une octave au-dessus des voix d'hommes —
+     le registre de la puce, et de toute façon le grave est pris par la basse.
+
+     Le tempo, lui, est le seul endroit où je m'écarte de la partition. Elle
+     porte noire à 88 : ce n'est pas une indication de style mais la cadence
+     de marche de la Légion, 88 pas à la minute, la plus lente de l'armée
+     française — et c'est cohérent, la partition est celle du 4e REI. Or le
+     parcours est à Saint-Maixent, où l'on marche au pas cadencé
+     réglementaire, 120. La 3D joue donc à 120 : le chant y gagne l'allant
+     qu'il faut à une corrida, et la boucle passe de 88,6 à 65,0 secondes.
+     Remettre 88 ne demande que de changer le nombre ci-dessous.
 
      Se régénère :
        python3 outils/partition_depuis_pdf.py <partition.pdf>              */
   'jeuneschefs': {
     nom:'Jeunes Chefs',
-    tempo:88,
+    /* 120, le pas cadencé ; la partition écrit 88, le pas de la Légion */
+    tempo:120,
     /* quatre mesures de 2/4 par ligne */
     lead:'-/4 -/4 -/4 G3/4 E4/4 F4/4 G4/6 G4/2  '+
          'G4/2 -/2 -/4 -/4 G4/4 F4/4 G4/4 E4/6 E4/2  '+
