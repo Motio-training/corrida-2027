@@ -17,7 +17,7 @@ const fs=require('fs'), path=require('path'), http=require('http');
 const RACINE=path.resolve(__dirname,'..');
 const ARG=process.argv.slice(2);
 function opt(n,d){ const i=ARG.indexOf('--'+n); return i<0?d:ARG[i+1]; }
-const MORCEAU=opt('morceau','marche');
+const MORCEAU=opt('morceau','jeunechef');
 const SECONDES=+opt('secondes',20);
 
 const TYPES={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8'};

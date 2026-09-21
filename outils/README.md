@@ -534,15 +534,73 @@ partition est connue, et on vérifie qu'on la retrouve. **42 notes écrites, 42
 retrouvées, 42 à la bonne place.** Les durées, elles, dérivent d'un pas ici ou
 là — les hauteurs sont exactes, le rythme est à relire.
 
-Ça marche sur une voix à la fois : chant a cappella, sifflement, clavier,
-trompette. Sur un chœur avec accompagnement, la basse et les harmoniques
-brouillent la piste.
+Ça marche sur une voix à la fois : sifflement, clavier, trompette, chant sur
+une voyelle tenue. **Sur un chœur, il échoue** : voir
+`melodie_depuis_chant.py` ci-dessous, écrit pour ce cas.
 
 Le relevé lui-même vit dans `actifs/releve_melodie.js`, partagé avec la page
 `melodie/` : une seule copie de la partie qui décide des notes. C'est la
 troisième fois dans ce projet qu'une fonction dupliquée finit par diverger de
 son jumeau — `triOriente`, `panneau` — et celle-ci décide de chaque note
 qu'on entendra.
+
+## `melodie_depuis_chant.py`
+
+La mélodie d'un chant chanté à plusieurs — le cas où l'outil précédent
+échoue.
+
+```sh
+pip install numpy soundfile
+python3 outils/melodie_depuis_chant.py chant.mp3 --structure
+python3 outils/melodie_depuis_chant.py chant.mp3 \
+        --de 36.7 --a 67.5 --octave 12 --tempo 112
+```
+
+C'est l'outil qui a relevé « Jeune chef » sur l'enregistrement du chœur de
+l'ENSOA, et qui régénère le bloc `'jeunechef'` de `actifs/musique.js` — les
+quatre voix, pas seulement le chant.
+
+**Pourquoi un autre outil.** L'enregistrement reçu est un chœur d'hommes a
+cappella, coupé sous 120 Hz : *aucune* énergie sous cette fréquence, donc un
+fondamental absent et des harmoniques qui, elles, sont fortes. Tout détecteur
+qui suit le pic le plus fort — ou la meilleure autocorrélation — lit alors une
+quinte ou une octave trop haut. Mesuré sur ce fichier : 3,1 octaves d'étendue,
+44 sauts d'octave sur 212 intervalles alors que l'intervalle médian est de
+2 demi-tons. Ce n'est pas un réglage à corriger, c'est la méthode qui ne tient
+pas.
+
+**Ce que fait celui-ci.**
+
+1. *Saillance harmonique* — pour chaque demi-ton candidat, la somme des
+   amplitudes de ses dix premières harmoniques. Un fondamental affaibli ne
+   fait plus disparaître le candidat.
+2. *Viterbi* sur toute la durée, avec un coût proportionnel au saut : aucune
+   voix ne change d'octave d'une trame à l'autre. C'est là que les octaves se
+   corrigent, et la piste passe alors de trois octaves à une.
+3. *Découpe* aux changements de hauteur et aux attaques — flux spectral sur
+   fenêtre courte (46 ms), sans quoi les syllabes répétées d'un chant
+   déclamé fondent en une seule note.
+4. *Recalage sur la gamme* de la tonalité trouvée (corrélation de Krumhansl) :
+   sur un relevé, le hors-gamme est presque toujours une hauteur mal lue.
+5. *Mise en partition* : durées calées sur la double croche avec un tempo
+   mesuré localement — un chœur sans accompagnement dérive, une grille unique
+   ne tient pas sur deux minutes —, respirations allongées pour finir la
+   mesure, accords déduits mesure par mesure, basse et contrechant placés
+   chacun dans sa fenêtre de hauteur.
+
+**L'épreuve.** Je n'entends rien de ce que je fabrique, donc un relevé qu'on
+ne peut pas contrôler ne vaut rien. La suite de notes est comparée au
+*chromagramme* du fichier — calculé directement sur le spectre, donc
+indépendant des cinq étapes ci-dessus — contre ses onze transpositions et
+contre quarante mélanges de ses propres notes. Sur « Jeune chef » : **9,9
+écarts-types au-dessus du hasard, et premier des douze**. Deux autres
+recoupements : les deux passages du fichier (structure trouvée seule : deux
+fois 68,5 s, couplet puis refrain) s'accordent à 79 % des notes, et la
+tonalité sort à 0,66 contre 0,55 pour la suivante.
+
+Seule dépendance hors du projet, et seul outil en Python du dépôt : `numpy`
+pour les FFT et `soundfile` pour lire le MP3 (libsndfile ≥ 1.1). Le reste des
+outils reste en Node.
 
 ## `melodie/` (page)
 
@@ -557,11 +615,33 @@ Trois entrées, une seule sortie — la notation du lecteur :
   l'analyse se fait dans la page ;
 - **un fichier** audio, mémo vocal ou extrait de cérémonie.
 
+Le clavier est la voie sûre : ce qui est tapé est relevé tel quel. Le micro et
+le fichier passent par `releve_melodie.js`, qui suit une autocorrélation et se
+trompe d'octave sur une voix chantée sur des paroles — la page le dit
+maintenant, et conseille de siffler ou de tenir une voyelle.
+
+Quatre choses rendent le clavier utilisable pour un air de quarante notes :
+
+- les touches portent leur **nom en solfège** — c'est ainsi qu'on retient un
+  chant —, la lettre du clavier d'ordinateur en dessous ;
+- un **métronome** au tempo choisi, qui donne **quatre temps d'annonce** avant
+  de lancer l'enregistrement : sans référence, le rythme part à la dérive, et
+  c'est le rythme qui fait reconnaître un air. Les clics sont posés dans le
+  temps de l'horloge audio, l'annonce affichée aussi — un `setInterval` seul
+  dérive, et un contexte audio qui vient de démarrer a plusieurs centaines de
+  millisecondes de retard sur la page ;
+- **l'annulation de la dernière note**, et non plus seulement tout effacer :
+  une fausse note ne coûte plus la reprise complète ;
+- la **liste des notes saisies**, en solfège, un clic pour en retirer une.
+  Sans elle on joue à l'aveugle : on ne sait ni si la note a été prise, ni
+  laquelle effacer.
+
 Le tempo se corrige après coup : il ne change pas les notes, seulement le
 découpage des durées. **Écouter** joue le résultat avec le timbre exact de la
 3D, via `MUSIQUE.definir()` — juger une mélodie sur un autre son que celui
 qu'on aura n'apprend pas grand-chose.
 
 Éprouvée dans un navigateur sans écran : jouer G4 G4 C5 au clavier rend
-exactement `G4/2 G4/2 C5/4`, et le fichier de synthèse ressort à 45 notes dont
-les dix premières sont justes.
+exactement `G4/2 G4/2 C5/4`, la liste affiche `sol4 la4 do5`, l'annulation
+retire bien la dernière, l'annonce défile `4… 3… 2… 1…` avant le départ, et le
+fichier de synthèse ressort à 45 notes dont les dix premières sont justes.

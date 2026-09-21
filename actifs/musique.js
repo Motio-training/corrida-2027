@@ -27,12 +27,74 @@
    « - » est un silence, et la durée d'un silence compte comme les autres.  */
 var PARTITIONS={
 
+  /* « Jeune chef », relevé sur l'enregistrement que Nicolas m'a envoyé.
+
+     La mélodie n'est pas écrite d'oreille : elle est mesurée. Le fichier est
+     un chœur d'hommes sans accompagnement, coupé sous 120 Hz — donc avec un
+     fondamental affaibli, ce qui trompe tous les détecteurs de hauteur
+     ordinaires d'une octave. Le relevé passe par une saillance harmonique
+     (l'énergie de dix harmoniques de chaque candidat) puis par un Viterbi qui
+     interdit à la piste de sauter d'octave d'une trame à l'autre.
+
+     Ce qui est mesuré : la tonalité (si bémol majeur, corrélation 0,66 contre
+     0,55 pour la suivante), le tempo (112 à la noire), la structure — deux
+     fois 68 secondes, couplet puis refrain — et la suite des notes du
+     refrain, dont les deux passages du fichier s'accordent à 79 %. Éprouvée
+     contre le chromagramme du fichier — calculé sur le spectre, donc
+     indépendant de tout ce qui précède —, cette suite est à 9,9 écarts-types
+     au-dessus d'un mélange de ses propres notes, et devant ses onze
+     transpositions.
+
+     Ce qui est arrangé : l'octave du chant (monté d'une octave, le registre
+     de la puce), le calage des durées sur la double croche, les respirations
+     allongées pour finir la mesure, et les trois voix d'accompagnement —
+     basse, contrechant, batterie —, déduites des accords que porte la
+     mélodie mesure par mesure. Un chœur a cappella n'en a aucune.
+
+     Tout ce bloc se régénère :
+       python3 outils/melodie_depuis_chant.py <fichier> \
+               --de 36.7 --a 67.5 --octave 12 --tempo 112                   */
+  'jeunechef': {
+    nom:'Jeune chef (refrain)',
+    tempo:112,
+    /* une phrase par ligne, respiration comprise */
+    lead:'G4/4 G4/2 G4/2 G4/4 G4/1 A#4/1 A#4/6 A#4/2 A#4/2 A#4/3 -/5  '+
+         'F4/1 F4/2 F4/1 G4/2 G4/3 F4/1 F4/2 F4/1 D4/4 D4/2 D4/6 -/7  '+
+         'G4/4 G4/2 G4/2 F4/2 F4/3 F4/2 -/1  '+
+         'D#4/2 D#4/3 D4/1 D4/4 D4/3 D4/2 C4/2 C4/2 -/5  '+
+         'F4/3 G4/3 G4/1 F4/2 F4/3 F4/2 F4/2 F4/1 F4/4 -/3  '+
+         'F4/2 F4/2 G4/4 F4/1 F4/2 F4/1 A#4/1 A#4/3 A#4/4 A#4/2 A#4/3 -/7  '+
+         'F4/4 G4/2 G4/2 F4/4 F4/2 -/2  '+
+         'G4/3 G4/2 G4/3 F4/3 D#4/1 D#4/1 D4/4 C4/6 -/9',
+    /* le contrechant, tierce et quinte de l'accord sur les temps faibles,
+       dans le registre du ténor : entre la basse et le chant, là où il ne
+       masque ni l'un ni l'autre */
+    harmonie:'-/4 G3/2 A#3/2 -/4 G3/2 A#3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
+             '-/4 D3/2 F3/2 -/4 D3/2 F3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
+             '-/4 G3/2 A#3/2 -/4 G3/2 A#3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
+             '-/4 A3/2 C4/2 -/4 A3/2 C4/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
+             '-/4 D3/2 F3/2 -/4 D3/2 F3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
+             '-/4 D3/2 F3/2 -/4 D3/2 F3/2  -/4 A#3/2 D4/2 -/4 A#3/2 D4/2  '+
+             '-/4 A3/2 C4/2 -/4 A3/2 C4/2',
+    /* les accords que porte la mélodie, mesure par mesure : D# A# A# A# D# A# F A# A# A# A# Gm F ;
+       fondamentale et quinte en alternance, au pas */
+    basse:'D#2/4 A#2/4 D#2/4 A#2/4  A#2/4 F2/4 A#2/4 F2/4  '+
+          'A#2/4 F2/4 A#2/4 F2/4  A#2/4 F2/4 A#2/4 F2/4  '+
+          'D#2/4 A#2/4 D#2/4 A#2/4  A#2/4 F2/4 A#2/4 F2/4  '+
+          'F2/4 C3/4 F2/4 C3/4  A#2/4 F2/4 A#2/4 F2/4  '+
+          'A#2/4 F2/4 A#2/4 F2/4  A#2/4 F2/4 A#2/4 F2/4  '+
+          'A#2/4 F2/4 A#2/4 F2/4  G2/4 D2/4 G2/4 D2/4  '+
+          'F2/4 C3/4 F2/4 C3/4',
+    /* K grosse caisse, S caisse claire, H charleston */
+    perc:'K/2 H/2 S/2 H/2'
+  },
+
   /* Marche d'attente, composée pour l'occasion : deux mesures d'appel, une
-     période claire puis une période plus sombre, et une cadence. Elle tient
-     la place du « Jeune chef » tant que je n'ai pas la mélodie exacte — on
-     ne transcrit pas de mémoire un chant qu'on doit à ceux qui le chantent. */
+     période claire puis une période plus sombre, et une cadence. Elle a tenu
+     la place du « Jeune chef » tant que je n'avais pas la mélodie ; elle
+     reste comme second morceau. */
   'marche': {
-    nom:'Marche (en attendant Jeune chef)',
+    nom:'Marche',
     tempo:112,
     lead:'G4/2 G4/2 C5/4  E5/2 E5/2 G5/4  F5/2 E5/2 D5/4  C5/6 -/2 '+
          'G4/2 G4/2 C5/4  E5/2 G5/2 C6/4  B5/2 A5/2 G5/4  G5/6 -/2 '+
@@ -50,8 +112,6 @@ var PARTITIONS={
     perc:'K/2 H/2 S/2 H/2'
   }
 };
-/* le « Jeune chef » viendra ici dès que j'aurai la mélodie : même format,
-   et outils/melodie_depuis_audio.js sait l'extraire d'un enregistrement. */
 
 /* ------------------------------------------------------------- les notes */
 var DEMI={C:0, 'C#':1, Db:1, D:2, 'D#':3, Eb:3, E:4, F:5, 'F#':6, Gb:6,
@@ -155,7 +215,7 @@ function frappe(ctx,dest,t,sorte,vol){
 }
 
 /* ---------------------------------------------------------- la partition */
-var courant='marche', compile=null;
+var courant='jeunechef', compile=null;
 function compiler(nom){
   var p=PARTITIONS[nom];
   if(!p) return null;
