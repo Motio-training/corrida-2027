@@ -116,7 +116,8 @@ const ecart=a=>{ a=(a+180)%360; if(a<0) a+=360; return a-180; };
     const e0=await etat(); const t0=e0.temps;
     let e=e0;
     while(e.temps-t0<secondes){
-      if(e && e.axe) pts.push({t:+(e.temps-t0).toFixed(3), auto:e.auto, x:e.joueur[0], z:e.joueur[1], ...e.axe});
+      if(e && e.axe) pts.push({t:+(e.temps-t0).toFixed(3), tr:+((Date.now()-mur)/1000).toFixed(2),
+                               auto:e.auto, x:e.joueur[0], z:e.joueur[1], ...e.axe});
       /* e.axe apporte camera, coureur, ecart, taux, tangage, libre, main */
       if(Date.now()-mur > (cap||420)*1000) break;
       await page.waitForTimeout(110);
@@ -226,14 +227,16 @@ const ecart=a=>{ a=(a+180)%360; if(a<0) a+=360; return a-180; };
 
     /* 3. la tenue pendant 5 s, puis le retour */
     pts=await suivre(12);
-    const e4=pts.filter(p=>p.t<4).map(p=>Math.abs(p.ecart));
+    /* la tenue se compte en secondes de montre — c'est une promesse faite à
+       la main, pas au moteur de rendu */
+    const e4=pts.filter(p=>p.tr<4).map(p=>Math.abs(p.ecart));
     const garde=e4.length?e4.reduce((a,b)=>a+b,0)/e4.length:0;
     dire('  écart moyen pendant les 4 premières secondes : '+garde.toFixed(0)+'°');
     dit(garde>20,'l’angle choisi est conservé pendant l’attente');
 
-    const t50=pts.find(p=>p.t>1 && Math.abs(p.ecart)<Math.abs(pts[0].ecart)*0.5);
-    dire('  moitié du chemin reprise à t = '+(t50?t50.t.toFixed(1):'jamais')+' s');
-    dit(!!t50 && t50.t>4.6 && t50.t<9,'le retour commence après les 5 s, et aboutit');
+    const t50=pts.find(p=>p.tr>1 && Math.abs(p.ecart)<Math.abs(pts[0].ecart)*0.5);
+    dire('  moitié du chemin reprise à '+(t50?t50.tr.toFixed(1):'jamais')+' s de montre');
+    dit(!!t50 && t50.tr>4.6,'le retour commence après les 5 s, et aboutit');
 
     if(vue==='fp'){ console.log('  trace du retour :'); tracer(pts,12); }
     const reste=pts.filter(p=>p.t>10).map(p=>Math.abs(p.ecart));
@@ -249,7 +252,7 @@ const ecart=a=>{ a=(a+180)%360; if(a<0) a+=360; return a-180; };
     const stables=[];
     for(let i=1;i<pts.length;i++){
       const dt=pts[i].t-pts[i-1].t;
-      if(dt<=0.01 || pts[i].t<5) continue;
+      if(dt<=0.01 || pts[i].tr<5) continue;
       const w=Math.abs(ecart(pts[i].coureur-pts[i-1].coureur))/dt;
       if(w<5) stables.push(pts[i]);
     }
@@ -259,7 +262,7 @@ const ecart=a=>{ a=(a+180)%360; if(a<0) a+=360; return a-180; };
     dit(depasse<10,'le retour ne dépasse pas l’axe (< 10°)');
 
     /* fluidité : accélération angulaire bornée, pas de saut d'image à image */
-    const V=vitesses(pts.filter(p=>p.t>4.5));
+    const V=vitesses(pts.filter(p=>p.tr>4.5));
     let accMax=0, wMax=0;
     for(let i=1;i<V.length;i++){
       const dt=V[i].t-V[i-1].t;

@@ -3563,6 +3563,7 @@ function brancherInterface(){
     else if(k==='g') basculerDetail();
     else if(k==='m') basculerCarteGlobale();
     else if(k==='b') basculerSon();
+    else if(k==='y') basculerGyro();
     else if(k==='escape') echap();
   });
   addEventListener('keyup',function(e){ touches[e.key.toLowerCase()]=false; });
@@ -3653,6 +3654,18 @@ function brancherInterface(){
   if(bSon){
     if(!window.MUSIQUE || !MUSIQUE.pret()) bSon.hidden=true;
     else { bSon.onclick=basculerSon; majBoutonSon(); }
+  }
+  GYRO.dispo=gyroPossible();
+  var bGyro=$e('e3-gyro');
+  if(bGyro){
+    bGyro.onclick=basculerGyro;
+    majBoutonGyro();
+    /* choix retenu d'une visite à l'autre, comme la musique ; sur iOS la
+       permission doit être redemandée, donc on attend le clic */
+    if(GYRO.dispo && gyroVoulu()){
+      var D=(typeof DeviceOrientationEvent!=='undefined') ? DeviceOrientationEvent : null;
+      if(!(D && typeof D.requestPermission==='function')) gyroAllumer();
+    }
   }
   $e('e3-depart').onclick=function(){ if(VUE==='jal') sortirVueJal(); placerJoueur(0); dire('Retour au départ'); };
   $e('e3-liste').onclick=basculerPanneau;
@@ -3751,6 +3764,161 @@ function basculerSon(){
   majBoutonSon();
   dire(on?('Musique : '+MUSIQUE.titre()):'Musique coupée');
 }
+/* ---------------- la caméra au gyroscope ----------------
+
+   Sur un téléphone, tourner l'appareil vaut mieux que glisser le pouce : on
+   regarde autour de soi comme par une fenêtre. L'option se branche sur le
+   même chemin que le glissé — elle ne fait que pousser CAM.yaw et le
+   tangage —, si bien que tout ce qui précède continue de valoir : la main
+   garde la priorité cinq secondes, puis la caméra reprend l'axe de course.
+   Rien de nouveau à régler, et les deux vues en profitent.
+
+   Trois pièges, tous les trois traités.
+
+   L'orientation de l'écran d'abord. En paysage, le lacet visé n'est plus
+   l'alpha de l'appareil, et le tangage n'est plus son beta : vérifié, il
+   passe dans gamma. On ne peut donc pas lire un angle isolément — on
+   recompose la rotation entière (ZXY intrinsèque, quart de tour, puis angle
+   de l'écran) et on en extrait la direction visée. Mesuré : à écran tourné,
+   un même mouvement de l'appareil donne le même lacet qu'en portrait.
+
+   La dérive ensuite. Un gyroscope dérive de quelques degrés par minute, et
+   la main tremble. Suivre cela reviendrait à rafraîchir sans cesse le compte
+   de liberté : la caméra ne reprendrait jamais l'axe, et l'image
+   frémirait. On lisse donc la visée sur un dixième de seconde, puis on
+   ignore tout ce qui est plus lent que GYRO_SEUIL. Le bruit et la dérive
+   passent dessous, un regard volontaire passe largement dessus.
+
+   La permission enfin : iOS ne donne l'orientation qu'après une demande
+   faite dans un geste de l'utilisateur. Le clic sur le bouton est ce geste.
+                                                                          */
+var GYRO={dispo:false, actif:false, brut:null, lisse:null, prec:null, vu:0, t:0, bouge:0};
+var GYRO_SEUIL=0.08;    /* rad/s : la dérive passe dessous, un regard passe dessus */
+var GYRO_LISSE=0.10;    /* secondes : lissage de la visée */
+var GYRO_SAUT=15.0;     /* rad/s : au-delà, aucune main ne tourne — on se recale */
+var GYRO_CLE='corrida-gyro';
+var _gyE=null,_gyQ=null,_gyQ1=null,_gyQ2=null,_gyV=null,_gyZ=null;
+function gyroPossible(){
+  return typeof DeviceOrientationEvent!=='undefined' &&
+         ((navigator.maxTouchPoints||0)>0 || 'ontouchstart' in window);
+}
+function gyroEcoute(e){
+  if(e.alpha===null || e.alpha===undefined) return;
+  GYRO.brut={a:e.alpha, b:e.beta||0, g:e.gamma||0};
+  GYRO.vu=performance.now();
+}
+/* la direction que vise l'appareil, dans le repère du monde */
+function gyroVisee(){
+  var b=GYRO.brut;
+  if(!b) return null;
+  if(!_gyE){
+    _gyE=new THREE.Euler(); _gyQ=new THREE.Quaternion();
+    _gyQ1=new THREE.Quaternion(-Math.sqrt(0.5),0,0,Math.sqrt(0.5));
+    _gyQ2=new THREE.Quaternion(); _gyV=new THREE.Vector3();
+    _gyZ=new THREE.Vector3(0,0,1);
+  }
+  var ang=0;
+  try{ ang=(screen.orientation&&screen.orientation.angle)||window.orientation||0; }catch(err){}
+  _gyE.set(b.b*PI/180, b.a*PI/180, -b.g*PI/180, 'YXZ');
+  _gyQ.setFromEuler(_gyE);
+  _gyQ.multiply(_gyQ1);
+  _gyQ.multiply(_gyQ2.setFromAxisAngle(_gyZ, -ang*PI/180));
+  _gyV.set(0,0,-1).applyQuaternion(_gyQ);
+  var y=Math.max(-1,Math.min(1,_gyV.y));
+  return {lacet:Math.atan2(_gyV.z,_gyV.x), tangage:Math.asin(y)};
+}
+/* Appelé une fois par image. Le temps compté ici est celui de la montre, et
+   non celui de la simulation : l'appareil tourne dans le monde réel, et une
+   page qui rend dix images par seconde doit voir la même vitesse de rotation
+   qu'une page qui en rend soixante. */
+function gyroImage(dtr){
+  if(!GYRO.actif) return;
+  var v=gyroVisee();
+  if(!v){ GYRO.lisse=null; GYRO.prec=null; return; }
+  if(!GYRO.lisse){ gyroRecaler(v); return; }
+  var k=Math.min(1,dtr/GYRO_LISSE);
+  GYRO.lisse.lacet+=ecartAngle(v.lacet-GYRO.lisse.lacet)*k;
+  GYRO.lisse.tangage+=(v.tangage-GYRO.lisse.tangage)*k;
+  var dl=ecartAngle(GYRO.lisse.lacet-GYRO.prec.lacet), dt2=GYRO.lisse.tangage-GYRO.prec.tangage;
+  GYRO.prec.lacet=GYRO.lisse.lacet; GYRO.prec.tangage=GYRO.lisse.tangage;
+  GYRO.bouge=Math.hypot(dl,dt2)/dtr;
+  /* Une vitesse impossible n'est pas un geste : c'est l'écran qui a tourné
+     ou l'onglet qui revient. On se recale sans bouger la caméra. Le garde
+     porte sur la vitesse et non sur l'écart : sur une page qui ne rend
+     qu'une image par seconde, un geste ordinaire fait un grand écart d'une
+     image à l'autre sans rien avoir d'impossible — mesuré, un garde sur
+     l'écart jetait un mouvement de 40° sur deux.                         */
+  if(GYRO.bouge>GYRO_SAUT){ gyroRecaler(v); return; }
+  /* Genou doux plutôt que seuil sec. Un seuil qui jette tout ce qui est
+     lent jette aussi la fin de chaque geste, quand l'appareil ralentit :
+     mesuré, il manquait un tiers du mouvement. Ici le facteur vaut presque
+     un dès que ça bouge vraiment, et presque rien pour la dérive.        */
+  var r=GYRO.bouge/GYRO_SEUIL, f=r*r/(1+r*r);
+  if(f<0.02) return;
+  dl*=f; dt2*=f;
+  CAM.yaw+=dl;
+  if(VUE==='fp') CAM.fpPitch=Math.max(-1.3,Math.min(1.3,CAM.fpPitch+dt2));
+  else if(VUE==='tp') CAM.pitch=Math.max(-0.30,Math.min(1.35,CAM.pitch-dt2));
+  else { CAM.jalYaw+=dl; CAM.jalPitch=Math.max(-1.3,Math.min(1.3,CAM.jalPitch+dt2)); }
+  if(f>0.5) CAM.libre=CAM_LIBRE;
+}
+/* repartir de l'attitude courante sans rien pousser : une seule image
+   perdue, et non deux comme si l'on initialisait en deux temps */
+function gyroRecaler(v){
+  if(!v) v=gyroVisee();
+  if(!v){ GYRO.lisse=null; GYRO.prec=null; return; }
+  GYRO.lisse={lacet:v.lacet, tangage:v.tangage};
+  GYRO.prec={lacet:v.lacet, tangage:v.tangage};
+}
+addEventListener('orientationchange',function(){ if(GYRO.actif) gyroRecaler(null); });
+/* l'onglet revient au premier plan après un long moment : l'appareil a pu
+   tourner entre-temps, et aucune image n'a été rendue pour le suivre */
+addEventListener('visibilitychange',function(){ if(GYRO.actif && !document.hidden) gyroRecaler(null); });
+try{ if(screen.orientation && screen.orientation.addEventListener)
+  screen.orientation.addEventListener('change',function(){ if(GYRO.actif) gyroRecaler(null); }); }catch(e){}
+
+function gyroVoulu(){ try{ return localStorage.getItem(GYRO_CLE)==='1'; }catch(e){ return false; } }
+function gyroSouvenir(v){ try{ localStorage.setItem(GYRO_CLE, v?'1':'0'); }catch(e){} }
+function majBoutonGyro(){
+  var b=$e('e3-gyro');
+  if(!b) return;
+  b.hidden=!GYRO.dispo;
+  b.classList.toggle('on',GYRO.actif);
+  b.title=(GYRO.actif?'Revenir au doigt':'Tourner la caméra en tournant le téléphone')+' (Y)';
+  var t=$e('e3-tg');
+  if(t) t.classList.toggle('on',GYRO.actif);
+}
+function gyroAllumer(){
+  GYRO.actif=true; GYRO.lisse=null; GYRO.prec=null; GYRO.vu=0;
+  addEventListener('deviceorientation',gyroEcoute,true);
+  gyroSouvenir(true); majBoutonGyro();
+  dire('Gyroscope : tourne le téléphone pour regarder autour de toi');
+  /* si rien n'arrive, l'appareil ne sait pas : le dire plutôt que laisser
+     croire que la caméra est cassée */
+  setTimeout(function(){
+    if(GYRO.actif && !GYRO.vu){ gyroEteindre(); dire('Ce téléphone ne donne pas son orientation'); }
+  },2500);
+}
+function gyroEteindre(){
+  GYRO.actif=false; GYRO.lisse=null; GYRO.prec=null;
+  removeEventListener('deviceorientation',gyroEcoute,true);
+  gyroSouvenir(false); majBoutonGyro();
+}
+function basculerGyro(){
+  if(!GYRO.dispo){ dire('Pas de gyroscope sur cet appareil'); return; }
+  if(GYRO.actif){ gyroEteindre(); dire('Gyroscope coupé'); return; }
+  /* iOS : la permission ne se demande que dans un geste de l'utilisateur */
+  var D=(typeof DeviceOrientationEvent!=='undefined') ? DeviceOrientationEvent : null;
+  if(D && typeof D.requestPermission==='function'){
+    D.requestPermission().then(function(r){
+      if(r==='granted') gyroAllumer();
+      else dire('Accès au gyroscope refusé — il se réactive dans les réglages du navigateur');
+    }).catch(function(){ dire('Accès au gyroscope refusé'); });
+    return;
+  }
+  gyroAllumer();
+}
+
 function basculerDetail(){
   detail=!detail; ombres=detail; lumDir.castShadow=detail;
   renderer.setPixelRatio(detail?Math.min(devicePixelRatio||1,1.8):1);
@@ -3771,12 +3939,20 @@ var tHud=0;
    d'une image par seconde : cinq secondes de jeu y prennent trois minutes de
    montre. Mesurer une durée depuis l'extérieur demande donc l'horloge du
    dedans, pas celle du dehors.                                           */
-var TSIM=0, IMAGES=0;
+var TSIM=0, IMAGES=0, TREEL=0;
 function boucle(){
   if(!ouvert){ boucleId=0; return; }
   boucleId=requestAnimationFrame(boucle);
   var dt=Math.min(0.06,horloge.getDelta());
   TSIM+=dt; IMAGES++;
+  /* Le temps de la montre, à côté de celui de la simulation. Les cinq
+     secondes promises à la main sont des secondes, pas des images : sur un
+     téléphone qui rend dix images par seconde, dt est écrêté et l'horloge
+     du jeu prend du retard sur la vraie. Le gyroscope, lui, tourne dans le
+     monde réel : il se mesure à la même montre.                          */
+  var _now=performance.now();
+  var dtReel=TREEL ? Math.max(0.001,Math.min(0.5,(_now-TREEL)/1000)) : dt;
+  TREEL=_now;
   var av=touches['arrowup']||touches['z']||touches['w']||touches.__av;
   var ar=touches['arrowdown']||touches['s']||touches.__ar;
   var ga=touches['arrowleft']||touches['q']||touches.__ga;
@@ -3813,10 +3989,14 @@ function boucle(){
   var sp=surLeParcours(J.x,J.z); J.d=sp.d; J.ecart=sp.ecart;
   majJoueur(dt);
 
+  /* le gyroscope pousse la caméra comme le ferait un doigt, avant que le
+     compte de liberté ne soit examiné */
+  gyroImage(dtReel);
+
   /* Le compte à rebours de liberté, commun aux deux vues : tant qu'un doigt
      est posé il ne descend pas, et il repart à zéro au relâchement. */
   if(CAM.main) CAM.libre=CAM_LIBRE;
-  else if(CAM.libre>0) CAM.libre=Math.max(0,CAM.libre-dt);
+  else if(CAM.libre>0) CAM.libre=Math.max(0,CAM.libre-dtReel);
   var reprise = recentrer && CAM.libre<=0;
   if(!reprise){ CAM.vYaw=0; CAM.vPitch=0; }
 
@@ -11226,7 +11406,7 @@ function compacter3D(){
     m.appendChild(b); m.appendChild(pop);
     return m;
   }
-  var mVue=menu('🎥 Vue','Point de vue et déplacements',['e3-vuep','e3-haute','e3-auto','e3-depart']);
+  var mVue=menu('🎥 Vue','Point de vue et déplacements',['e3-vuep','e3-haute','e3-auto','e3-gyro','e3-depart']);
   var mPoser=menu('➕ Poser','Poser jalonneurs, matériel, véhicules et policiers',['#Personnes','e3-ajout','e3-b-veh','#Matériel','e3-b-bar','e3-b-rub']);
   var mAff=menu('👁 Afficher','Ce qui est affiché dans la scène',['e3-liste','e3-b-parc','e3-b-trace','e3-circ','e3-nuit','e3-detail']);
   var bv=$e('e3-b-veh'); if(bv) bv.textContent='🪖 Véhicules et 👮 policiers';
@@ -11799,10 +11979,16 @@ function interfaceConsultation3D(){
   var box=document.createElement('div'); box.id='e3-tact-btn';
   [['👁','Vue à la première ou à la troisième personne',function(){ basculerVue(); }],
    ['▶','Visite guidée du parcours',function(){ basculerAuto(); }],
+   /* le gyroscope n'apparaît que si l'appareil sait donner son orientation :
+      un bouton qui ne peut rien faire vaut moins que pas de bouton */
+   ['🧭','Tourner la caméra en tournant le téléphone',function(){ basculerGyro(); },'e3-tg',
+    function(){ return gyroPossible(); }],
    ['⏮','Revenir au départ',function(){ if(VUE==='jal') sortirVueJal(); placerJoueur(0); dire('Retour au départ'); }],
    ['⛶','Plein écran',function(){ if(window.pleinEcranPaysage) window.pleinEcranPaysage(false); }]
   ].forEach(function(d){
+    if(d[4] && !d[4]()) return;
     var b=document.createElement('button'); b.type='button'; b.textContent=d[0]; b.title=d[1];
+    if(d[3]) b.id=d[3];
     b.onclick=function(){ d[2](); b.blur(); };
     box.appendChild(b);
   });
@@ -12711,6 +12897,8 @@ window.ESPACE3D.etat=function(){
     /* de quoi mesurer le recentrage depuis l'extérieur : sans cela
        outils/essai_camera.js ne pourrait que regarder l'image et deviner */
     temps:+TSIM.toFixed(2), images:IMAGES, virages:ARR_BILAN,
+    gyro:{dispo:GYRO.dispo, actif:GYRO.actif, recu:GYRO.vu>0,
+          vitesse:+(GYRO.bouge*180/PI).toFixed(1), seuil:+(GYRO_SEUIL*180/PI).toFixed(1)},
     axe:{ camera:+(CAM.yaw*180/PI).toFixed(2), coureur:+(J.cap*180/PI).toFixed(2),
           taux:+(CAM.capTaux*180/PI).toFixed(1),
           ecart:+(ecartAngle(CAM.yaw-J.cap)*180/PI).toFixed(2),

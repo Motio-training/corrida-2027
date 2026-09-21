@@ -543,10 +543,48 @@ Ce qu'il a trouvé et chiffré, aux deux vues et aux deux commandes :
 | | première personne | troisième personne |
 |---|---|---|
 | écart en visite guidée, sans y toucher | 0,0 à 0,8° | 4,1° (coureur en virage à 25 °/s) |
-| tenue après un geste | 5,0 s exactement | 5,0 s exactement |
+| tenue après un geste | 5,0 s de montre | 5,0 s de montre |
 | retour à l'axe | 2,3 s, écart final 0,1° | 2,3 s, écart final 0,0° |
 | dépassement, cap stable | 1,0° sur 105 points | 0,1 à 0,5° sur 116 points |
 | vitesse angulaire maximale | 130 °/s | 34 à 92 °/s |
+
+## `essai_gyro.js`
+
+La caméra suit-elle le téléphone quand on le tourne ?
+
+```sh
+node outils/essai_gyro.js
+```
+
+Je n'ai pas de téléphone à tourner : on en simule un. Le banc ouvre la vraie
+page dans un contexte tactile, allume l'option, puis envoie des événements
+`deviceorientation` comme le ferait un appareil qu'on tourne — et mesure ce
+que la caméra en fait.
+
+**Ce qu'il a trouvé**, et qui n'aurait pas été vu autrement :
+
+- **lire `alpha` seul ne marche pas.** En paysage, le lacet visé n'est plus
+  `alpha` et le tangage n'est plus `beta` — il passe dans `gamma`. Il faut
+  recomposer la rotation entière (ZXY intrinsèque, quart de tour, angle de
+  l'écran) et en extraire la direction visée.
+- **un seuil sec mange la fin du geste.** Le premier jet ignorait tout
+  mouvement plus lent qu'un seuil, pour écarter la dérive du gyroscope —
+  mais un geste ralentit en finissant, et il manquait un tiers du mouvement.
+  Remplacé par un genou doux, `r²/(1+r²)` : presque un dès que ça bouge
+  vraiment, presque rien pour la dérive.
+- **un garde-fou sur l'écart jette les gestes normaux quand la page rend
+  lentement.** Un mouvement de 40° passait ou non selon le nombre d'images
+  rendues pendant le geste. Le garde porte maintenant sur la *vitesse* —
+  au-delà de 860 °/s aucune main ne tourne, c'est l'écran qui a pivoté.
+- **le compte à rebours de cinq secondes se comptait en images.** `dt` est
+  écrêté à 60 ms : sur une page qui rend dix images par seconde, l'horloge
+  du jeu prend du retard sur la vraie et les cinq secondes promises à la
+  main en devenaient huit. Ce compte, et le gyroscope, se mesurent
+  maintenant à la montre.
+
+Résultat, aux deux vues et aux deux orientations d'écran : **39° de caméra
+pour 40° d'appareil**, une dérive de 6° en 6 s ne déplace la vue que de
+0,6°, et elle n'empêche pas la caméra de reprendre l'axe de course.
 
 ## `melodie_depuis_audio.js`
 
