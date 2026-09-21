@@ -311,6 +311,17 @@ window.MUSIQUE={
     if(enMarche){ arreter(); souvenir(false); return false; }
     var ok=demarrer(); souvenir(ok); return ok;
   },
+  /* Poser un morceau depuis l'extérieur : la page de relevé s'en sert pour
+     faire écouter ce qu'elle vient de transcrire, avec le même timbre que
+     la 3D — sinon on juge la mélodie sur un autre son que celui qu'on aura. */
+  definir:function(cle,p){
+    if(!cle || !p || !p.lead) return false;
+    PARTITIONS[cle]={nom:p.nom||cle, tempo:p.tempo||112, lead:p.lead,
+                     harmonie:p.harmonie||'', basse:p.basse||'',
+                     perc:(p.perc!==undefined)?p.perc:'K/2 H/2 S/2 H/2'};
+    if(courant===cle) compile=null;
+    return true;
+  },
   choisir:function(nom){
     if(!PARTITIONS[nom]) return false;
     var jouait=enMarche;

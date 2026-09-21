@@ -1,0 +1,407 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Relever une mélodie — Corrida 2027</title>
+<!-- Page de saisie : de quoi me donner une mélodie sans avoir à me
+     l'expliquer. Trois entrées — le clavier, le micro, un fichier — et une
+     sortie unique, la notation que lit actifs/musique.js. -->
+<style>
+:root{
+  --nuit:#0B1019; --nuit-2:#141C2B; --nuit-3:#1C2537; --trait:#2A3548;
+  --creme:#EAE4D8; --creme-dim:#98A3B6; --frontale:#F2B33D; --kaki:#7E9067;
+  --alerte:#E0704E;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--nuit);color:var(--creme);
+  font-family:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.page{max-width:900px;margin:0 auto;padding:22px 16px 60px}
+h1{font-size:23px;margin:0 0 4px;letter-spacing:.02em}
+h2{font-size:17px;margin:26px 0 8px;color:var(--frontale);font-weight:600}
+p{margin:8px 0;color:var(--creme-dim)}
+p strong{color:var(--creme)}
+.onglets{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px}
+.onglets button{flex:1 1 auto;min-width:120px}
+button{background:var(--nuit-3);color:var(--creme);border:1px solid var(--trait);
+  border-radius:9px;padding:10px 14px;font:inherit;font-size:15px;cursor:pointer}
+button:hover{border-color:#3C4A63}
+button.on{background:var(--frontale);color:#1b1205;border-color:var(--frontale);font-weight:600}
+button.rouge{background:var(--alerte);color:#fff;border-color:var(--alerte)}
+button:disabled{opacity:.45;cursor:default}
+.vue{display:none;background:var(--nuit-2);border:1px solid var(--trait);
+  border-radius:12px;padding:16px}
+.vue.vu{display:block}
+.rangee{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:12px 0}
+label{color:var(--creme-dim);font-size:14px}
+input[type=number]{background:var(--nuit-3);color:var(--creme);border:1px solid var(--trait);
+  border-radius:7px;padding:8px 10px;font:inherit;width:88px}
+textarea{width:100%;min-height:118px;background:#0d131f;color:var(--creme);
+  border:1px solid var(--trait);border-radius:9px;padding:11px;
+  font-family:"Roboto Mono",ui-monospace,monospace;font-size:13.5px;line-height:1.6}
+/* ---- le clavier ---- */
+.clavier{position:relative;height:150px;margin:14px 0 4px;user-select:none;
+  -webkit-user-select:none;touch-action:none}
+.bl,.no{position:absolute;bottom:0;border-radius:0 0 6px 6px;cursor:pointer}
+.bl{background:#e9e4d8;border:1px solid #b6b0a4;height:150px;color:#5a5348;
+  font-size:11px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px}
+.no{background:#20252e;border:1px solid #000;height:95px;z-index:2;color:#8b93a0;
+  font-size:10px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:5px}
+.bl.frappe{background:var(--frontale)}
+.no.frappe{background:#b9852a}
+.compteur{font-family:"Roboto Mono",ui-monospace,monospace;color:var(--frontale)}
+.note{font-size:14px;color:var(--creme-dim);border-left:3px solid var(--trait);
+  padding-left:11px;margin:12px 0}
+.ok{color:var(--kaki)}
+.ko{color:var(--alerte)}
+</style>
+
+<div class="page">
+<h1>Relever une mélodie</h1>
+<p>Cette page transforme un air en <strong>partition texte</strong> que la 3D de la Corrida
+sait jouer. Elle sert à me donner une mélodie que je n’ai pas — <em>Jeune chef</em>, par
+exemple. Trois façons de faire, au choix ; le résultat est le même bloc de texte, à me
+renvoyer tel quel.</p>
+
+<div class="onglets">
+  <button id="o-clavier" class="on">🎹 Jouer au clavier</button>
+  <button id="o-micro">🎤 Chanter ou siffler</button>
+  <button id="o-fichier">📁 Un enregistrement</button>
+</div>
+
+<!-- ------------------------------------------------------- clavier -->
+<div class="vue vu" id="v-clavier">
+  <p><strong>Joue l’air sur le clavier</strong>, au rythme, comme on le chanterait. Les touches
+  de l’ordinateur marchent aussi : <code>Q S D F G H J K</code> pour les blanches,
+  <code>Z E T Y U</code> pour les noires.</p>
+  <div class="rangee">
+    <button id="k-enr">● Enregistrer</button>
+    <button id="k-stop" disabled>■ Terminer</button>
+    <button id="k-vide">Effacer</button>
+    <span class="compteur" id="k-compte">0 note</span>
+  </div>
+  <div class="clavier" id="clavier"></div>
+</div>
+
+<!-- --------------------------------------------------------- micro -->
+<div class="vue" id="v-micro">
+  <p><strong>Chante, siffle ou joue l’air</strong> pendant l’enregistrement. Une seule voix à la
+  fois : à plusieurs, ou avec un accompagnement, les harmoniques brouillent la lecture.
+  Siffler donne le meilleur résultat.</p>
+  <div class="rangee">
+    <button id="m-enr">● Enregistrer</button>
+    <button id="m-stop" disabled>■ Terminer</button>
+    <span class="compteur" id="m-etat">prêt</span>
+  </div>
+  <p class="note">Le navigateur va demander l’accès au micro. Rien ne quitte l’appareil :
+  tout est analysé sur place, dans la page.</p>
+</div>
+
+<!-- ------------------------------------------------------- fichier -->
+<div class="vue" id="v-fichier">
+  <p><strong>Choisis un fichier audio</strong> — un mémo vocal, un extrait de cérémonie. Là encore,
+  une voix à la fois donne le meilleur relevé.</p>
+  <div class="rangee">
+    <input type="file" id="f-choix" accept="audio/*">
+    <span class="compteur" id="f-etat"></span>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------- résultat -->
+<h2>Le résultat</h2>
+<div class="rangee">
+  <label for="tempo">Tempo (noires par minute)</label>
+  <input type="number" id="tempo" value="112" min="50" max="220" step="1">
+  <button id="ecouter">▶ Écouter</button>
+  <button id="stopper" disabled>■ Arrêter</button>
+  <button id="copier">Copier</button>
+  <span class="compteur" id="etat"></span>
+</div>
+<textarea id="sortie" spellcheck="false"
+  placeholder="La partition apparaîtra ici. Tu peux aussi l’écrire à la main : NOTE/durée, la durée en doubles croches, « - » pour un silence. Exemple : G4/2 G4/2 C5/4 E5/4"></textarea>
+<p class="note">Le tempo ne change pas les notes, seulement la façon de découper les durées :
+si le rythme sonne faux à l’écoute, essaie une autre valeur avant de tout refaire.
+<strong>Écouter</strong> joue le résultat avec le timbre exact de la 3D.</p>
+
+<h2>Et ensuite</h2>
+<p>Renvoie-moi le contenu du cadre. Je le pose dans la 3D, je vérifie que chaque note sort
+à la bonne fréquence, et le chant remplace la marche provisoire.</p>
+</div>
+
+<script src="../actifs/releve_melodie.js"></script>
+<script src="../actifs/musique.js"></script>
+<script>
+(function(){
+'use strict';
+var $=function(id){ return document.getElementById(id); };
+
+/* ---------------------------------------------------------- onglets */
+var vues=[['o-clavier','v-clavier'],['o-micro','v-micro'],['o-fichier','v-fichier']];
+vues.forEach(function(v){
+  $(v[0]).onclick=function(){
+    vues.forEach(function(w){
+      $(w[0]).classList.toggle('on', w===v);
+      $(w[1]).classList.toggle('vu', w===v);
+    });
+  };
+});
+
+/* ------------------------------------------------------- le clavier
+   Deux octaves, do3 à do5 : de quoi couvrir un chant de tradition sans
+   noyer l'écran de touches. */
+var OCTAVE=[['C',0,1],['C#',0,0],['D',1,1],['D#',1,0],['E',2,1],['F',3,1],
+            ['F#',3,0],['G',4,1],['G#',4,0],['A',5,1],['A#',5,0],['B',6,1]];
+var TOUCHES={q:'C4',z:'C#4',s:'D4',e:'D#4',d:'E4',f:'F4',t:'F#4',g:'G4',
+             y:'G#4',h:'A4',u:'A#4',j:'B4',k:'C5',o:'C#5',l:'D5',p:'D#5',m:'E5'};
+var boutons={};
+(function construire(){
+  var cl=$('clavier'), blanches=14, i;
+  var lb=100/blanches;
+  for(var oct=0;oct<2;oct++){
+    for(i=0;i<OCTAVE.length;i++){
+      var d=OCTAVE[i], nom=d[0]+(4+oct);
+      var e=document.createElement('div');
+      e.className=d[2]?'bl':'no';
+      e.dataset.note=nom;
+      var x=(oct*7+d[1])*lb;
+      if(d[2]){ e.style.left=x+'%'; e.style.width=lb+'%'; }
+      else { e.style.left=(x+lb*0.66)+'%'; e.style.width=(lb*0.66)+'%'; }
+      var lettre=Object.keys(TOUCHES).filter(function(k){ return TOUCHES[k]===nom; })[0];
+      e.textContent=lettre?lettre.toUpperCase():'';
+      cl.appendChild(e);
+      boutons[nom]=e;
+    }
+  }
+  /* le do du haut, pour finir une phrase */
+  var fin=document.createElement('div');
+  fin.className='bl'; fin.dataset.note='C6';
+  fin.style.left=(14*lb)+'%'; fin.style.width=lb+'%';
+  cl.appendChild(fin); boutons['C6']=fin;
+})();
+
+/* --------------------------------------- écoute d'une note au clavier */
+var ctxJeu=null;
+function ctx(){
+  if(!ctxJeu){
+    var C=window.AudioContext||window.webkitAudioContext;
+    if(!C) return null;
+    ctxJeu=new C();
+  }
+  if(ctxJeu.state==='suspended'){ try{ ctxJeu.resume(); }catch(e){} }
+  return ctxJeu;
+}
+function bip(nom){
+  var c=ctx();
+  if(!c || !window.MUSIQUE) return;
+  var f=MUSIQUE.frequence(nom);
+  if(!f) return;
+  var o=c.createOscillator(), g=c.createGain(), t=c.currentTime;
+  o.type='square';
+  o.frequency.setValueAtTime(f,t);
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(0.09,t+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0008,t+0.30);
+  o.connect(g); g.connect(c.destination);
+  o.start(t); o.stop(t+0.34);
+}
+
+/* ------------------------------------------- enregistrement au clavier */
+var enr=false, t0=0, jouees=[], enCours={};
+function majCompte(){
+  $('k-compte').textContent=jouees.length+' note'+(jouees.length>1?'s':'');
+}
+function debutNote(nom){
+  if(enCours[nom]!==undefined) return;
+  bip(nom);
+  if(boutons[nom]) boutons[nom].classList.add('frappe');
+  if(!enr) return;
+  enCours[nom]=(performance.now()-t0)/1000;
+}
+function finNote(nom){
+  if(boutons[nom]) boutons[nom].classList.remove('frappe');
+  if(!enr || enCours[nom]===undefined) return;
+  var debut=enCours[nom];
+  delete enCours[nom];
+  var duree=(performance.now()-t0)/1000-debut;
+  if(duree<0.04) duree=0.12;                  /* un tapotement compte quand même */
+  var f=MUSIQUE.frequence(nom);
+  jouees.push({midi:Math.round(69+12*Math.log2(f/440)), debut:debut, duree:duree});
+  jouees.sort(function(a,b){ return a.debut-b.debut; });
+  majCompte();
+  rendre();
+}
+$('clavier').addEventListener('pointerdown',function(e){
+  var n=e.target.dataset && e.target.dataset.note;
+  if(!n) return;
+  e.preventDefault();
+  debutNote(n);
+  /* garder le pointeur sur la touche : sans cela, glisser le doigt hors de
+     la touche ne rend jamais le « pointerup » et la note reste coincée.
+     Protégé, parce qu'un événement de synthèse n'a pas de pointeur actif. */
+  try{ e.target.setPointerCapture(e.pointerId); }catch(err){}
+});
+$('clavier').addEventListener('pointerup',function(e){
+  var n=e.target.dataset && e.target.dataset.note;
+  if(n) finNote(n);
+});
+$('clavier').addEventListener('pointercancel',function(e){
+  var n=e.target.dataset && e.target.dataset.note;
+  if(n) finNote(n);
+});
+/* filet de sécurité : un relâchement n'importe où termine les notes en
+   cours, si la capture de pointeur a échoué */
+addEventListener('pointerup',function(){
+  Object.keys(enCours).forEach(finNote);
+});
+addEventListener('keydown',function(e){
+  if(e.repeat) return;
+  var tg=e.target;
+  if(tg && (tg.tagName==='INPUT'||tg.tagName==='TEXTAREA')) return;
+  var n=TOUCHES[e.key.toLowerCase()];
+  if(n){ e.preventDefault(); debutNote(n); }
+});
+addEventListener('keyup',function(e){
+  var n=TOUCHES[e.key.toLowerCase()];
+  if(n) finNote(n);
+});
+$('k-enr').onclick=function(){
+  enr=true; t0=performance.now(); jouees=[]; enCours={};
+  majCompte();
+  $('k-enr').classList.add('on'); $('k-enr').textContent='● Enregistre…';
+  $('k-stop').disabled=false;
+  $('etat').textContent='joue l’air, puis Terminer';
+};
+$('k-stop').onclick=function(){
+  enr=false;
+  $('k-enr').classList.remove('on'); $('k-enr').textContent='● Enregistrer';
+  $('k-stop').disabled=true;
+  rendre();
+  $('etat').textContent=jouees.length?('relevé : '+jouees.length+' notes'):'rien joué';
+};
+$('k-vide').onclick=function(){ jouees=[]; majCompte(); rendre(); };
+
+/* ------------------------------------------------------------ le micro */
+var flux=null, recorder=null, morceaux=[];
+$('m-enr').onclick=async function(){
+  try{
+    flux=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,
+      noiseSuppression:false, autoGainControl:false}});
+  }catch(e){ $('m-etat').textContent='micro refusé'; $('m-etat').className='compteur ko'; return; }
+  morceaux=[];
+  recorder=new MediaRecorder(flux);
+  recorder.ondataavailable=function(e){ if(e.data.size) morceaux.push(e.data); };
+  recorder.onstop=async function(){
+    flux.getTracks().forEach(function(t){ t.stop(); });
+    $('m-etat').textContent='analyse…'; $('m-etat').className='compteur';
+    var blob=new Blob(morceaux);
+    await analyserBuffer(await blob.arrayBuffer(), 'm-etat');
+  };
+  recorder.start();
+  $('m-enr').classList.add('on'); $('m-enr').textContent='● Enregistre…';
+  $('m-stop').disabled=false;
+  $('m-etat').textContent='chante…';
+};
+$('m-stop').onclick=function(){
+  if(recorder && recorder.state!=='inactive') recorder.stop();
+  $('m-enr').classList.remove('on'); $('m-enr').textContent='● Enregistrer';
+  $('m-stop').disabled=true;
+};
+
+/* ---------------------------------------------------------- le fichier */
+$('f-choix').onchange=async function(){
+  var f=this.files && this.files[0];
+  if(!f) return;
+  $('f-etat').textContent='analyse de '+f.name+'…';
+  $('f-etat').className='compteur';
+  await analyserBuffer(await f.arrayBuffer(), 'f-etat');
+};
+
+/* --------------------------------------- l'analyse, partagée par les deux */
+async function analyserBuffer(buf, ouDire){
+  var C=window.AudioContext||window.webkitAudioContext;
+  var c=new C();
+  var audio;
+  try{ audio=await c.decodeAudioData(buf); }
+  catch(e){
+    $(ouDire).textContent='format non lu par le navigateur';
+    $(ouDire).className='compteur ko';
+    return;
+  }
+  var n=audio.length, d=new Float32Array(n);
+  for(var k=0;k<audio.numberOfChannels;k++){
+    var v=audio.getChannelData(k);
+    for(var i=0;i<n;i++) d[i]+=v[i]/audio.numberOfChannels;
+  }
+  var A=RELEVE_MELODIE.analyser(d,audio.sampleRate,{});
+  if(!A.notes.length){
+    $(ouDire).textContent='aucune note distinguée — réessayer plus près du micro';
+    $(ouDire).className='compteur ko';
+    return;
+  }
+  jouees=A.notes;
+  /* le tempo estimé sur les durées relevées, que l'on peut ensuite corriger */
+  $('tempo').value=RELEVE_MELODIE.tempoEstime(A.notes);
+  var justes=A.notes.map(function(x){ return Math.abs(x.cents); }).sort(function(a,b){ return a-b; });
+  var med=justes[justes.length>>1];
+  $(ouDire).textContent=A.notes.length+' notes, '+A.duree+' s, écart médian '+med+' cents';
+  $(ouDire).className='compteur '+(med>45?'ko':'ok');
+  majCompte();
+  rendre();
+}
+
+/* -------------------------------------------------------- la partition */
+function rendre(){
+  if(!jouees.length){ $('sortie').value=''; return; }
+  var tempo=+$('tempo').value||112;
+  $('sortie').value=RELEVE_MELODIE.enPartition(jouees,tempo,{}).texte;
+}
+$('tempo').oninput=rendre;
+
+/* ---------------------------------------------------------- l'écoute
+   Le même timbre que la 3D : on pose la partition dans le lecteur et on la
+   joue une fois. Juger une mélodie sur un autre son que celui qu'on aura
+   n'apprend pas grand-chose. */
+var ctxEcoute=null, minuteurFin=0;
+$('ecouter').onclick=function(){
+  var texte=$('sortie').value.trim();
+  if(!texte){ $('etat').textContent='rien à écouter'; return; }
+  if(!window.MUSIQUE || !MUSIQUE.pret()){ $('etat').textContent='pas de son dans ce navigateur'; return; }
+  arreter();
+  var tempo=+$('tempo').value||112;
+  MUSIQUE.definir('releve',{nom:'relevé', tempo:tempo, lead:texte, perc:'K/2 H/2 S/2 H/2'});
+  MUSIQUE.choisir('releve');
+  var P=MUSIQUE.partition();
+  var duree=P.longueur*P.pasSec;
+  var C=window.AudioContext||window.webkitAudioContext;
+  ctxEcoute=new C();
+  var g=ctxEcoute.createGain();
+  g.gain.value=0.5;
+  g.connect(ctxEcoute.destination);
+  MUSIQUE.planifier(ctxEcoute,g,ctxEcoute.currentTime+0.1,0,duree,{lead:1,perc:1});
+  $('stopper').disabled=false;
+  $('etat').textContent='lecture, '+duree.toFixed(1)+' s';
+  minuteurFin=setTimeout(function(){ arreter(); $('etat').textContent='fin'; },(duree+0.4)*1000);
+};
+function arreter(){
+  clearTimeout(minuteurFin);
+  if(ctxEcoute){ try{ ctxEcoute.close(); }catch(e){} ctxEcoute=null; }
+  $('stopper').disabled=true;
+}
+$('stopper').onclick=function(){ arreter(); $('etat').textContent='arrêté'; };
+
+$('copier').onclick=function(){
+  var t=$('sortie').value;
+  if(!t){ $('etat').textContent='rien à copier'; return; }
+  var fini=function(){ $('etat').textContent='copié'; };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(fini,function(){ $('sortie').select(); });
+  else { $('sortie').select(); document.execCommand&&document.execCommand('copy'); fini(); }
+};
+
+/* Une retouche à la main dans le cadre n'a rien à mettre à jour : « Écouter »
+   lit le cadre, pas les notes relevées. Le tempo, en revanche, regénère le
+   cadre depuis les notes — donc on ne touche plus au tempo après avoir
+   corrigé le texte, sous peine d'effacer la correction. */
+$('sortie').addEventListener('input',function(){
+  $('etat').textContent='texte modifié à la main';
+});
+})();
+</script>

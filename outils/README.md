@@ -537,3 +537,31 @@ là — les hauteurs sont exactes, le rythme est à relire.
 Ça marche sur une voix à la fois : chant a cappella, sifflement, clavier,
 trompette. Sur un chœur avec accompagnement, la basse et les harmoniques
 brouillent la piste.
+
+Le relevé lui-même vit dans `actifs/releve_melodie.js`, partagé avec la page
+`melodie/` : une seule copie de la partie qui décide des notes. C'est la
+troisième fois dans ce projet qu'une fonction dupliquée finit par diverger de
+son jumeau — `triOriente`, `panneau` — et celle-ci décide de chaque note
+qu'on entendra.
+
+## `melodie/` (page)
+
+De quoi me donner une mélodie sans avoir à me l'expliquer, déployée avec le
+site : https://motio-training.github.io/corrida-2027/melodie/
+
+Trois entrées, une seule sortie — la notation du lecteur :
+
+- **le clavier**, deux octaves, à la souris, au doigt ou aux touches de
+  l'ordinateur ; le rythme du jeu est conservé ;
+- **le micro**, pour chanter ou siffler l'air ; rien ne quitte l'appareil,
+  l'analyse se fait dans la page ;
+- **un fichier** audio, mémo vocal ou extrait de cérémonie.
+
+Le tempo se corrige après coup : il ne change pas les notes, seulement le
+découpage des durées. **Écouter** joue le résultat avec le timbre exact de la
+3D, via `MUSIQUE.definir()` — juger une mélodie sur un autre son que celui
+qu'on aura n'apprend pas grand-chose.
+
+Éprouvée dans un navigateur sans écran : jouer G4 G4 C5 au clavier rend
+exactement `G4/2 G4/2 C5/4`, et le fichier de synthèse ressort à 45 notes dont
+les dix premières sont justes.
