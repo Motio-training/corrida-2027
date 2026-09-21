@@ -27,65 +27,99 @@
    « - » est un silence, et la durée d'un silence compte comme les autres.  */
 var PARTITIONS={
 
-  /* « Jeune chef », relevé sur l'enregistrement que Nicolas m'a envoyé.
+  /* « Jeunes Chefs », d'après la partition gravée.
 
-     La mélodie n'est pas écrite d'oreille : elle est mesurée. Le fichier est
-     un chœur d'hommes sans accompagnement, coupé sous 120 Hz — donc avec un
-     fondamental affaibli, ce qui trompe tous les détecteurs de hauteur
-     ordinaires d'une octave. Le relevé passe par une saillance harmonique
-     (l'énergie de dix harmoniques de chaque candidat) puis par un Viterbi qui
-     interdit à la piste de sauter d'octave d'une trame à l'autre.
+     Deux sources, et la seconde a tranché. D'abord l'enregistrement du chœur,
+     relevé à l'oreille de la machine (outils/melodie_depuis_chant.py) : un
+     refrain, si bémol majeur, 9,9 écarts-types au-dessus du hasard. Puis la
+     partition éditée que Nicolas a retrouvée — ©Partitions, Gérard Eiselé,
+     2023, « chant du peloton de formation des sous-officiers de la Légion
+     Étrangère / 4e REI », visée et validée par le lieutenant-colonel Émile
+     Lardeux. Une partition écrite vaut mieux que le meilleur relevé : c'est
+     elle qui est ici, en entier.
 
-     Ce qui est mesuré : la tonalité (si bémol majeur, corrélation 0,66 contre
-     0,55 pour la suivante), le tempo (112 à la noire), la structure — deux
-     fois 68 secondes, couplet puis refrain — et la suite des notes du
-     refrain, dont les deux passages du fichier s'accordent à 79 %. Éprouvée
-     contre le chromagramme du fichier — calculé sur le spectre, donc
-     indépendant de tout ce qui précède —, cette suite est à 9,9 écarts-types
-     au-dessus d'un mélange de ses propres notes, et devant ses onze
-     transpositions.
+     Elle est lue à la géométrie, pas à l'œil (outils/partition_depuis_pdf.py) :
+     dans un PDF gravé, chaque tête de note est un glyphe dont on connaît la
+     position au centième de point, et la hauteur se déduit de sa distance à
+     la ligne du bas de la portée. 65 mesures lues, 65 mesures justes — chacune
+     fait bien ses huit doubles croches, sinon l'outil le dit.
 
-     Ce qui est arrangé : l'octave du chant (monté d'une octave, le registre
-     de la puce), le calage des durées sur la double croche, les respirations
-     allongées pour finir la mesure, et les trois voix d'accompagnement —
-     basse, contrechant, batterie —, déduites des accords que porte la
-     mélodie mesure par mesure. Un chœur a cappella n'en a aucune.
+     Les deux sources se recoupent : la voix haute de la partition retrouve
+     96 pour cent du contour relevé sur le refrain, à deux demi-tons près. Le
+     chœur chante donc la partition un ton plus bas, ce qui est exactement le
+     si bémol mesuré sur le fichier ; et l'étendue sonnante de cette voix, une
+     fois transposée, est ré3–si bémol 3, au hertz près celle mesurée.
 
-     Tout ce bloc se régénère :
-       python3 outils/melodie_depuis_chant.py <fichier> \
-               --de 36.7 --a 67.5 --octave 12 --tempo 112                   */
-  'jeunechef': {
-    nom:'Jeune chef (refrain)',
-    tempo:112,
-    /* une phrase par ligne, respiration comprise */
-    lead:'G4/4 G4/2 G4/2 G4/4 G4/1 A#4/1 A#4/6 A#4/2 A#4/2 A#4/3 -/5  '+
-         'F4/1 F4/2 F4/1 G4/2 G4/3 F4/1 F4/2 F4/1 D4/4 D4/2 D4/6 -/7  '+
-         'G4/4 G4/2 G4/2 F4/2 F4/3 F4/2 -/1  '+
-         'D#4/2 D#4/3 D4/1 D4/4 D4/3 D4/2 C4/2 C4/2 -/5  '+
-         'F4/3 G4/3 G4/1 F4/2 F4/3 F4/2 F4/2 F4/1 F4/4 -/3  '+
-         'F4/2 F4/2 G4/4 F4/1 F4/2 F4/1 A#4/1 A#4/3 A#4/4 A#4/2 A#4/3 -/7  '+
-         'F4/4 G4/2 G4/2 F4/4 F4/2 -/2  '+
-         'G4/3 G4/2 G4/3 F4/3 D#4/1 D#4/1 D4/4 C4/6 -/9',
-    /* le contrechant, tierce et quinte de l'accord sur les temps faibles,
-       dans le registre du ténor : entre la basse et le chant, là où il ne
-       masque ni l'un ni l'autre */
-    harmonie:'-/4 G3/2 A#3/2 -/4 G3/2 A#3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
-             '-/4 D3/2 F3/2 -/4 D3/2 F3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
-             '-/4 G3/2 A#3/2 -/4 G3/2 A#3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
-             '-/4 A3/2 C4/2 -/4 A3/2 C4/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
-             '-/4 D3/2 F3/2 -/4 D3/2 F3/2  -/4 D3/2 F3/2 -/4 D3/2 F3/2  '+
-             '-/4 D3/2 F3/2 -/4 D3/2 F3/2  -/4 A#3/2 D4/2 -/4 A#3/2 D4/2  '+
-             '-/4 A3/2 C4/2 -/4 A3/2 C4/2',
-    /* les accords que porte la mélodie, mesure par mesure : D# A# A# A# D# A# F A# A# A# A# Gm F ;
-       fondamentale et quinte en alternance, au pas */
-    basse:'D#2/4 A#2/4 D#2/4 A#2/4  A#2/4 F2/4 A#2/4 F2/4  '+
-          'A#2/4 F2/4 A#2/4 F2/4  A#2/4 F2/4 A#2/4 F2/4  '+
-          'D#2/4 A#2/4 D#2/4 A#2/4  A#2/4 F2/4 A#2/4 F2/4  '+
-          'F2/4 C3/4 F2/4 C3/4  A#2/4 F2/4 A#2/4 F2/4  '+
-          'A#2/4 F2/4 A#2/4 F2/4  A#2/4 F2/4 A#2/4 F2/4  '+
-          'A#2/4 F2/4 A#2/4 F2/4  G2/4 D2/4 G2/4 D2/4  '+
-          'F2/4 C3/4 F2/4 C3/4',
-    /* K grosse caisse, S caisse claire, H charleston */
+     Ce qui est écrit et gardé tel quel : les 65 mesures à 2/4, le tempo
+     (noire à 88), les deux voix, les accords chiffrés — d'où vient la basse —
+     et la reprise : la pièce se rejoue en entier, couplet 1 puis couplet 2,
+     ce que la boucle fait d'elle-même.
+
+     Ce qui est ajouté : la batterie, et l'octave. La clé de sol barrée d'un 8
+     sonne une octave sous ce qui est écrit ; le chant est ici joué à la
+     hauteur écrite, soit une octave au-dessus des voix d'hommes — le registre
+     de la puce, et de toute façon le grave est pris par la basse.
+
+     Se régénère :
+       python3 outils/partition_depuis_pdf.py <partition.pdf>              */
+  'jeuneschefs': {
+    nom:'Jeunes Chefs',
+    tempo:88,
+    /* quatre mesures de 2/4 par ligne */
+    lead:'-/4 -/4 -/4 G3/4 E4/4 F4/4 G4/6 G4/2  '+
+         'G4/2 -/2 -/4 -/4 G4/4 F4/4 G4/4 E4/6 E4/2  '+
+         'E4/2 -/2 -/4 -/4 E4/4 F4/4 G4/4 A4/6 C5/2  '+
+         'C5/2 -/2 -/4 -/4 C5/4 B4/4 A4/4 G4/2 -/2 -/4  '+
+         '-/4 -/4 -/4 E4/4 F4/4 G4/4 A4/6 C5/2  '+
+         'C5/2 -/2 -/4 -/4 C5/4 B4/4 A4/4 G4/6 E4/2  '+
+         'E4/2 -/2 -/4 -/4 G3/4 E4/4 F4/4 G4/2 -/2 -/4  '+
+         '-/4 A4/4 F4/2 -/2 -/4 -/4 G4/4 E4/2 -/2 -/4  '+
+         '-/4 -/4 -/4 G4/4 A4/4 G4/4 B4/6 B4/2  '+
+         'B4/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 C5/6 C5/2  '+
+         'C5/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 B4/2 -/2 -/4  '+
+         '-/4 A4/4 G4/6 A4/2 G4/4 F4/4 E4/2 -/2 -/4  '+
+         '-/4 -/4 -/4 G4/4 A4/4 G4/4 B4/6 B4/2  '+
+         'B4/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 C5/6 C5/2  '+
+         'C5/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 B4/2 -/2 -/4  '+
+         '-/4 A4/4 G4/6 F4/2 E4/4 D4/4 C4/2 -/2 -/4  '+
+         '-/4 -/4',
+    /* la seconde voix, telle qu'écrite */
+    harmonie:'-/4 -/4 -/4 G3/4 C4/4 D4/4 E4/6 E4/2  '+
+             'E4/2 -/2 -/4 -/4 E4/4 D4/4 E4/4 C4/6 C4/2  '+
+             'C4/2 -/2 -/4 -/4 C4/4 D4/4 E4/4 F4/6 A4/2  '+
+             'A4/2 -/2 -/4 -/4 A4/4 G4/4 F4/4 E4/2 -/2 -/4  '+
+             '-/4 -/4 -/4 C4/4 D4/4 E4/4 F4/6 A4/2  '+
+             'A4/2 -/2 -/4 -/4 A4/4 G4/4 F4/4 E4/6 C4/2  '+
+             'C4/2 -/2 -/4 -/4 G3/4 C4/4 D4/4 E4/2 -/2 -/4  '+
+             '-/4 F4/4 D4/2 -/2 -/4 -/4 E4/4 C4/2 -/2 -/4  '+
+             '-/4 -/4 -/4 G4/4 A4/4 G4/4 G4/6 G4/2  '+
+             'G4/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 E4/6 E4/2  '+
+             'E4/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 F4/2 -/2 -/4  '+
+             '-/4 F4/4 E4/6 F4/2 E4/4 D4/4 C4/2 -/2 -/4  '+
+             '-/4 -/4 -/4 G4/4 A4/4 G4/4 G4/6 G4/2  '+
+             'G4/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 E4/6 E4/2  '+
+             'E4/2 -/2 -/4 -/4 G4/4 A4/4 G4/4 F4/2 -/2 -/4  '+
+             '-/4 F4/4 E4/6 F4/2 E4/4 D4/4 C4/2 -/2 -/4  '+
+             '-/4 -/4',
+    /* fondamentale puis quinte, un temps chacune, sur les accords chiffrés */
+    basse:'C2/4 G2/4  C2/4 G2/4  C2/4 G2/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  D2/4 A2/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  C2/4 G2/4  F2/4 C3/4  '+
+          'F2/4 C3/4  F2/4 C3/4  G2/4 D3/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  D2/4 A2/4  F2/4 C3/4  '+
+          'F2/4 C3/4  F2/4 C3/4  G2/4 D3/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  C2/4 G2/4  C2/4 G2/4  '+
+          'C2/4 G2/4  D2/4 A2/4  D2/4 A2/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  C2/4 G2/4  G2/4 D3/4  '+
+          'G2/4 D3/4  G2/4 D3/4  C2/4 G2/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  G2/4 D3/4  G2/4 D3/4  '+
+          'G2/4 D3/4  C2/4 G2/4  G2/4 D3/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  C2/4 G2/4  G2/4 D3/4  '+
+          'G2/4 D3/4  G2/4 D3/4  C2/4 G2/4  C2/4 G2/4  '+
+          'C2/4 G2/4  C2/4 G2/4  G2/4 D3/4  G2/4 D3/4  '+
+          'G2/4 D3/4  C2/4 G2/4  G2/4 D3/4  C2/4 G2/4  '+
+          'C2/4 G2/4',
+    /* K grosse caisse, S caisse claire, H charleston : au pas, 2/4 */
     perc:'K/2 H/2 S/2 H/2'
   },
 
@@ -215,7 +249,7 @@ function frappe(ctx,dest,t,sorte,vol){
 }
 
 /* ---------------------------------------------------------- la partition */
-var courant='jeunechef', compile=null;
+var courant='jeuneschefs', compile=null;
 function compiler(nom){
   var p=PARTITIONS[nom];
   if(!p) return null;

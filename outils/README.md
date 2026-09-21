@@ -556,9 +556,10 @@ python3 outils/melodie_depuis_chant.py chant.mp3 \
         --de 36.7 --a 67.5 --octave 12 --tempo 112
 ```
 
-C'est l'outil qui a relevé « Jeune chef » sur l'enregistrement du chœur de
-l'ENSOA, et qui régénère le bloc `'jeunechef'` de `actifs/musique.js` — les
-quatre voix, pas seulement le chant.
+C'est l'outil qui a relevé le refrain de « Jeunes Chefs » sur l'enregistrement
+du chœur, avant qu'une partition gravée ne le remplace (voir
+`partition_depuis_pdf.py`). Il sort les quatre voix, pas seulement le chant, et
+reste l'outil à utiliser quand il n'existe pas de partition.
 
 **Pourquoi un autre outil.** L'enregistrement reçu est un chœur d'hommes a
 cappella, coupé sous 120 Hz : *aucune* énergie sous cette fréquence, donc un
@@ -601,6 +602,61 @@ tonalité sort à 0,66 contre 0,55 pour la suivante.
 Seule dépendance hors du projet, et seul outil en Python du dépôt : `numpy`
 pour les FFT et `soundfile` pour lire le MP3 (libsndfile ≥ 1.1). Le reste des
 outils reste en Node.
+
+## `partition_depuis_pdf.py`
+
+Une partition gravée en PDF, lue note à note.
+
+```sh
+pip install pymupdf
+python3 outils/partition_depuis_pdf.py partition.pdf
+python3 outils/partition_depuis_pdf.py partition.pdf --mesures   # le détail
+```
+
+C'est l'outil qui a mis « Jeunes Chefs » dans la 3D, en entier, et qui
+régénère le bloc `'jeuneschefs'` de `actifs/musique.js`.
+
+**Pourquoi c'est fiable.** Un PDF gravé n'est pas une image : chaque tête de
+note est un glyphe dont on connaît la position au centième de point. La
+hauteur se lit donc à la géométrie — la distance à la ligne du bas de la
+portée, divisée par le demi-interligne — et non à la reconnaissance de formes.
+Il n'y a rien à estimer, donc rien à rater par approximation ; il n'y a que des
+conventions de gravure à connaître.
+
+**Ce qu'il lit.**
+
+- Les **portées**, cinq traits horizontaux longs groupés, et les **barres de
+  mesure**. Une barre de mesure joint les deux lignes extrêmes de la portée ;
+  une hampe de note s'arrête avant. C'est le seul moyen de les distinguer, et
+  sans ce test on compte seize « barres » là où il y en a huit.
+- Les **têtes de note**. Leur position verticale donne le degré ; leur taille
+  dit la voix, la gravure écrivant la seconde voix en grand et la mélodie en
+  petit. Deux têtes à la même abscisse font un accord.
+- Les **drapeaux** (croche) : à droite de la tête quand la hampe monte, à son
+  aplomb quand elle descend — deux glyphes différents, et oublier le second
+  donne des mesures à dix doubles croches au lieu de huit.
+- Les **points d'augmentation**, qu'il faut distinguer des points d'une barre
+  de reprise : les premiers suivent une tête de note à moins de 13 points.
+- Les **silences**, noire et croche, et les **chiffrages d'accord**, texte
+  au-dessus de la portée, d'où est tirée la basse.
+
+**Le contrôle est dans le mètre.** Chaque mesure doit faire exactement ce que
+dit le chiffre indicateur — huit doubles croches à 2/4. L'outil compte, et
+nomme les mesures fausses. Sur « Jeunes Chefs » : **65 mesures lues, 65
+justes**, 86 notes de chant, soit exactement les 86 têtes de note en grand de
+la gravure. Une mesure fausse veut dire une durée mal lue, et se voit tout de
+suite.
+
+**Recoupement avec l'enregistrement.** La voix haute retrouve 96 % du contour
+relevé sur le refrain du fichier audio, à deux demi-tons près : le chœur
+chante la partition un ton plus bas, ce qui est le si bémol mesuré
+indépendamment par `melodie_depuis_chant.py`. Et l'étendue sonnante de cette
+voix, transposée, est ré3–si bémol 3, au hertz près celle mesurée. Les deux
+méthodes, qui n'ont rien en commun, disent la même chose.
+
+Le vocabulaire de glyphes est celui de cette gravure (Finale, police Maestro).
+Une autre police demanderait une autre table — la géométrie, elle, ne change
+pas.
 
 ## `melodie/` (page)
 
