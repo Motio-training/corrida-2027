@@ -502,6 +502,44 @@ actuelle : 42 notes, écart médian 0 cent, crête 0,27.
 Le contrôle attrape bien un désaccord — désaccorder la voix d'un demi-ton le
 fait échouer sur 101 cents.
 
+## `essai_camera.js`
+
+La caméra reprend-elle l'axe de course, et sans à-coup ?
+
+```sh
+node outils/essai_camera.js                 # souris, page principale
+node outils/essai_camera.js --tactile       # doigt, interface téléphone
+node outils/essai_camera.js --page village  # l'autre carte
+```
+
+Je ne vois pas la 3D bouger : il faut mesurer. Le banc ouvre la vraie page,
+attend que le monde soit construit, lance la visite guidée, tourne la caméra
+à la main — vrais événements de pointeur, le chemin du doigt — et
+échantillonne l'écart entre l'axe de la caméra et le cap du coureur.
+
+**Le temps se compte au-dedans, pas à la montre.** Sans carte graphique, le
+rendu logiciel de Saint-Maixent tourne à une image par seconde : cinq
+secondes de jeu y prennent trois minutes. Le premier jet attendait à la
+montre et concluait que le recentrage ne marchait pas — il n'avait
+simplement pas eu ses images. `ESPACE3D.etat()` expose donc `temps`, le temps
+propre à la simulation, et le banc allège le rendu (petite fenêtre, ombres
+coupées, portée réduite) pour que la mesure tienne en quelques minutes.
+
+**Le dépassement se mesure cap stable.** L'écart change aussi de signe quand
+le coureur entre dans un virage : c'est du retard de poursuite, pas un
+dépassement. Le banc ne retient donc que les instants où le cap du coureur
+bouge de moins de 5 °/s.
+
+Ce qu'il a trouvé et chiffré, aux deux vues et aux deux commandes :
+
+| | première personne | troisième personne |
+|---|---|---|
+| écart en visite guidée, sans y toucher | 0,0° | 5,7 à 7,6° (coureur en virage à 44 °/s) |
+| tenue après un geste | 5,0 s exactement | 5,0 s exactement |
+| retour à l'axe | 2,3 s, écart final 0,1° | 2,3 s, écart final 0,0° |
+| dépassement, cap stable | 1,0° sur 105 points | 0,1 à 0,5° sur 116 points |
+| vitesse angulaire maximale | 130 °/s | 34 à 92 °/s |
+
 ## `melodie_depuis_audio.js`
 
 Une mélodie, depuis un enregistrement.

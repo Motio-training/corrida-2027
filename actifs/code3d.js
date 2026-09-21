@@ -3180,7 +3180,8 @@ var envJour=null, envNuit=null, cielJour=null, cielNuit=null, horloge=null;
 var nuit=false, ombres=true, collisions=true, auto=false, detail=true;
 var VUE='tp', VUEPREC='tp', VUEJAL=null, SELECTION=null;
 var J={x:0, z:0, cap:0, v:0, phase:0, d:0, ecart:0};
-var CAM={dist:9, yaw:0, pitch:0.30, libre:0, fpPitch:-0.05, jalYaw:0, jalPitch:-0.06};
+var CAM={dist:9, yaw:0, pitch:0.30, libre:0, fpPitch:-0.05, jalYaw:0, jalPitch:-0.06,
+         main:false, vYaw:0, vPitch:0, capTaux:0, capPrec:null};
 var touches={}, VITESSE=13/3.6, dAuto=0;
 var ouvert=false, boucleId=0, raycaster=null, anneauSel=null;
 var GEO={bats:[], voies:[], zones:[]};
@@ -3188,6 +3189,54 @@ function $e(id){ return document.getElementById(id); }
 /* écart d'angle ramené entre -π et π, quel que soit le nombre de tours cumulés
    (le % de JavaScript garde le signe : ((a+3π)%2π)-π faisait tourner la caméra sans fin) */
 function ecartAngle(a){ a=(a+Math.PI)%(Math.PI*2); if(a<0) a+=Math.PI*2; return a-Math.PI; }
+
+/* ---------------- recentrage de la caméra sur l'axe de course ----------------
+
+   Trois exigences qui se contredisent : suivre le cap du coureur, laisser la
+   main à qui touche l'écran, et ne jamais donner d'à-coup.
+
+   D'où un amortissement critique plutôt qu'une interpolation. Un simple
+   « yaw += écart × k·dt » repart brutalement dès que la cible saute — et elle
+   saute, à chaque angle de rue : la vitesse angulaire de la caméra y devient
+   discontinue, ce qui se voit immédiatement à la première personne. Ici la
+   vitesse est une variable d'état : elle est continue par construction, la
+   caméra part doucement, rattrape, et s'arrête sans jamais dépasser l'axe.
+   Le filtre est du second ordre, ce qui lui fait aussi rejeter le tremblement
+   du cap — le tracé vient d'un GPS, et le cap se lit sur une corde de six
+   mètres seulement.
+
+   La forme est celle des Game Programming Gems : l'approximation de e^(-x)
+   par 1/(1+x+0,48x²+0,235x³) reste stable quel que soit le pas de temps, là
+   où un ressort intégré naïvement explose dès qu'une image est sautée.     */
+var CAM_LIBRE=5.0;      /* secondes de liberté après le dernier geste */
+var CAM_AXE=0.50;       /* temps de rattrapage de l'axe de course */
+var CAM_REGARD=-0.05;   /* inclinaison de repos, à la première personne */
+/* Anticipation. Un amortisseur seul traîne dans un virage soutenu : c'est
+   la loi du genre, l'erreur permanente sur une rampe vaut le temps de
+   rattrapage multiplié par la vitesse de rotation. Mesuré sur le parcours :
+   21,7° de retard dans un virage à 40°/s, ce qui se voit. On vise donc un
+   peu en avant du cap, d'autant plus que le coureur tourne vite. Le prix est
+   8° de dépassement sur un angle pris instantanément — mais un coureur ne
+   pivote pas d'un coup, et le cap lui-même se lit sur six mètres de tracé.
+   Avec anticipation le retard tombe à 2,7° et le retour à l'axe est deux
+   fois plus rapide.                                                       */
+var CAM_ANTI=0.85;      /* part du retard que l'on compense */
+var CAM_ANTI_MAX=0.52;  /* jamais plus de 30° d'avance */
+var CAM_TAUX=0.30;      /* lissage de la vitesse de rotation du coureur */
+function amortirAngle(ang,cible,etat,cle,temps,dt){
+  var w=2/Math.max(0.03,temps), x=w*dt;
+  var att=1/(1+x+0.48*x*x+0.235*x*x*x);
+  var d=ecartAngle(ang-cible), v=etat[cle]||0;
+  var t=(v+w*d)*dt;
+  etat[cle]=(v-w*t)*att;
+  return cible+(d+t)*att;
+}
+/* la main est posée sur la caméra, ou vient de la quitter : dans les deux cas
+   elle a la priorité, et le compte à rebours ne part qu'au relâchement */
+function mainCamera(on){
+  CAM.main=!!on;
+  if(!on) CAM.libre=CAM_LIBRE;
+}
 
 function initTrois(){
   var vue=$e('e3-vue');
@@ -3263,7 +3312,7 @@ function appliquerCiel(){
 function placerJoueur(d){
   var p=pointSur(d);
   J.x=p[0]; J.z=p[1]; J.cap=capSur(d); J.v=0; dAuto=d;
-  CAM.yaw=J.cap; CAM.libre=0;
+  CAM.yaw=J.cap; CAM.libre=0; CAM.vYaw=0; CAM.vPitch=0;
   if(joueur) majJoueur(0);
 }
 function majJoueur(dt){
@@ -3393,7 +3442,7 @@ function allerAuJalon(o){
   if(VUE==='jal') sortirVueJal();
   auto=false; $e('e3-auto').classList.remove('on');
   J.x=p[0]; J.z=p[1]; J.cap=Math.atan2(o.z-p[1],o.x-p[0]); J.v=0;
-  CAM.yaw=J.cap; CAM.libre=0;
+  CAM.yaw=J.cap; CAM.libre=0; CAM.vYaw=0; CAM.vPitch=0;
   selectionner(o);
 }
 
@@ -3464,6 +3513,7 @@ function brancherInterface(){
     }
     glisse={x:e.clientX, y:e.clientY, x0:e.clientX, y0:e.clientY, id:e.pointerId,
             gauche: tactile && VUE!=='jal' && e.clientX<vue.clientWidth*0.38};
+    if(!glisse.gauche) mainCamera(true);
     try{ vue.setPointerCapture(e.pointerId); }catch(er){}
   });
   vue.addEventListener('pointermove',function(e){
@@ -3487,8 +3537,8 @@ function brancherInterface(){
       return;
     }
     glisse.x=e.clientX; glisse.y=e.clientY;
-    if(VUE==='tp'){ CAM.yaw+=dx*0.0055; CAM.pitch=Math.max(-0.30,Math.min(1.35,CAM.pitch+dy*0.004)); CAM.libre=2.2; }
-    else if(VUE==='fp'){ CAM.yaw+=dx*0.0045; CAM.fpPitch=Math.max(-1.3,Math.min(1.3,CAM.fpPitch-dy*0.004)); }
+    if(VUE==='tp'){ CAM.yaw+=dx*0.0055; CAM.pitch=Math.max(-0.30,Math.min(1.35,CAM.pitch+dy*0.004)); CAM.libre=CAM_LIBRE; }
+    else if(VUE==='fp'){ CAM.yaw+=dx*0.0045; CAM.fpPitch=Math.max(-1.3,Math.min(1.3,CAM.fpPitch-dy*0.004)); CAM.libre=CAM_LIBRE; }
     else { CAM.jalYaw+=dx*0.0045; CAM.jalPitch=Math.max(-1.3,Math.min(1.3,CAM.jalPitch-dy*0.004)); }
   });
   function fin(e){
@@ -3508,6 +3558,7 @@ function brancherInterface(){
     if(glisse && glisse.id===e.pointerId){
       var clic=!glisse.gauche && Math.hypot(e.clientX-glisse.x0,e.clientY-glisse.y0)<4;
       touches.__av=touches.__ar=touches.__ga=touches.__dr=false;
+      if(!glisse.gauche) mainCamera(false);
       glisse=null;
       if(clic && SELECTION && VUE!=='jal') deselectionner();
     }
@@ -3647,10 +3698,17 @@ function basculerPanneau(){
 
 /* ---------------- boucle ---------------- */
 var tHud=0;
+/* Temps propre à la simulation, et nombre d'images. Sur une machine sans
+   carte graphique — un banc d'essai, par exemple — la boucle tourne à moins
+   d'une image par seconde : cinq secondes de jeu y prennent trois minutes de
+   montre. Mesurer une durée depuis l'extérieur demande donc l'horloge du
+   dedans, pas celle du dehors.                                           */
+var TSIM=0, IMAGES=0;
 function boucle(){
   if(!ouvert){ boucleId=0; return; }
   boucleId=requestAnimationFrame(boucle);
   var dt=Math.min(0.06,horloge.getDelta());
+  TSIM+=dt; IMAGES++;
   var av=touches['arrowup']||touches['z']||touches['w']||touches.__av;
   var ar=touches['arrowdown']||touches['s']||touches.__ar;
   var ga=touches['arrowleft']||touches['q']||touches.__ga;
@@ -3659,7 +3717,7 @@ function boucle(){
   var rot=(touches['e']?1:0)-(touches['a']?1:0);
   if(rot){
     if(VUE==='jal') CAM.jalYaw+=rot*1.9*dt;
-    else { CAM.yaw+=rot*1.9*dt; CAM.libre=1.2; }
+    else { CAM.yaw+=rot*1.9*dt; CAM.libre=CAM_LIBRE; }
   }
   var recentrer=false;
   if(VUE==='jal'){ J.v*=0.85; }
@@ -3687,6 +3745,23 @@ function boucle(){
   var sp=surLeParcours(J.x,J.z); J.d=sp.d; J.ecart=sp.ecart;
   majJoueur(dt);
 
+  /* Le compte à rebours de liberté, commun aux deux vues : tant qu'un doigt
+     est posé il ne descend pas, et il repart à zéro au relâchement. */
+  if(CAM.main) CAM.libre=CAM_LIBRE;
+  else if(CAM.libre>0) CAM.libre=Math.max(0,CAM.libre-dt);
+  var reprise = recentrer && CAM.libre<=0;
+  if(!reprise){ CAM.vYaw=0; CAM.vPitch=0; }
+
+  /* la vitesse de rotation du coureur, lissée — et bornée, pour qu'un saut
+     de position ne lance pas la caméra */
+  var tauxBrut=(CAM.capPrec===null)?0:ecartAngle(J.cap-CAM.capPrec)/Math.max(0.001,dt);
+  CAM.capPrec=J.cap;
+  if(tauxBrut>6) tauxBrut=6; else if(tauxBrut<-6) tauxBrut=-6;
+  CAM.capTaux+=(tauxBrut-CAM.capTaux)*Math.min(1,dt/CAM_TAUX);
+  var avance=CAM.capTaux*CAM_AXE*CAM_ANTI;
+  if(avance>CAM_ANTI_MAX) avance=CAM_ANTI_MAX; else if(avance<-CAM_ANTI_MAX) avance=-CAM_ANTI_MAX;
+  var axeVise=J.cap+avance;
+
   var cx0, cz0;
   if(VUE==='jal' && VUEJAL){
     var o=VUEJAL, yaw=capDeAz(o.az)+CAM.jalYaw, pt=CAM.jalPitch;
@@ -3695,14 +3770,23 @@ function boucle(){
     camera.lookAt(camera.position.x+Math.cos(yaw)*Math.cos(pt), ey+Math.sin(pt), camera.position.z+Math.sin(yaw)*Math.cos(pt));
     cx0=o.x; cz0=o.z;
   } else if(VUE==='fp'){
+    /* à la première personne le regard reprend l'axe de course, et se
+       remet aussi d'aplomb : une tête restée tournée vers le ciel pendant
+       qu'on court n'est pas un point de vue, c'est un oubli. */
+    if(reprise){
+      CAM.yaw=amortirAngle(CAM.yaw,axeVise,CAM,'vYaw',CAM_AXE,dt);
+      CAM.fpPitch=amortirAngle(CAM.fpPitch,CAM_REGARD,CAM,'vPitch',CAM_AXE*1.6,dt);
+    }
     var ey2=joueur.position.y+1.63+Math.abs(Math.sin(J.phase*2))*0.035*Math.min(1,J.v/4.4);
     var yw=CAM.yaw, pp=CAM.fpPitch;
     camera.position.set(J.x+Math.cos(yw)*0.15, ey2, J.z+Math.sin(yw)*0.15);
     camera.lookAt(camera.position.x+Math.cos(yw)*Math.cos(pp), ey2+Math.sin(pp), camera.position.z+Math.sin(yw)*Math.cos(pp));
     cx0=J.x; cz0=J.z;
   } else {
-    if(CAM.libre>0) CAM.libre-=dt;
-    else if(recentrer){ var d2=ecartAngle(J.cap-CAM.yaw); CAM.yaw+=d2*Math.min(1,dt*1.4); }
+    /* à la troisième personne, seul l'axe est repris : la hauteur et la
+       distance sont un cadrage choisi — c'est ce que règle « vue haute » —
+       et les rendre d'office défairait le choix. */
+    if(reprise) CAM.yaw=amortirAngle(CAM.yaw,axeVise,CAM,'vYaw',CAM_AXE,dt);
     /* la caméra garde sa distance et son angle même derrière un bâtiment :
        le coureur reste visible en silhouette à travers les murs */
     var hy=joueur.position.y+1.35, cd=CAM.dist, cp=CAM.pitch;
@@ -4162,6 +4246,9 @@ window.ESPACE3D={
        arreter() l'oublierait, alors qu'on veut la retrouver en rouvrant. */
     try{ if(window.MUSIQUE) MUSIQUE.pause(); }catch(e){}
     ouvert=false; touches={};
+    /* un doigt encore posé au moment où l'on quitte laisserait la caméra
+       croire qu'une main la tient, et elle ne reprendrait plus l'axe */
+    CAM.main=false;
     document.body.classList.remove('en-3d');
     $e('e3').hidden=true;
     fermerCarteGlobale();
@@ -11743,6 +11830,7 @@ function interfaceConsultation3D(){
       return;
     }
     T.look[ev.pointerId]={x:ev.clientX, y:ev.clientY, x0:ev.clientX, y0:ev.clientY, t:performance.now()};
+    if(typeof mainCamera==='function') mainCamera(true);
     if(doigts().length>=2 && !T.pinch) debutPince();
   },true);
   e3.addEventListener('pointermove',function(ev){
@@ -11773,8 +11861,8 @@ function interfaceConsultation3D(){
       return;
     }
     if(T.apresPince) return;   /* après un pincement, la caméra ne tourne plus tant qu'un doigt reste posé */
-    if(VUE==='tp'){ CAM.yaw+=dx2*0.0058; CAM.pitch=Math.max(-0.30,Math.min(1.35,CAM.pitch+dy2*0.0042)); CAM.libre=2.2; }
-    else if(VUE==='fp'){ CAM.yaw+=dx2*0.005; CAM.fpPitch=Math.max(-1.3,Math.min(1.3,CAM.fpPitch-dy2*0.0045)); }
+    if(VUE==='tp'){ CAM.yaw+=dx2*0.0058; CAM.pitch=Math.max(-0.30,Math.min(1.35,CAM.pitch+dy2*0.0042)); CAM.libre=CAM_LIBRE; }
+    else if(VUE==='fp'){ CAM.yaw+=dx2*0.005; CAM.fpPitch=Math.max(-1.3,Math.min(1.3,CAM.fpPitch-dy2*0.0045)); CAM.libre=CAM_LIBRE; }
     else { CAM.jalYaw+=dx2*0.005; CAM.jalPitch=Math.max(-1.3,Math.min(1.3,CAM.jalPitch-dy2*0.0045)); }
   },true);
   function haut(ev){
@@ -11783,6 +11871,7 @@ function interfaceConsultation3D(){
     if(!l) return;
     ev.stopPropagation();
     delete T.look[ev.pointerId];
+    if(!doigts().length && typeof mainCamera==='function') mainCamera(false);
     if(T.pinch && (String(ev.pointerId)===T.pinch.a || String(ev.pointerId)===T.pinch.b)) T.pinch=null;
     var etaitPince=T.apresPince;
     if(!doigts().length) T.apresPince=false;
@@ -12520,7 +12609,7 @@ window.ESPACE3D.vueDepuis=function(o){
   VUE='fp';
   J.x=pX(o.lo); J.z=pZ(o.la); J.v=0; J.phase=0;
   J.cap=capDeAz(o.az);
-  CAM.yaw=J.cap; CAM.libre=0;
+  CAM.yaw=J.cap; CAM.libre=0; CAM.vYaw=0; CAM.vPitch=0;
   CAM.fpPitch=(o.pitch===undefined)?-0.02:o.pitch;
   /* le champ demandé est horizontal, comme celui d'un téléphone ;
      three.js veut le champ vertical */
@@ -12551,6 +12640,13 @@ window.ESPACE3D.etat=function(){
     camera:[+camera.position.x.toFixed(1), +camera.position.y.toFixed(1), +camera.position.z.toFixed(1)],
     cap:+(((Math.atan2(Math.cos(CAM.yaw),-Math.sin(CAM.yaw))*180/PI)+360)%360).toFixed(1),
     champV:+camera.fov.toFixed(1), sol:+hauteur(J.x,J.z).toFixed(1),
+    /* de quoi mesurer le recentrage depuis l'extérieur : sans cela
+       outils/essai_camera.js ne pourrait que regarder l'image et deviner */
+    temps:+TSIM.toFixed(2), images:IMAGES,
+    axe:{ camera:+(CAM.yaw*180/PI).toFixed(2), coureur:+(J.cap*180/PI).toFixed(2),
+          taux:+(CAM.capTaux*180/PI).toFixed(1),
+          ecart:+(ecartAngle(CAM.yaw-J.cap)*180/PI).toFixed(2),
+          tangage:+CAM.fpPitch.toFixed(3), libre:+CAM.libre.toFixed(2), main:!!CAM.main },
     portee:PERF.dist, qualite:QUAL().nom,
     morceaux:PERF.morceaux.length, morceauxVisibles:vis
   };
