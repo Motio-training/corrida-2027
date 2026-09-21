@@ -3653,7 +3653,13 @@ function brancherInterface(){
   var bSon=$e('e3-son');
   if(bSon){
     if(!window.MUSIQUE || !MUSIQUE.pret()) bSon.hidden=true;
-    else { bSon.onclick=basculerSon; majBoutonSon(); }
+    else {
+      bSon.onclick=basculerSon; majBoutonSon();
+      /* le son peut partir après coup, quand le navigateur l'autorise : le
+         bouton doit suivre, sans quoi il annonce le silence sur de la
+         musique */
+      if(MUSIQUE.surEtat) MUSIQUE.surEtat(majBoutonSon);
+    }
   }
   GYRO.dispo=gyroPossible();
   var bGyro=$e('e3-gyro');
@@ -3748,8 +3754,13 @@ function basculerAuto(){
 }
 function basculerNuit(){ nuit=!nuit; appliquerCiel(); }
 /* La musique : une puce 8 bits, allumée ou éteinte, et le choix est retenu
-   d'une visite à l'autre. Éteinte par défaut — une page qui se met à jouer
-   toute seule dès qu'on l'ouvre est une page qu'on referme. */
+   d'une visite à l'autre.
+
+   Elle part avec la 3D. Ce n'est pas une page qui se met à jouer toute
+   seule : on ne l'entend qu'après avoir demandé la vue 3D, et le clic qui
+   l'ouvre est justement le geste que le navigateur attend pour autoriser le
+   son. Sur la carte, rien ne joue. Et qui coupe le son le retrouve coupé :
+   c'est le refus qui est retenu, pas l'accord. */
 function majBoutonSon(){
   var b=$e('e3-son');
   if(!b || !window.MUSIQUE) return;

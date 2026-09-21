@@ -628,6 +628,37 @@ troisième fois dans ce projet qu'une fonction dupliquée finit par diverger de
 son jumeau — `triOriente`, `panneau` — et celle-ci décide de chaque note
 qu'on entendra.
 
+## `essai_musique_auto.js`
+
+La musique part-elle avec la 3D, et se tait-elle quand on la coupe ?
+
+```sh
+node outils/essai_musique_auto.js        # deux minutes, sans construire le monde
+```
+
+Le banc n'assouplit **pas** la politique d'autoplay du navigateur : la
+question est justement de savoir si le clic qui ouvre la 3D suffit à
+autoriser le son. Il suffit — contexte audio « running », musique partie en
+une seconde.
+
+Trois choses vérifiées, dont la première n'est pas la plus évidente :
+
+- **sur la carte, rien ne joue** — et pour cause, `musique.js` n'est même pas
+  chargé avant qu'on demande la 3D ;
+- **le son part tout seul en entrant**, et le contexte audio finit bien en
+  « running » et non « suspended » — c'est la distinction qui compte : un
+  lecteur peut se croire en marche sur un contexte suspendu, et le bouton
+  s'allume alors sur du silence ;
+- **le refus est retenu, pas l'accord.** Qui coupe le son le retrouve coupé
+  à la visite suivante ; qui le rallume le retrouve allumé.
+
+C'est ce dernier point qui a dicté l'implémentation : la clé retenue teste
+« non » plutôt que « oui », l'absence de choix valant oui. Et comme la
+reprise du contexte audio est asynchrone — son état juste après l'appel est
+encore « suspended » même quand la reprise va réussir —, le lecteur ne se
+déclare en marche qu'une fois la promesse tenue, et prévient la page pour
+que le bouton suive.
+
 ## `melodie_depuis_chant.py`
 
 La mélodie d'un chant chanté à plusieurs — le cas où l'outil précédent

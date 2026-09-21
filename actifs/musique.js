@@ -13,6 +13,7 @@
 
    window.MUSIQUE :
      pret()              l'API audio est-elle disponible
+     surEtat(fn)         prévenir la page quand le son part ou s'arrête
      actif()             la musique joue-t-elle
      basculer()          allume ou éteint, et retient le choix
      demarrer() arreter()
@@ -311,7 +312,15 @@ function planifier(ctx,dest,t0,de,a,voies){
 var ctx=null, maitre=null, minuteur=0, debut=0, jusqu=0, enMarche=false;
 var CLE='corrida-musique';
 function souvenir(v){ try{ localStorage.setItem(CLE, v?'1':'0'); }catch(e){} }
-function voulu(){ try{ return localStorage.getItem(CLE)==='1'; }catch(e){ return false; } }
+/* Allumée par défaut : la musique part avec la 3D. Le refus, lui, est
+   retenu — celui qui a coupé le son le retrouve coupé, et c'est bien le
+   seul cas où l'on doive se taire sans rien demander. D'où le test sur
+   « non » plutôt que sur « oui » : l'absence de choix vaut oui.          */
+function voulu(){ try{ return localStorage.getItem(CLE)!=='0'; }catch(e){ return true; } }
+/* la page veut savoir quand l'état change : le son peut partir après coup,
+   quand le navigateur accepte enfin de le laisser sortir */
+var prevenir=null;
+function etatChange(){ if(prevenir){ try{ prevenir(); }catch(e){} } }
 
 function contexte(){
   if(ctx) return ctx;
@@ -334,10 +343,8 @@ function boucle(){
     jusqu=t+1;
   }
 }
-function demarrer(){
-  if(enMarche) return true;
-  if(!contexte()) return false;
-  if(ctx.state==='suspended'){ try{ ctx.resume(); }catch(e){} }
+function jouer(){
+  if(enMarche) return;
   enMarche=true;
   debut=ctx.currentTime+0.08;
   jusqu=0;
@@ -346,6 +353,27 @@ function demarrer(){
   maitre.gain.exponentialRampToValueAtTime(0.5,ctx.currentTime+0.5);
   boucle();
   minuteur=setInterval(boucle,180);
+  etatChange();
+}
+/* Un contexte suspendu ne fait aucun son. Le reprendre est asynchrone, et
+   son état juste après l'appel est encore « suspended » même quand la
+   reprise va réussir : on ne peut donc pas conclure sur place. On suit donc
+   la promesse, et on garde le guet du geste armé — si la reprise échoue
+   faute d'autorisation, le clic suivant lancera. Prétendre jouer alors que
+   rien ne sort mettrait le bouton en surbrillance sur du silence. */
+function demarrer(){
+  if(enMarche) return true;
+  if(!contexte()) return false;
+  if(ctx.state==='suspended'){
+    var p=null;
+    try{ p=ctx.resume(); }catch(e){}
+    armer();
+    if(p && p.then){
+      p.then(function(){ if(voulu()) jouer(); }, function(){});
+      return true;
+    }
+  }
+  jouer();
   return true;
 }
 function arreter(){
@@ -358,6 +386,7 @@ function arreter(){
     maitre.gain.setValueAtTime(maitre.gain.value||0.0001,t);
     maitre.gain.exponentialRampToValueAtTime(0.0001,t+0.25);
   }
+  etatChange();
   /* les notes déjà planifiées s'éteignent d'elles-mêmes ; on coupe le
      volume plutôt que de courir après chaque oscillateur */
 }
@@ -400,6 +429,8 @@ window.MUSIQUE={
   pret:function(){ return !!(window.AudioContext||window.webkitAudioContext); },
   actif:function(){ return enMarche; },
   voulu:voulu,
+  /* la page passe ici la mise à jour de son bouton */
+  surEtat:function(fn){ prevenir=fn; },
   demarrer:function(){ var ok=demarrer(); souvenir(ok); return ok; },
   arreter:function(){ arreter(); souvenir(false); },
   /* Quitter la vue 3D coupe le son sans changer le choix : arreter() le
