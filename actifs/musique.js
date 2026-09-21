@@ -63,18 +63,19 @@ var PARTITIONS={
      Le tempo, lui, est le seul endroit où je m'écarte de la partition. Elle
      porte noire à 88 : ce n'est pas une indication de style mais la cadence
      de marche de la Légion, 88 pas à la minute, la plus lente de l'armée
-     française — et c'est cohérent, la partition est celle du 4e REI. Or le
-     parcours est à Saint-Maixent, où l'on marche au pas cadencé
-     réglementaire, 120. La 3D joue donc à 120 : le chant y gagne l'allant
-     qu'il faut à une corrida, et la boucle passe de 88,6 à 65,0 secondes.
-     Remettre 88 ne demande que de changer le nombre ci-dessous.
+     française — et c'est cohérent, la partition est celle du 4e REI. Les
+     autres cadences qui ont un sens : 120, le pas cadencé réglementaire, à
+     Saint-Maixent comme ailleurs ; 140, le pas gymnastique. La 3D est à 140,
+     à l'essai — c'est une course, et la boucle y dure 55,7 secondes contre
+     88,6 au tempo écrit. Changer ce seul nombre suffit à revenir.
 
      Se régénère :
        python3 outils/partition_depuis_pdf.py <partition.pdf>              */
   'jeuneschefs': {
     nom:'Jeunes Chefs',
-    /* 120, le pas cadencé ; la partition écrit 88, le pas de la Légion */
-    tempo:120,
+    /* 140, le pas gymnastique ; 120 le pas cadencé, 88 celui de la Légion,
+       qui est ce qu'écrit la partition */
+    tempo:140,
     /* quatre mesures de 2/4 par ligne */
     lead:'-/4 -/4 -/4 G3/4 E4/4 F4/4 G4/6 G4/2  '+
          'G4/2 -/2 -/4 -/4 G4/4 F4/4 G4/4 E4/6 E4/2  '+

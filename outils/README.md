@@ -657,10 +657,10 @@ méthodes, qui n'ont rien en commun, disent la même chose.
 **Le tempo est le seul endroit où la 3D s'écarte de la partition.** Celle-ci
 porte noire à 88, qui n'est pas une indication de style mais la cadence de
 marche de la Légion — 88 pas à la minute, la plus lente de l'armée française,
-et cohérente avec l'origine du chant. Le parcours étant à Saint-Maixent, où
-l'on marche au pas cadencé réglementaire, `actifs/musique.js` joue à 120 : la
-boucle passe de 88,6 à 65,0 secondes. L'outil, lui, rapporte toujours le tempo
-écrit.
+et cohérente avec l'origine du chant. Les autres cadences qui ont un sens : 120, le pas
+cadencé réglementaire, et 140, le pas gymnastique. `actifs/musique.js` est à
+140 — c'est une course —, où la boucle dure 55,7 secondes contre 88,6 au tempo
+écrit. L'outil, lui, rapporte toujours le tempo écrit.
 
 Le vocabulaire de glyphes est celui de cette gravure (Finale, police Maestro).
 Une autre police demanderait une autre table — la géométrie, elle, ne change
