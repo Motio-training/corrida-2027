@@ -209044,6 +209044,18 @@ function telechargerRues(){
 --------------------------------------------------------------- */
 var IMG_REF=2000;          /* largeur de dessin, la résolution n'est qu'une mise à l'échelle */
 var IMG_FINESSE=0.92;      /* le tracé est à peine plus fin que sur la carte à l’écran */
+var IMG_LISERE=2.8;        /* liseré sombre sous le tracé, pour le détacher du fond */
+var IMG_HALO=0.34;         /* halo de la couleur du parcours autour du liseré */
+var IMG_AVIVE=1.18;        /* couleur du tracé relevée sur l’image */
+function aviverCouleur(coul){
+  var m=/^#([0-9a-fA-F]{6})$/.exec(coul||'');
+  if(!m) return null;
+  var n=parseInt(m[1],16), v=[(n>>16)&255,(n>>8)&255,n&255];
+  return '#'+v.map(function(x){
+    var y=Math.min(255,Math.round(x*IMG_AVIVE));
+    return (y<16?'0':'')+y.toString(16);
+  }).join('');
+}
 function telechargerBlob(nom,contenu,type){
   var b=(contenu instanceof Blob) ? contenu : new Blob([contenu],{type:type+';charset=utf-8'});
   var u=URL.createObjectURL(b), a=document.createElement('a');
@@ -209111,6 +209123,29 @@ function trierFond(V,ch){
     }
     if(!ch.fRues) V.removeChild(g);
   });
+}
+/* Les traits de la carte sont en « non-scaling-stroke » : leur épaisseur est
+   comptée en pixels de la fenêtre, donc plus l'image est grande, plus ils
+   paraissent fins. Pour que le fichier ressemble à l'aperçu quelle que soit
+   la résolution, on repasse tout en unités du dessin, divisées par l'échelle. */
+function figerEpaisseurs(racine,kk){
+  Array.prototype.slice.call(racine.querySelectorAll('[vector-effect]')).forEach(function(e){
+    if(e.getAttribute('vector-effect')!=='non-scaling-stroke' || e.dataset.fige) return;
+    function convertir(x,defaut){
+      if(x.dataset.fige) return;
+      x.dataset.fige='1';
+      var w=x.getAttribute('stroke-width');
+      if(w===null){ if(defaut) x.setAttribute('stroke-width',(1/kk).toFixed(4)); }
+      else x.setAttribute('stroke-width',(+w/kk).toFixed(4));
+      var d=x.getAttribute('stroke-dasharray');
+      if(d) x.setAttribute('stroke-dasharray',d.trim().split(/[\s,]+/).map(function(v){ return (+v/kk).toFixed(4); }).join(' '));
+    }
+    convertir(e,true);
+    Array.prototype.slice.call(e.querySelectorAll('[stroke-width],[stroke-dasharray]')).forEach(function(d){ convertir(d,false); });
+    e.removeAttribute('vector-effect');
+  });
+  Array.prototype.slice.call(racine.querySelectorAll('[vector-effect]')).forEach(function(e){ e.removeAttribute('vector-effect'); });
+  Array.prototype.slice.call(racine.querySelectorAll('[data-fige]')).forEach(function(e){ e.removeAttribute('data-fige'); });
 }
 /* cartouche : titre, chiffres, échelle et nord, en unités de la page */
 function cartoucheSVG(L,H,mpu,kk,ch){
@@ -209228,13 +209263,9 @@ function imageParcoursSVG(ch){
     });
   }
   if(ch.jal && !ch.jalNum) Array.prototype.slice.call(c.querySelectorAll('#c-jal text')).forEach(function(t){ t.parentNode.removeChild(t); });
-  /* le bras tendu encombre l'image : on garde le triangle, son numéro et la croix des accès fermés */
-  Array.prototype.slice.call(c.querySelectorAll('#c-jal line')).forEach(function(l){
-    if(l.getAttribute('stroke')!=='#EAE4D8') return;
-    var p=l.previousElementSibling;
-    if(p && p.tagName==='line' && p.getAttribute('stroke')==='#0B1019') p.parentNode.removeChild(p);
-    l.parentNode.removeChild(l);
-  });
+  /* les gestes du jalonneur encombrent l'image : ni bras tendu ni bras croisés,
+     on garde le triangle et son numéro */
+  Array.prototype.slice.call(c.querySelectorAll('#c-jal line')).forEach(function(l){ l.parentNode.removeChild(l); });
   Array.prototype.slice.call(c.querySelectorAll('#c-jal circle')).forEach(function(q){
     if(q.getAttribute('fill')==='#EAE4D8') q.parentNode.removeChild(q);
   });
@@ -209246,6 +209277,26 @@ function imageParcoursSVG(ch){
       p.setAttribute('stroke-width',(+p.getAttribute('stroke-width')*IMG_FINESSE).toFixed(2));
     });
   });
+  /* le tracé doit se détacher du fond : liseré sombre dessous, couleur avivée dessus,
+     et le halo un peu plus présent pour écarter la carte autour */
+  var gT=c.querySelector('#c-trace');
+  if(gT) Array.prototype.slice.call(gT.querySelectorAll('path[stroke]')).forEach(function(p){
+    var coul=aviverCouleur(p.getAttribute('stroke'));
+    if(!coul) return;                       /* zone de clic transparente : on la laisse */
+    var w=+p.getAttribute('stroke-width')||3;
+    var lis=p.cloneNode(false);
+    lis.setAttribute('stroke','#080C14');
+    lis.setAttribute('stroke-width',(w+IMG_LISERE).toFixed(2));
+    gT.insertBefore(lis,p);
+    p.setAttribute('stroke',coul);
+  });
+  var gHa=c.querySelector('#c-halo');
+  if(gHa) Array.prototype.slice.call(gHa.querySelectorAll('path[stroke]')).forEach(function(p){
+    var coul=aviverCouleur(p.getAttribute('stroke'));
+    if(!coul) return;
+    p.setAttribute('stroke-opacity',IMG_HALO);
+    p.setAttribute('stroke',coul);
+  });
   /* allègement : infobulles, zones de clic invisibles, curseurs */
   Array.prototype.slice.call(c.querySelectorAll('title')).forEach(function(e){ e.parentNode.removeChild(e); });
   Array.prototype.slice.call(c.querySelectorAll('[fill="transparent"],[stroke="transparent"]')).forEach(function(e){
@@ -209255,6 +209306,7 @@ function imageParcoursSVG(ch){
   Array.prototype.slice.call(c.querySelectorAll('[style*="cursor"]')).forEach(function(e){ e.removeAttribute('style'); });
   Array.prototype.slice.call(c.querySelectorAll('[pointer-events]')).forEach(function(e){ e.removeAttribute('pointer-events'); });
   ['vecteur','raster','satellite'].forEach(function(id){ elaguerHorsCadre(c.querySelector('#'+id),cadre[0],cadre[1],cadre[2],cadre[3]); });
+  figerEpaisseurs(c,kk);
   c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:'#0B1019'}),c.firstChild);
   if(cart) c.appendChild(cartoucheSVG(L,H,metresParUnite(),kk,ch));
   return {txt:'<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(c)+'\n', L:L, H:H};
