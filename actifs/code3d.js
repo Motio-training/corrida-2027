@@ -3306,6 +3306,11 @@ function mainCamera(on){
   if(!on) CAM.libre=CAM_LIBRE;
 }
 
+/* état du casque de réalité virtuelle ; le module est en fin de fichier */
+var XR3D={dispo:false, actif:false, session:null, rig:null, bouton:null, sauve:null,
+  tourne:0, images:0, duree:0, pire:0};
+window.XR3D=XR3D;
+
 function initTrois(){
   var vue=$e('e3-vue');
   renderer=new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
@@ -3316,9 +3321,12 @@ function initTrois(){
   renderer.toneMappingExposure=0.80;
   renderer.shadowMap.enabled=true;
   renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  /* le casque n'est branché qu'à la demande, mais le moteur doit être prêt */
+  try{ renderer.xr.enabled=true; renderer.xr.setReferenceSpaceType('local-floor'); }catch(e){}
   vue.appendChild(renderer.domElement);
   scene=new THREE.Scene();
   scene.fog=new THREE.Fog(0xd6e4ef, 380, 1750);
+  XR3D.rig=new THREE.Group(); XR3D.rig.name='support-vr'; scene.add(XR3D.rig);
   camera=new THREE.PerspectiveCamera(56, Math.max(10,vue.clientWidth)/Math.max(10,vue.clientHeight), 0.12, 4000);
   lumSol=new THREE.HemisphereLight(0xbcd6f2, 0x5f6a48, 0.35);
   scene.add(lumSol);
@@ -3342,7 +3350,7 @@ function initTrois(){
   addEventListener('resize',redimensionner);
 }
 function redimensionner(){
-  if(!renderer) return;
+  if(!renderer || (window.XR3D && XR3D.actif)) return;
   var v=$e('e3-vue'), w=Math.max(10,v.clientWidth), h=Math.max(10,v.clientHeight);
   camera.aspect=w/h; camera.updateProjectionMatrix();
   renderer.setSize(w,h);
@@ -3953,8 +3961,10 @@ var tHud=0;
 var TSIM=0, IMAGES=0, TREEL=0;
 function boucle(){
   if(!ouvert){ boucleId=0; return; }
-  boucleId=requestAnimationFrame(boucle);
+  /* en VR c'est le casque qui cadence, pas l'écran : setAnimationLoop rappelle boucle() */
+  boucleId=XR3D.actif ? 1 : requestAnimationFrame(boucle);
   var dt=Math.min(0.06,horloge.getDelta());
+  if(XR3D.actif){ xrManches(); xrMesure(dt); }
   TSIM+=dt; IMAGES++;
   /* Le temps de la montre, à côté de celui de la simulation. Les cinq
      secondes promises à la main sont des secondes, pas des images : sur un
@@ -4063,7 +4073,7 @@ function boucle(){
     lumDir.target.updateMatrixWorld();
   }
   animerDecor(dt,cx0,cz0);
-  renderer.render(scene,camera);
+  rendreVue();
   tHud+=dt;
   if(tHud>0.12){ tHud=0; majHud(); dessinerMini(); if(!$e('e3-gm').hidden) dessinerGM(); }
 }
@@ -14096,4 +14106,184 @@ function poserEnseignes(){
   }
 })();
 
+
+/* =================================================================
+   Le casque de réalité virtuelle (WebXR)
+
+   Sur un écran, le programme place la caméra : position, cap, tangage.
+   Dans un casque, la tête n'appartient plus au programme. Le casque
+   donne sa propre pose, et tout ce que le programme peut encore dire,
+   c'est où se tient le corps et dans quel sens il regarde.
+
+   D'où le support : un groupe posé aux pieds du coureur, orienté sur
+   son cap, dans lequel la caméra est rangée. Le casque ajoute la
+   hauteur des yeux et le mouvement de la tête par-dessus. Juste avant
+   de rendre, on verse la pose calculée par le programme dans le
+   support et on remet la caméra à zéro dans celui-ci ; juste après, on
+   rend au programme ce qu'il avait écrit, car le reste du moteur — les
+   arbres, les voitures, les piétons, le découpage en carrés — lit
+   camera.position pour savoir où regarder.
+
+   Le manche gauche avance, recule, pas de côté : il nourrit les mêmes
+   touches que le clavier, donc les collisions, le relief et l'allure
+   marchent sans rien savoir du casque. Le manche droit tourne par
+   crans de 30° : tourner en continu donne mal au cœur, un cran net ne
+   donne rien du tout. La gâchette accélère.
+
+   Un Quest 2 demande 72 images par seconde, en double. C'est trois
+   fois le budget d'un écran de téléphone : à l'entrée on force donc la
+   qualité basse, les ombres coupées et la distance d'affichage à 180 m,
+   et on rend les réglages d'avant en sortant. La cadence est mesurée
+   pendant la séance et annoncée à la sortie : c'est la seule façon de
+   savoir si ça tient, personne ne peut lire un compteur dans le casque.
+================================================================= */
+/* le casque fournit lui-même la hauteur des yeux : le support se pose au sol */
+var XR_CRAN=30*Math.PI/180;
+var XR_SEUIL=0.72;         /* le manche doit être franchement poussé pour tourner */
+var XR_PROFIL={qualite:0, dist:180};
+
+/* le rendu normal, et celui du casque */
+function rendreVue(){
+  if(!XR3D.actif || !XR3D.rig){ renderer.render(scene,camera); return; }
+  var sp=camera.position, sq=camera.quaternion;
+  var px=sp.x, py=sp.y, pz=sp.z, qx=sq.x, qy=sq.y, qz=sq.z, qw=sq.w;
+  /* le corps : aux pieds du coureur, tourné sur le cap de la caméra.
+     Un objet de three.js regarde vers -z ; le programme, lui, compte
+     ses caps en (cos, sin) sur x et z. D'où le demi-tour d'axes. */
+  var sol=(typeof joueur!=='undefined' && joueur) ? joueur.position.y : hauteur(J.x,J.z);
+  XR3D.rig.position.set(J.x, sol, J.z);
+  XR3D.rig.rotation.set(0, Math.atan2(-Math.cos(CAM.yaw), -Math.sin(CAM.yaw)), 0);
+  camera.position.set(0,0,0);
+  camera.quaternion.set(0,0,0,1);
+  renderer.render(scene,camera);
+  camera.position.set(px,py,pz);
+  camera.quaternion.set(qx,qy,qz,qw);
+}
+
+/* ---------------- manettes ---------------- */
+function xrManches(){
+  var s=XR3D.session;
+  if(!s || !s.inputSources) return;
+  var av=0, lat=0, tour=0, vite=false;
+  for(var i=0;i<s.inputSources.length;i++){
+    var src=s.inputSources[i], g=src.gamepad;
+    if(!g || !g.axes) continue;
+    /* les manettes de casque rangent le manche en 2 et 3 ; certaines en 0 et 1 */
+    var ax=(g.axes.length>3) ? g.axes[2] : g.axes[0];
+    var ay=(g.axes.length>3) ? g.axes[3] : g.axes[1];
+    if(g.buttons && g.buttons[0] && g.buttons[0].pressed) vite=true;
+    if(src.handedness==='right'){ if(Math.abs(ax)>Math.abs(tour)) tour=ax; }
+    else { av-=ay; lat+=ax; }          /* manche vers l'avant : ay négatif */
+  }
+  var m=0.35;
+  touches.__av=av>m; touches.__ar=av<-m;
+  touches.__ga=lat<-m; touches.__dr=lat>m;
+  touches.shift=vite;
+  /* rotation par crans : un cran par poussée, rien tant qu'on ne relâche pas */
+  if(Math.abs(tour)>XR_SEUIL){
+    if(!XR3D.tourne){
+      XR3D.tourne=(tour>0)?1:-1;
+      CAM.yaw+=XR3D.tourne*XR_CRAN;
+      if(typeof mainCamera==='function') mainCamera(true);
+    }
+  } else if(Math.abs(tour)<0.35) XR3D.tourne=0;
+  /* la main tient la caméra tant qu'on est en VR : sans cela le programme
+     reprendrait l'axe de course tout seul et arracherait le regard */
+  if(typeof mainCamera==='function') mainCamera(true);
+}
+
+/* ---------------- entrée et sortie ---------------- */
+function entrerVR(){
+  if(XR3D.actif || !navigator.xr || !renderer) return;
+  var opts={optionalFeatures:['local-floor','bounded-floor','hand-tracking']};
+  navigator.xr.requestSession('immersive-vr',opts).then(function(s){
+    XR3D.session=s;
+    XR3D.sauve={qualite:PERF.qualite, dist:PERF.dist, auto:PERF.auto, ombres:ombres, vue:VUE};
+    PERF.auto=false; PERF.qualite=XR_PROFIL.qualite; PERF.dist=XR_PROFIL.dist;
+    ombres=false; if(lumDir) lumDir.castShadow=false;
+    try{ appliquerQualite(); }catch(e){}
+    if(VUE!=='fp' && typeof basculerVue==='function'){ try{ for(var n=0;n<4 && VUE!=='fp';n++) basculerVue(); }catch(e){} }
+    if(XR3D.rig && camera.parent!==XR3D.rig) XR3D.rig.add(camera);
+    XR3D.images=0; XR3D.duree=0; XR3D.pire=0;
+    s.addEventListener('end',function(){ sortirVR(); });
+    try{ renderer.xr.setFramebufferScaleFactor(0.9); }catch(e){}
+    return renderer.xr.setSession(s).then(function(){
+      XR3D.actif=true;
+      if(boucleId && boucleId!==1){ cancelAnimationFrame(boucleId); }
+      boucleId=1;
+      renderer.setAnimationLoop(boucle);
+      majBoutonVR();
+      dire('Casque branché. Manche gauche pour avancer, manche droit pour tourner, gâchette pour accélérer.');
+    });
+  }).catch(function(e){
+    dire('Le casque a refusé la séance'+((e&&e.message)?' ('+e.message+')':'')+'.');
+  });
+}
+function sortirVR(){
+  if(!XR3D.actif) return;
+  XR3D.actif=false;
+  var s=XR3D.session; XR3D.session=null;
+  try{ renderer.setAnimationLoop(null); }catch(e){}
+  try{ if(s && s.end) s.end(); }catch(e){}
+  if(XR3D.rig && camera.parent===XR3D.rig) XR3D.rig.remove(camera);
+  camera.position.set(0,0,0); camera.quaternion.set(0,0,0,1);
+  var v=XR3D.sauve;
+  if(v){
+    PERF.qualite=v.qualite; PERF.dist=v.dist; PERF.auto=v.auto; ombres=v.ombres;
+    if(lumDir) lumDir.castShadow=v.ombres;
+    try{ appliquerQualite(); }catch(e){}
+    XR3D.sauve=null;
+  }
+  touches.__av=touches.__ar=touches.__ga=touches.__dr=false; touches.shift=false;
+  if(typeof mainCamera==='function') mainCamera(false);
+  redimensionner();
+  majBoutonVR();
+  if(XR3D.duree>1){
+    var moy=XR3D.images/XR3D.duree;
+    dire('Séance VR : '+moy.toFixed(0)+' images/s en moyenne'+(XR3D.pire?', '+XR3D.pire.toFixed(0)+' au plus bas':'')+
+      '. Il en faut 72 pour que le casque soit confortable.');
+  }
+  boucleId=0;
+  if(ouvert) demarrerBoucle();
+}
+/* la cadence, mesurée du dedans : personne ne peut lire un compteur dans le casque */
+function xrMesure(dt){
+  if(!XR3D.actif || dt<=0) return;
+  XR3D.images++; XR3D.duree+=dt;
+  var f=1/dt;
+  if(!XR3D.pire || f<XR3D.pire) XR3D.pire=f;
+}
+
+/* ---------------- le bouton ---------------- */
+function majBoutonVR(){
+  var b=XR3D.bouton;
+  if(!b) return;
+  b.classList.toggle('on',XR3D.actif);
+  b.textContent=XR3D.actif ? '🥽 Quitter le casque' : '🥽 Casque VR';
+}
+function poserBoutonVR(){
+  if(XR3D.bouton || !XR3D.dispo) return;
+  var barre=document.querySelector('#e3 .e3-barre');
+  if(!barre) return;
+  var b=document.createElement('button');
+  b.id='e3-vr'; b.type='button'; b.title='Parcourir la ville dans le casque';
+  b.onclick=function(){ if(XR3D.actif) sortirVR(); else entrerVR(); };
+  XR3D.bouton=b;
+  majBoutonVR();
+  var son=$e('e3-son');
+  if(son && son.parentNode===barre) barre.insertBefore(b,son);
+  else barre.appendChild(b);
+}
+(function(){
+  if(!navigator.xr || !navigator.xr.isSessionSupported) return;
+  navigator.xr.isSessionSupported('immersive-vr').then(function(ok){
+    if(!ok) return;
+    XR3D.dispo=true;
+    /* la barre naît avec la vue 3D : on attend qu'elle soit là */
+    var essais=0, t=setInterval(function(){
+      poserBoutonVR();
+      if(XR3D.bouton || ++essais>120) clearInterval(t);
+    },500);
+  }).catch(function(){});
+})();
 })();
