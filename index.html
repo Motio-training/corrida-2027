@@ -209030,17 +209030,23 @@ function telechargerRues(){
 
 /* ---------------------------------------------------------------
    Menu Fichier, deux sorties de plus :
-   - « Image du parcours (.svg) » : la carte en vectoriel, cadrée sur
-     le parcours, avec le choix des éléments à montrer. Le dessin est
-     refait à l'échelle demandée puis la carte est clonée et allégée
-     (zones de clic, infobulles, calques écartés).
+   - « Image du parcours (.png) » : la carte cadrée sur le parcours,
+     avec un aperçu qui se refait à chaque case cochée et le choix de
+     la résolution. Le dessin est refait à une largeur de référence,
+     la carte est clonée, allégée (zones de clic, infobulles, tout ce
+     qui sort du cadre), puis remise comme elle était ; le SVG obtenu
+     est peint sur un canevas à la taille voulue. La version
+     vectorielle reste téléchargeable à côté.
    - « Lien Google Maps » : un itinéraire à pied passant par les
      points marquants du tracé (Google n'accepte que 9 étapes
      intermédiaires, le tracé exact est donné à côté en KML).
    Chargé après ed_app21.
 --------------------------------------------------------------- */
-function telechargerBlob(nom,texte,type){
-  var b=new Blob([texte],{type:type+';charset=utf-8'}), u=URL.createObjectURL(b), a=document.createElement('a');
+var IMG_REF=2000;          /* largeur de dessin, la résolution n'est qu'une mise à l'échelle */
+var IMG_FINESSE=0.8;       /* le tracé est un peu plus fin que sur la carte à l'écran */
+function telechargerBlob(nom,contenu,type){
+  var b=(contenu instanceof Blob) ? contenu : new Blob([contenu],{type:type+';charset=utf-8'});
+  var u=URL.createObjectURL(b), a=document.createElement('a');
   a.href=u; a.download=nom;
   document.body.appendChild(a); a.click(); a.parentNode.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(u); },5000);
@@ -209060,39 +209066,8 @@ function metresParUnite(){
 }
 function redessinerCarte(){
   majTransform();
-  [dessinerTrace,dessinerFleches,dessinerBornes,dessinerPois,dessinerJalons,dessinerEquip,dessinerPiste,dessinerAutres]
+  [dessinerTrace,dessinerFleches,dessinerBornes,dessinerPois,dessinerJalons,dessinerEquip,dessinerPiste,dessinerAutres,dessinerPoignees]
     .forEach(function(f){ if(typeof f==='function') try{ f(); }catch(e){ console.error(e); } });
-}
-/* cartouche : titre, chiffres, échelle et nord, en unités de la page */
-function cartoucheSVG(L,H,mpu,kk){
-  var g=el('g',{}), y=H-64;
-  g.appendChild(el('rect',{x:0,y:y-20,width:L,height:84,fill:'#0B1019','fill-opacity':0.86}));
-  var t1=el('text',{x:24,y:y+8,'font-family':'Oswald, Impact, sans-serif','font-size':26,'font-weight':600,fill:'#F2B33D'});
-  t1.textContent='CORRIDA 2027 ENSOA – PARCOURS '+nomParcours();
-  g.appendChild(t1);
-  var infos=(CUM[CUM.length-1]/1000).toFixed(2).replace('.',',')+' km';
-  if(INFO && INFO.dplus) infos+='  ·  '+Math.round(INFO.dplus)+' m D+';
-  if(JAL.length) infos+='  ·  '+JAL.length+' jalonneur'+(JAL.length>1?'s':'');
-  infos+='  ·  Saint-Maixent-l’École  ·  '+new Date().toLocaleDateString('fr-FR');
-  var t2=el('text',{x:24,y:y+36,'font-family':'Helvetica, Arial, sans-serif','font-size':15,fill:'#C9CED4'});
-  t2.textContent=infos;
-  g.appendChild(t2);
-  /* échelle : une longueur ronde proche de 12 % de la largeur */
-  var visee=L*0.12*mpu/kk, pas=[50,100,200,250,500,1000,2000], m=pas[0], i;
-  for(i=0;i<pas.length;i++) if(Math.abs(pas[i]-visee)<Math.abs(m-visee)) m=pas[i];
-  var lpx=m*kk/mpu, x0=L-24-lpx;
-  g.appendChild(el('line',{x1:x0,y1:y+22,x2:x0+lpx,y2:y+22,stroke:'#F4F4F0','stroke-width':3}));
-  [x0,x0+lpx].forEach(function(x){ g.appendChild(el('line',{x1:x,y1:y+15,x2:x,y2:y+29,stroke:'#F4F4F0','stroke-width':3})); });
-  var t3=el('text',{x:x0+lpx/2,y:y+8,'text-anchor':'middle','font-family':'Helvetica, Arial, sans-serif','font-size':14,fill:'#F4F4F0'});
-  t3.textContent=(m>=1000 ? (m/1000)+' km' : m+' m');
-  g.appendChild(t3);
-  /* nord : la carte est en projection Mercator, le nord est vers le haut */
-  var xn=x0-46;
-  g.appendChild(el('path',{d:'M'+xn+' '+(y+30)+'L'+(xn-7)+' '+(y+30)+'L'+xn+' '+(y+4)+'L'+(xn+7)+' '+(y+30)+'Z',fill:'#F4F4F0'}));
-  var t4=el('text',{x:xn,y:y-2,'text-anchor':'middle','font-family':'Oswald, Impact, sans-serif','font-size':15,fill:'#F4F4F0'});
-  t4.textContent='N';
-  g.appendChild(t4);
-  return g;
 }
 /* le fond couvre toute la ville : hors du cadre, on jette */
 function elaguerHorsCadre(racine,x0,y0,x1,y1){
@@ -209115,7 +209090,73 @@ function elaguerHorsCadre(racine,x0,y0,x1,y1){
     if(b<x0 || a>x1 || e<y0 || cc>y1) im.parentNode.removeChild(im);
   });
 }
-function imageParcoursSVG(ch,L){
+/* le fond dessiné, calque par calque : les polygones se trient à la couleur */
+var FOND_BATI='#1D2533', FOND_EAU='#1A2C3A';
+function trierFond(V,ch){
+  if(!V) return;
+  Array.prototype.slice.call(V.children).forEach(function(g){
+    if(g.tagName==='rect' || g.id==='bati3d') return;
+    var st=g.getAttribute('stroke');
+    if(g.getAttribute('font-family')){ if(!ch.fNoms) V.removeChild(g); return; }
+    if(st==='#2E5570'){ if(!ch.fEau) V.removeChild(g); return; }
+    if(st==='#454F63'){ if(!ch.fRail) V.removeChild(g); return; }
+    if(st==='#7E9067'){ if(!ch.fEmprise) V.removeChild(g); return; }
+    if(st==='none'){
+      Array.prototype.slice.call(g.children).forEach(function(p){
+        var f=p.getAttribute('fill')||'';
+        var garde = (f===FOND_BATI) ? ch.fBati : (f===FOND_EAU ? ch.fEau : ch.fVeg);
+        if(!garde) g.removeChild(p);
+      });
+      return;
+    }
+    if(!ch.fRues) V.removeChild(g);
+  });
+}
+/* cartouche : titre, chiffres, échelle et nord, en unités de la page */
+function cartoucheSVG(L,H,mpu,kk,ch){
+  var g=el('g',{}), y=H-64;
+  g.appendChild(el('rect',{x:0,y:y-20,width:L,height:84,fill:'#0B1019','fill-opacity':0.94}));
+  if(ch.cTitre){
+    var t1=el('text',{x:24,y:y+8,'font-family':'Oswald, Impact, sans-serif','font-size':26,'font-weight':600,fill:'#F2B33D'});
+    t1.textContent='CORRIDA 2027 ENSOA – PARCOURS '+nomParcours();
+    g.appendChild(t1);
+  }
+  if(ch.cChiffres){
+    var infos=(CUM[CUM.length-1]/1000).toFixed(2).replace('.',',')+' km';
+    if(INFO && INFO.dplus) infos+='  ·  '+Math.round(INFO.dplus)+' m D+';
+    if(JAL.length) infos+='  ·  '+JAL.length+' jalonneur'+(JAL.length>1?'s':'');
+    infos+='  ·  Saint-Maixent-l’École  ·  '+new Date().toLocaleDateString('fr-FR');
+    var t2=el('text',{x:24,y:y+36,'font-family':'Helvetica, Arial, sans-serif','font-size':15,fill:'#C9CED4'});
+    t2.textContent=infos;
+    g.appendChild(t2);
+  }
+  var x0=L-24;
+  if(ch.cEchelle){
+    /* une longueur ronde proche de 12 % de la largeur */
+    var visee=L*0.12*mpu/kk, pas=[50,100,200,250,500,1000,2000], m=pas[0], i;
+    for(i=0;i<pas.length;i++) if(Math.abs(pas[i]-visee)<Math.abs(m-visee)) m=pas[i];
+    var lpx=m*kk/mpu;
+    x0=L-24-lpx;
+    g.appendChild(el('line',{x1:x0,y1:y+22,x2:x0+lpx,y2:y+22,stroke:'#F4F4F0','stroke-width':3}));
+    [x0,x0+lpx].forEach(function(x){ g.appendChild(el('line',{x1:x,y1:y+15,x2:x,y2:y+29,stroke:'#F4F4F0','stroke-width':3})); });
+    var t3=el('text',{x:x0+lpx/2,y:y+8,'text-anchor':'middle','font-family':'Helvetica, Arial, sans-serif','font-size':14,fill:'#F4F4F0'});
+    t3.textContent=(m>=1000 ? (m/1000)+' km' : m+' m');
+    g.appendChild(t3);
+  }
+  if(ch.cNord){
+    /* la carte est en projection Mercator, le nord est vers le haut */
+    var xn=x0-46;
+    g.appendChild(el('path',{d:'M'+xn+' '+(y+30)+'L'+(xn-7)+' '+(y+30)+'L'+xn+' '+(y+4)+'L'+(xn+7)+' '+(y+30)+'Z',fill:'#F4F4F0'}));
+    var t4=el('text',{x:xn,y:y-2,'text-anchor':'middle','font-family':'Oswald, Impact, sans-serif','font-size':15,fill:'#F4F4F0'});
+    t4.textContent='N';
+    g.appendChild(t4);
+  }
+  return g;
+}
+var ZONE_MATERIEL=['arche','tente_chrono','tente_medicale','tente_ravito','sono','table_ravito','eclairage','ambulance',
+  'arche_depart','tente_accueil','tente_consigne','wc','sas_1','sas_2','sas_3'];
+function imageParcoursSVG(ch){
+  var L=IMG_REF;
   var s={k:k, tx:tx, ty:ty, T:TAILLE, BAR:BAR, RUB:RUB, VEH:VEH, ZSV:ZSV, SELC:SELC};
   if(ch.plan) construireTuiles('tuiles-data',raster,'png');
   if(ch.sat) construireTuiles('sat-data',satellite,'jpeg');
@@ -209125,20 +209166,27 @@ function imageParcoursSVG(ch,L){
     if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y;
   }
   if(ch.piste && typeof PISTE_REP!=='undefined' && PISTE_REP) Object.keys(PISTE_REP).forEach(function(r){
-    var p=PISTE_REP[r], x=X(p[1]), y=Y(p[0]);
-    if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y;
+    var p=PISTE_REP[r], x2=X(p[1]), y2=Y(p[0]);
+    if(x2<mnx)mnx=x2; if(x2>mxx)mxx=x2; if(y2<mny)mny=y2; if(y2>mxy)mxy=y2;
   });
   var marge=54, larg=Math.max(1,mxx-mnx), haut=Math.max(1,mxy-mny);
-  var kk=(L-2*marge)/larg, basCart=ch.cartouche?92:0;
-  var H=Math.round(haut*kk+2*marge+basCart);
+  var kk=(L-2*marge)/larg, cart=(ch.cTitre||ch.cChiffres||ch.cEchelle||ch.cNord);
+  var H=Math.round(haut*kk+2*marge+(cart?92:0));
   k=kk; tx=marge-mnx*k; ty=marge-mny*k;
   TAILLE=s.T*(L/VBW);
   SELC=null;
-  var troisEquip=(ch.equip?1:0)+(ch.mat?1:0)+(ch.zones?1:0);
-  if(troisEquip>0 && troisEquip<3){
-    if(!ch.equip){ BAR=[]; RUB=[]; }
-    if(!ch.mat) VEH=[];
+  /* le matériel partage un seul calque : on filtre les listes le temps du dessin */
+  var tousEq=ch.bar&&ch.rub&&ch.mat&&ch.veh&&ch.pol&&ch.zones;
+  var aucunEq=!(ch.bar||ch.rub||ch.mat||ch.veh||ch.pol||ch.zones);
+  if(!tousEq && !aucunEq){
+    if(!ch.bar) BAR=[];
+    if(!ch.rub) RUB=[];
     if(!ch.zones) ZSV=[];
+    VEH=VEH.filter(function(v){
+      if(v.t==='policier') return !!ch.pol;
+      if(ZONE_MATERIEL.indexOf(v.t)>=0) return !!ch.mat;
+      return !!ch.veh;
+    });
   }
   redessinerCarte();
   var c=svg.cloneNode(true);
@@ -209152,93 +209200,175 @@ function imageParcoursSVG(ch,L){
   c.setAttribute('width',L); c.setAttribute('height',H);
   c.removeAttribute('id'); c.removeAttribute('style'); c.removeAttribute('class');
   function jeter(id){ var e=c.querySelector('#'+id); if(e && e.parentNode) e.parentNode.removeChild(e); }
-  jeter('c-wp');
-  if(!ch.fond) jeter('vecteur');
   if(!ch.plan) jeter('raster'); else { var r=c.querySelector('#raster'); if(r) r.setAttribute('style','opacity:1'); }
   if(!ch.sat) jeter('satellite'); else { var sa=c.querySelector('#satellite'); if(sa) sa.setAttribute('style','opacity:1'); }
+  trierFond(c.querySelector('#vecteur'),ch);
+  var v=c.querySelector('#vecteur');
+  if(v && (ch.plan || ch.sat)){
+    /* le fond photo doit rester lisible : on retire le papier du dessin et on efface ses traits */
+    var pap=v.querySelector('rect');
+    if(pap) v.removeChild(pap);
+    v.setAttribute('style','opacity:0.35');
+  }
   if(!ch.autres) jeter('c-autres');
+  if(!ch.halo) jeter('c-halo');
+  if(!ch.trace) jeter('c-trace');
+  if(!ch.fleches) jeter('c-fleche');
   if(!ch.km) jeter('c-km');
-  if(!ch.jal) jeter('c-jal');
   if(!ch.pois) jeter('c-poi');
   if(!ch.piste) jeter('c-piste');
-  if(!ch.fleches) jeter('c-fleche');
-  if(troisEquip===0) jeter('c-equip');
-  if(ch.fond && (ch.plan || ch.sat)){ var v=c.querySelector('#vecteur'); if(v) v.setAttribute('style','opacity:0.35'); }
+  if(!ch.jal) jeter('c-jal');
+  if(aucunEq) jeter('c-equip');
+  /* départ et arrivée : les deux pastilles de la couche d'édition, rien d'autre */
+  var wp=c.querySelector('#c-wp');
+  if(wp){
+    if(!ch.da) wp.parentNode.removeChild(wp);
+    else Array.prototype.slice.call(wp.children).forEach(function(g){
+      if(!g.classList || !g.classList.contains('borne')) wp.removeChild(g);
+    });
+  }
+  if(ch.jal && !ch.jalNum) Array.prototype.slice.call(c.querySelectorAll('#c-jal text')).forEach(function(t){ t.parentNode.removeChild(t); });
+  /* tracé un peu plus fin qu'à l'écran */
+  ['c-trace','c-halo'].forEach(function(id){
+    var g=c.querySelector('#'+id);
+    if(!g) return;
+    Array.prototype.slice.call(g.querySelectorAll('[stroke-width]')).forEach(function(p){
+      p.setAttribute('stroke-width',(+p.getAttribute('stroke-width')*IMG_FINESSE).toFixed(2));
+    });
+  });
   /* allègement : infobulles, zones de clic invisibles, curseurs */
   Array.prototype.slice.call(c.querySelectorAll('title')).forEach(function(e){ e.parentNode.removeChild(e); });
   Array.prototype.slice.call(c.querySelectorAll('[fill="transparent"],[stroke="transparent"]')).forEach(function(e){
     if(e.getAttribute('fill')==='transparent' && !e.getAttribute('stroke')) e.parentNode.removeChild(e);
     else if(e.getAttribute('stroke')==='transparent' && (e.getAttribute('fill')==='none' || !e.getAttribute('fill'))) e.parentNode.removeChild(e);
   });
-  ['vecteur','raster','satellite'].forEach(function(id){ elaguerHorsCadre(c.querySelector('#'+id),cadre[0],cadre[1],cadre[2],cadre[3]); });
   Array.prototype.slice.call(c.querySelectorAll('[style*="cursor"]')).forEach(function(e){ e.removeAttribute('style'); });
   Array.prototype.slice.call(c.querySelectorAll('[pointer-events]')).forEach(function(e){ e.removeAttribute('pointer-events'); });
-  if(!ch.fond && !ch.plan && !ch.sat) c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:'#0B1019'}),c.firstChild);
-  if(ch.cartouche) c.appendChild(cartoucheSVG(L,H,metresParUnite(),kk));
-  return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(c)+'\n';
+  ['vecteur','raster','satellite'].forEach(function(id){ elaguerHorsCadre(c.querySelector('#'+id),cadre[0],cadre[1],cadre[2],cadre[3]); });
+  c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:'#0B1019'}),c.firstChild);
+  if(cart) c.appendChild(cartoucheSVG(L,H,metresParUnite(),kk,ch));
+  return {txt:'<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(c)+'\n', L:L, H:H};
 }
-var IMG_CHOIX={fond:true, plan:false, sat:false, autres:false, km:true, fleches:true, jal:true,
-  equip:true, mat:true, zones:true, pois:false, piste:false, cartouche:true, largeur:2400};
-var IMG_LIGNES=[
-  ['fond','Fond de carte dessiné (rues, bâtiments, rivière)'],
-  ['plan','Plan OpenStreetMap par-dessus (fichier beaucoup plus lourd)'],
-  ['sat','Vue satellite par-dessus (fichier beaucoup plus lourd)'],
-  ['autres','Autres parcours en pointillés'],
-  ['fleches','Flèches du sens de course'],
-  ['km','Bornes kilométriques, départ et arrivée'],
-  ['jal','Jalonneurs, avec leur numéro et leur consigne'],
-  ['equip','Barrières et rubalise'],
-  ['mat','Matériel, véhicules et policiers'],
-  ['zones','Zones fermées à la circulation'],
-  ['pois','Points remarquables de la ville'],
-  ['piste','Piste d’obstacles'],
-  ['cartouche','Titre, distance, échelle et nord']
+/* peinture du SVG sur un canevas à la résolution demandée */
+function imagePNG(svgTxt,L,H,largeur){
+  return new Promise(function(ok,rate){
+    var url=URL.createObjectURL(new Blob([svgTxt],{type:'image/svg+xml;charset=utf-8'})), im=new Image();
+    im.onload=function(){
+      try{
+        var cv=document.createElement('canvas');
+        cv.width=Math.round(largeur); cv.height=Math.round(largeur*H/L);
+        var cx=cv.getContext('2d');
+        cx.drawImage(im,0,0,cv.width,cv.height);
+        cv.toBlob(function(b){
+          URL.revokeObjectURL(url);
+          if(b) ok({blob:b, l:cv.width, h:cv.height}); else rate(new Error('image trop grande pour ce navigateur'));
+        },'image/png');
+      }catch(e){ URL.revokeObjectURL(url); rate(e); }
+    };
+    im.onerror=function(){ URL.revokeObjectURL(url); rate(new Error('dessin illisible')); };
+    im.src=url;
+  });
+}
+
+var IMG_CHOIX={fRues:true, fBati:true, fVeg:true, fEau:true, fEmprise:true, fRail:true, fNoms:true,
+  plan:false, sat:false,
+  trace:true, halo:true, fleches:true, km:true, da:true, autres:false,
+  jal:true, jalNum:true, bar:true, rub:true, mat:true, veh:true, pol:true, zones:true, pois:false, piste:false,
+  cTitre:true, cChiffres:true, cEchelle:true, cNord:true, largeur:3000};
+var IMG_SECTIONS=[
+  ['Fond de carte',[['fRues','Rues et places'],['fBati','Bâtiments'],['fVeg','Végétation et terrains'],
+    ['fEau','Rivière et plans d’eau'],['fEmprise','Limites des quartiers militaires'],['fRail','Voie ferrée'],
+    ['fNoms','Noms de lieux'],['plan','Plan OpenStreetMap'],['sat','Vue satellite']]],
+  ['Parcours',[['trace','Tracé'],['halo','Halo du tracé'],['fleches','Flèches du sens de course'],
+    ['km','Bornes kilométriques'],['da','Départ et arrivée'],['autres','Autres parcours']]],
+  ['Dispositif',[['jal','Jalonneurs'],['jalNum','Numéros des jalonneurs'],['bar','Barrières municipales'],['rub','Rubalise et ses ancrages'],
+    ['mat','Matériel de zone'],['veh','Véhicules militaires'],['pol','Policiers'],
+    ['zones','Zones fermées à la circulation'],['pois','Points de la ville'],['piste','Piste d’obstacles']]],
+  ['Cartouche',[['cTitre','Titre'],['cChiffres','Distance, dénivelé, jalonneurs'],['cEchelle','Échelle'],['cNord','Nord']]]
 ];
+var IMG_VUE={url:null, svg:null, L:0, H:0, attente:null};
+function majApercu(){
+  var m=document.getElementById('modale-image');
+  if(!m || m.hidden) return;
+  var et=m.querySelector('#img-etat'), img=m.querySelector('#img-apercu');
+  try{
+    var r=imageParcoursSVG(IMG_CHOIX);
+    if(IMG_VUE.url) URL.revokeObjectURL(IMG_VUE.url);
+    IMG_VUE.svg=r.txt; IMG_VUE.L=r.L; IMG_VUE.H=r.H;
+    IMG_VUE.url=URL.createObjectURL(new Blob([r.txt],{type:'image/svg+xml;charset=utf-8'}));
+    img.src=IMG_VUE.url;
+    var lg=IMG_CHOIX.largeur;
+    et.textContent='Aperçu à l’échelle. Le fichier fera '+lg+' × '+Math.round(lg*r.H/r.L)+' pixels.';
+  }catch(e){ console.error(e); et.textContent='Aperçu impossible : '+e.message; }
+}
+function apercuPlusTard(){
+  if(IMG_VUE.attente) clearTimeout(IMG_VUE.attente);
+  IMG_VUE.attente=setTimeout(function(){ IMG_VUE.attente=null; majApercu(); },140);
+}
 function ouvrirImageParcours(){
   var m=document.getElementById('modale-image');
   if(!m){
     m=document.createElement('div');
     m.className='modale'; m.id='modale-image'; m.hidden=true;
-    var h='<div class="modale-in"><h2>Image du parcours '+nomParcours()+'</h2>'+
-      '<p class="mode">Une image vectorielle (.svg) cadrée sur le parcours : elle se redimensionne sans perdre en qualité, pour un écran, une affiche ou un dossier. Choisis ce qu’elle doit montrer.</p>'+
-      '<div id="img-cases" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:6px 18px"></div>'+
-      '<label class="mode" style="display:flex;align-items:center;gap:10px">Largeur de l’image '+
-      '<select id="img-largeur"><option value="1600">1600 px</option><option value="2400" selected>2400 px</option><option value="4000">4000 px</option><option value="6000">6000 px</option></select></label>'+
+    m.innerHTML='<div class="modale-in" style="width:min(1060px,100%)"><h2>Image du parcours</h2>'+
+      '<p class="mode">Coche ce que l’image doit montrer, l’aperçu suit. L’image est cadrée sur le parcours, pas sur ce qui est à l’écran.</p>'+
+      '<div style="background:#0B1019;border:1px solid var(--trait);border-radius:3px;padding:8px;display:flex;justify-content:center">'+
+      '<img id="img-apercu" alt="Aperçu du parcours" style="max-width:100%;max-height:44vh;display:block"></div>'+
+      '<div id="img-cases" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:4px 18px;align-items:start"></div>'+
+      '<label class="mode" style="display:flex;align-items:center;gap:10px">Résolution de l’image '+
+      '<select id="img-largeur"><option value="1200">1200 px</option><option value="2000">2000 px</option>'+
+      '<option value="3000" selected>3000 px</option><option value="4500">4500 px</option><option value="6000">6000 px</option></select></label>'+
       '<p class="mode" id="img-etat"></p>'+
-      '<div class="modale-actions"><button id="img-ok" class="primaire">Télécharger l’image</button><button id="img-non">Fermer</button></div></div>';
-    m.innerHTML=h;
+      '<div class="modale-actions"><button id="img-ok" class="primaire">Télécharger l’image (.png)</button>'+
+      '<button id="img-svg">Version vectorielle (.svg)</button><button id="img-non">Fermer</button></div></div>';
     document.body.appendChild(m);
     var box=m.querySelector('#img-cases');
-    IMG_LIGNES.forEach(function(l){
-      var lab=document.createElement('label');
-      lab.className='mode';
-      lab.style.cssText='display:flex;align-items:flex-start;gap:8px;cursor:pointer';
-      var c=document.createElement('input');
-      c.type='checkbox'; c.dataset.cle=l[0]; c.checked=!!IMG_CHOIX[l[0]];
-      lab.appendChild(c);
-      lab.appendChild(document.createTextNode(l[1]));
-      box.appendChild(lab);
+    IMG_SECTIONS.forEach(function(sec){
+      var col=document.createElement('div');
+      var t=document.createElement('div');
+      t.className='menu-titre'; t.textContent=sec[0]; t.style.cssText='margin-bottom:4px';
+      col.appendChild(t);
+      sec[1].forEach(function(l){
+        var lab=document.createElement('label');
+        lab.className='mode';
+        lab.style.cssText='display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin:0 0 2px';
+        var c=document.createElement('input');
+        c.type='checkbox'; c.dataset.cle=l[0]; c.checked=!!IMG_CHOIX[l[0]];
+        c.addEventListener('change',function(){ IMG_CHOIX[l[0]]=c.checked; apercuPlusTard(); });
+        lab.appendChild(c);
+        lab.appendChild(document.createTextNode(l[1]));
+        col.appendChild(lab);
+      });
+      box.appendChild(col);
+    });
+    m.querySelector('#img-largeur').addEventListener('change',function(){
+      IMG_CHOIX.largeur=+this.value;
+      var et=m.querySelector('#img-etat');
+      if(IMG_VUE.L) et.textContent='Aperçu à l’échelle. Le fichier fera '+IMG_CHOIX.largeur+' × '+Math.round(IMG_CHOIX.largeur*IMG_VUE.H/IMG_VUE.L)+' pixels.';
     });
     m.addEventListener('click',function(ev){ if(ev.target===m) m.hidden=true; });
     m.querySelector('#img-non').onclick=function(){ m.hidden=true; };
     m.querySelector('#img-ok').onclick=function(){
       var et=m.querySelector('#img-etat');
-      box.querySelectorAll('input[type=checkbox]').forEach(function(c){ IMG_CHOIX[c.dataset.cle]=c.checked; });
-      IMG_CHOIX.largeur=+m.querySelector('#img-largeur').value;
-      et.textContent='Dessin en cours…';
-      setTimeout(function(){
-        try{
-          var txt=imageParcoursSVG(IMG_CHOIX,IMG_CHOIX.largeur);
-          telechargerBlob('corrida-2027-parcours-'+(nomParcours()||'x')+'.svg',txt,'image/svg+xml');
-          et.textContent='Image téléchargée ('+Math.round(txt.length/1024)+' Ko). Elle s’ouvre dans un navigateur, Inkscape, Illustrator ou Word.';
-          dire('Image du parcours '+nomParcours()+' téléchargée.','ok');
-        }catch(e){ console.error(e); et.textContent='Échec du dessin : '+e.message; }
-      },30);
+      if(!IMG_VUE.svg){ et.textContent='Aperçu pas encore prêt.'; return; }
+      et.textContent='Peinture de l’image…';
+      imagePNG(IMG_VUE.svg,IMG_VUE.L,IMG_VUE.H,IMG_CHOIX.largeur).then(function(r){
+        telechargerBlob('corrida-2027-parcours-'+(nomParcours()||'x')+'.png',r.blob);
+        et.textContent='Image téléchargée : '+r.l+' × '+r.h+' pixels, '+Math.round(r.blob.size/1024)+' Ko.';
+        dire('Image du parcours '+nomParcours()+' téléchargée.','ok');
+      }).catch(function(e){ console.error(e); et.textContent='Échec de l’image : '+e.message+'. Essaie une résolution plus petite.'; });
+    };
+    m.querySelector('#img-svg').onclick=function(){
+      var et=m.querySelector('#img-etat');
+      if(!IMG_VUE.svg){ et.textContent='Aperçu pas encore prêt.'; return; }
+      telechargerBlob('corrida-2027-parcours-'+(nomParcours()||'x')+'.svg',IMG_VUE.svg,'image/svg+xml');
+      et.textContent='Fichier vectoriel téléchargé ('+Math.round(IMG_VUE.svg.length/1024)+' Ko). Il s’imprime à n’importe quelle taille sans perdre en qualité.';
     };
   }
   m.querySelector('h2').textContent='Image du parcours '+nomParcours();
-  m.querySelector('#img-etat').textContent='';
+  m.querySelector('#img-etat').textContent='Dessin de l’aperçu…';
   m.hidden=false;
+  setTimeout(majApercu,20);
 }
 
 /* ---------- lien Google Maps et tracé KML ---------- */
@@ -209336,7 +209466,7 @@ function ouvrirLienGoogle(){
     if(save && save.parentNode) save.parentNode.insertBefore(b,save);
     return b;
   }
-  var b1=ajout('b-image','Image du parcours (.svg)','Carte vectorielle du parcours affiché, avec le choix des éléments montrés',ouvrirImageParcours);
+  var b1=ajout('b-image','Image du parcours (.png)','Image du parcours affiché, avec aperçu et choix des éléments montrés',ouvrirImageParcours);
   var b2=ajout('b-gmaps','Lien Google Maps','Itinéraire Google Maps du parcours affiché, et tracé exact en KML',ouvrirLienGoogle);
   setTimeout(function(){
     var pop=document.querySelector('.bar .menu[data-m="fichier"] .menu-pop');
