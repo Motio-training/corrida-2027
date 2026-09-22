@@ -209536,6 +209536,109 @@ function ouvrirLienGoogle(){
     [b1,b2].forEach(function(b){ if(b.parentNode!==pop) pop.appendChild(b); });
   },0);
 })();
+
+/* ---------------------------------------------------------------
+   iPhone. Safari ne se comporte pas comme Chrome sur deux points qui
+   gênaient vraiment :
+
+   1. La hauteur. « 100vh » vaut chez lui la fenêtre sans ses barres,
+      donc le bas de la page passe sous la barre d'outils. Les
+      fenêtres du programme sont centrées dans cette hauteur-là : leur
+      bouton « Fermer », tout en bas, devenait inatteignable, et il
+      n'y a pas de touche Échap sur un téléphone pour s'en sortir.
+      On repasse partout en « dvh », la hauteur réellement visible, on
+      pose une croix en haut à droite de chaque fenêtre, toujours au
+      même endroit, et un appui à côté de la fenêtre la referme aussi.
+   2. Le son. iOS ne laisse sortir le son d'une page que si la session
+      audio a été ouverte par un vrai geste, et le coupe quand le
+      petit bouton latéral est sur silencieux. On ouvre la session au
+      premier toucher avec un silence joué en boucle, ce qui fait
+      passer la page en catégorie « lecture » ; le silence ne tourne
+      que pendant que la musique est allumée.
+
+   Chargé après ed_app22, et actif aussi en consultation.
+--------------------------------------------------------------- */
+(function(){
+  var SUR_IOS = /iP(hone|od|ad)/.test(navigator.platform||'') ||
+    (/Mac/.test(navigator.platform||'') && navigator.maxTouchPoints>1) ||
+    /iPhone|iPad|iPod/.test(navigator.userAgent||'');
+
+  /* ---------- hauteurs réelles, marges de l'encoche, croix de fermeture ---------- */
+  var css=document.createElement('style');
+  css.textContent=
+    '.app{height:100vh;height:100dvh}'+
+    '#e3{height:100vh;height:100dvh}'+
+    '.modale,.e3-modale{height:100vh;height:100dvh;'+
+      'padding-top:max(14px,env(safe-area-inset-top));padding-bottom:max(14px,env(safe-area-inset-bottom));'+
+      'padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}'+
+    '.modale-in,.e3-boite{max-height:82vh;max-height:82dvh;overflow-y:auto;'+
+      '-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}'+
+    '.ferme-x{position:absolute;z-index:6;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));'+
+      'width:42px;height:42px;padding:0;border-radius:50%;font-size:20px;line-height:1;'+
+      'display:flex;align-items:center;justify-content:center;'+
+      'background:#1B2536;color:#EAE4D8;border:1px solid #3A4A66;box-shadow:0 4px 14px rgba(0,0,0,.5)}'+
+    '.ferme-x:hover{background:#25334A}'+
+    '@media (max-width:980px){.modale-in,.e3-boite{padding-right:60px}}'+
+    'html{-webkit-text-size-adjust:100%}';
+  document.head.appendChild(css);
+
+  function equiper(m){
+    if(!m || m.__fermeX) return;
+    m.__fermeX=true;
+    m.addEventListener('click',function(ev){ if(ev.target===m) m.hidden=true; });
+    var b=document.createElement('button');
+    b.type='button'; b.className='ferme-x'; b.textContent='✕';
+    b.setAttribute('aria-label','Fermer');
+    b.addEventListener('click',function(ev){ ev.preventDefault(); ev.stopPropagation(); m.hidden=true; });
+    m.appendChild(b);
+  }
+  Array.prototype.slice.call(document.querySelectorAll('.modale, .e3-modale')).forEach(equiper);
+  /* les fenêtres du menu Fichier et celles de la 3D naissent plus tard */
+  if(window.MutationObserver){
+    new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var a=muts[i].addedNodes;
+        for(var j=0;j<a.length;j++){
+          var n=a[j];
+          if(n.nodeType!==1) continue;
+          if(n.classList && (n.classList.contains('modale') || n.classList.contains('e3-modale'))) equiper(n);
+          else if(n.querySelectorAll) Array.prototype.slice.call(n.querySelectorAll('.modale, .e3-modale')).forEach(equiper);
+        }
+      }
+    }).observe(document.body,{childList:true, subtree:true});
+  }
+
+  /* ---------- son : ouvrir la session audio sur un vrai geste ---------- */
+  if(!SUR_IOS) return;
+  var SILENCE='data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQQAAAAAAAAA';
+  var mut=null, veille=0;
+  function suivreMusique(){
+    if(!mut) return;
+    var veut=false;
+    try{ veut=!!(window.MUSIQUE && MUSIQUE.actif && MUSIQUE.actif()); }catch(e){}
+    try{
+      if(veut && mut.paused){ var p=mut.play(); if(p && p.catch) p.catch(function(){}); }
+      else if(!veut && !mut.paused) mut.pause();
+    }catch(e){}
+  }
+  function ouvrirSession(){
+    if(mut) return;
+    try{
+      mut=new Audio(SILENCE);
+      mut.loop=true; mut.volume=0.0001;
+      mut.setAttribute('playsinline','');
+      mut.setAttribute('webkit-playsinline','');
+      var p=mut.play();
+      if(p && p.catch) p.catch(function(){});
+    }catch(e){ mut=null; return; }
+    if(!veille) veille=setInterval(suivreMusique,1500);
+  }
+  var premier=function(){
+    ouvrirSession();
+    ['pointerup','touchend','click'].forEach(function(t){ window.removeEventListener(t,premier,true); });
+  };
+  ['pointerup','touchend','click'].forEach(function(t){ window.addEventListener(t,premier,{capture:true, passive:true}); });
+})();
 })();
 </script>
 <script>
