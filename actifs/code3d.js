@@ -3314,7 +3314,7 @@ var SUR_IOS_3D = /iP(hone|od|ad)/.test(navigator.platform||'') ||
 
 /* état du casque de réalité virtuelle ; le module est en fin de fichier */
 var XR3D={dispo:false, actif:false, session:null, rig:null, bouton:null, sauve:null,
-  tourne:0, images:0, duree:0, pire:0};
+  images:0, duree:0, pire:0};
 window.XR3D=XR3D;
 
 function initTrois(){
@@ -3963,259 +3963,211 @@ function basculerPanneau(){
   p.classList.toggle('replie');
   $e('e3-liste').classList.toggle('on',!p.classList.contains('replie'));
 }
-
 /* =================================================================
    Le chien du parcours : un berger allemand qui suit le coureur.
 
-   Pourquoi il est fabriqué ici et non téléchargé : aucune bibliothèque de
-   modèles n'est joignable depuis l'atelier — Sketchfab, Quaternius, Poly
-   Pizza, tout répond « rien du tout », et le seul canidé libre atteignable
-   sur GitHub est un renard stylisé. Le chien est donc monté comme le reste
-   du monde, à la géométrie : le projet fabrique déjà ses bâtiments, ses
-   arbres et ses coureurs de la même façon, avec loft() et ellipsoide() sur
-   l'atlas commun. Le grain de la fourrure est celui des cheveux, teinté.
+   Le modèle est celui de Quaternius, « Ultimate Animated Animals »,
+   CC-BY 3.0, pris sur Poly Pizza : 4898 triangles, un squelette
+   complet et onze animations, dont Walk, Run, Idle, et surtout Attack
+   et Run_Jump qui servent à la farce. Il remplace le chien monté à la
+   géométrie, qui tenait lieu de modèle tant qu'aucune bibliothèque
+   n'était joignable — elles le sont, il suffisait de chercher.
 
-   Les mesures sont celles du standard de la race : 62 cm au garrot, 72 cm
-   du poitrail à la pointe de la fesse, tête de 26 cm dont 12 de museau,
-   oreilles de 11 cm portées droites, queue de 40 cm tombante. La robe est
-   la plus reconnaissable : manteau noir sur le dos, masque noir, fauve
-   dessous.
+   Le modèle regarde vers +z ; le programme compte les caps en
+   (cos, sin) sur x et z et tourne le chien de -cap. On le range donc
+   dans un sous-groupe tourné d'un quart de tour, et rien d'autre ne
+   change : le comportement, lui, ne connaît que la position, le cap et
+   le mode, et il est resté tel quel.
 
-   Si un jour un vrai modèle rigué arrive dans actifs/, il se branche à la
-   place de construireChien() sans toucher au comportement : celui-ci ne
-   demande que des articulations nommées.
+   Il ne se montre qu'à la première personne, à l'écran comme au
+   casque : à la troisième, la caméra est derrière le coureur, le chien
+   lui passerait devant en permanence et la blague tomberait à plat.
 ================================================================= */
 var CHIEN=null;
 var CHIEN_VOULU=true;
-/* robe : noir chaud du manteau, fauve du poil, crème du poitrail */
-var CH_NOIR=0x1b1512, CH_FAUVE=0x8d5f2c, CH_CLAIR=0xb2834a, CH_CREME=0xc2a173;
+/* 1,20 porte le garrot du modèle à 0,59 m, la taille de la race */
+var CH_ECHELLE=1.20;
+var CHIEN_GLB=null, CHIEN_ENCOURS=null;
 
+/* le modèle n'est lu qu'une fois, à la première demande */
+function chargerModeleChien(){
+  if(CHIEN_GLB) return Promise.resolve(CHIEN_GLB);
+  if(CHIEN_ENCOURS) return CHIEN_ENCOURS;
+  if(!EXT.GLTFLoader || !window.ACTIFS || !ACTIFS['chien_berger.glb'])
+    return Promise.reject(new Error('modèle du chien absent'));
+  CHIEN_ENCOURS=actifOctets('chien_berger.glb').then(function(buf){
+    return new Promise(function(ok,ko){
+      new EXT.GLTFLoader().parse(buf,'',function(g){ CHIEN_GLB=g; ok(g); },ko);
+    });
+  });
+  return CHIEN_ENCOURS;
+}
+/* Les animations arrivent en double, nues et préfixées du nom de
+   l'armature ; on garde les nues, qui portent le même contenu. */
+function clipChien(g,nom){
+  var c=null;
+  g.animations.forEach(function(a){ if(a.name===nom && !c) c=a; });
+  if(!c) g.animations.forEach(function(a){ if(a.name.split('|').pop()===nom && !c) c=a; });
+  return c;
+}
+/* Le modèle de Quaternius est un chien de bât : il porte deux sacoches, un
+   bandana et une amulette, et sa robe est brune et blanche. Rien de tout
+   cela ne convient à un berger allemand qui suit une course militaire.
+
+   Le modèle n'a pas de matières séparées, seulement un atlas de pastilles
+   de couleur : chaque triangle pointe une case unie. Cela suffit à tout
+   reprendre. On retire les triangles dont la pastille est celle du cuir,
+   des boucles ou du bandana — les sacoches disparaissent, géométrie
+   comprise — et on repeint les pastilles de la fourrure : le dos passe au
+   noir, la tête et les flancs au fauve, le poitrail et les pattes au
+   crème. C'est la robe de la race, et c'est la même méthode que pour la
+   tenue du policier, retouchée dans le navigateur. */
+/* Les deux pastilles de fourrure tombent exactement où il faut : la
+   première couvre le dos, le dessus de la tête et la queue, la seconde
+   le poitrail, les pattes, le museau et le dedans des oreilles. C’est
+   le patron du berger allemand : manteau noir, feux fauves. */
+var CH_ROBE={'5f3a20':'#1c1713',   /* le manteau : noir */
+             'a3a59c':'#a9763a'};  /* les feux : fauve */
+function atlasChien(tex){
+  var img=tex.image;
+  var cv=document.createElement('canvas');
+  cv.width=img.width; cv.height=img.height;
+  var cx=cv.getContext('2d');
+  cx.drawImage(img,0,0);
+  var d=cx.getImageData(0,0,cv.width,cv.height), p=d.data, c=new THREE.Color();
+  var cible={};
+  Object.keys(CH_ROBE).forEach(function(k){ c.set(CH_ROBE[k]); cible[k]=[Math.round(c.r*255),Math.round(c.g*255),Math.round(c.b*255)]; });
+  for(var i=0;i<p.length;i+=4){
+    var k=[p[i],p[i+1],p[i+2]].map(function(q){ return q.toString(16).padStart(2,'0'); }).join('');
+    var n=cible[k];
+    if(n){ p[i]=n[0]; p[i+1]=n[1]; p[i+2]=n[2]; }
+  }
+  cx.putImageData(d,0,0);
+  var t=new THREE.CanvasTexture(cv);
+  t.flipY=false;
+  t.colorSpace=tex.colorSpace;
+  t.magFilter=THREE.NearestFilter;
+  t.minFilter=THREE.LinearMipmapLinearFilter;
+  t.needsUpdate=true;
+  return t;
+}
+/* Le bât est accroché à un os qui n'est qu'à lui, « Torso001 » : tout ce
+   qui pend à cet os est sacoche, sangle ou boucle, et rien d'autre. On
+   relit donc l'os dominant de chaque triangle plutôt que sa couleur — le
+   cuir et la toile ne partagent aucune pastille avec la fourrure, mais les
+   dessous clairs des sacoches, eux, ont la même que le poitrail. Le
+   bandana et l'amulette, eux, se reconnaissent bien à leur pastille. */
+var CH_OS_BAT='Torso001';
+var CH_HARNAIS=['923c12','8f662a'];      /* bandana, amulette */
+/* la sangle de ventre partage sa pastille avec des détails de la tête :
+   on ne retire que celle qui pend au tronc */
+var CH_SANGLE={'2e2e2e':'Head'};
+function deharnacherChien(mesh){
+  var geo=mesh.geometry, uv=geo.attributes.uv, idx=geo.index, img=mesh.material.map.image;
+  var sk=geo.attributes.skinIndex, sw=geo.attributes.skinWeight;
+  var os=mesh.skeleton ? mesh.skeleton.bones : null;
+  if(!uv || !idx || !img) return;
+  var cv=document.createElement('canvas');
+  cv.width=img.width; cv.height=img.height;
+  var cx=cv.getContext('2d');
+  cx.drawImage(img,0,0);
+  var p=cx.getImageData(0,0,cv.width,cv.height).data, garde=[];
+  function pastille(a,b,c){
+    var u=(uv.getX(a)+uv.getX(b)+uv.getX(c))/3, v=(uv.getY(a)+uv.getY(b)+uv.getY(c))/3;
+    var x=Math.min(cv.width-1,Math.max(0,Math.floor(u*cv.width)));
+    var y=Math.min(cv.height-1,Math.max(0,Math.floor(v*cv.height)));
+    var o=(y*cv.width+x)*4;
+    return [p[o],p[o+1],p[o+2]].map(function(q){ return q.toString(16).padStart(2,'0'); }).join('');
+  }
+  function osDe(a){
+    if(!os || !sk || !sw) return '';
+    var best=0, bw=-1;
+    for(var j=0;j<4;j++){ var w=sw.getComponent(a,j); if(w>bw){ bw=w; best=sk.getComponent(a,j); } }
+    return os[best] ? os[best].name : '';
+  }
+  for(var i=0;i<idx.count;i+=3){
+    var a=idx.getX(i), b=idx.getX(i+1), c=idx.getX(i+2);
+    if(osDe(a)===CH_OS_BAT) continue;
+    var k=pastille(a,b,c);
+    if(CH_HARNAIS.indexOf(k)>=0) continue;
+    if(CH_SANGLE[k] && osDe(a)!==CH_SANGLE[k]) continue;
+    garde.push(a,b,c);
+  }
+  if(garde.length && garde.length<idx.count) geo.setIndex(garde);
+}
 function construireChien(){
-  var root=new THREE.Group(), corps=new THREE.Group();
-  root.add(corps);
-  var art={};
-  /* Tout est bâti dans le repère du chien : x vers l'avant, y vers le haut.
-     Rien n'est tourné après coup — une pièce tournée emmène aussi les
-     centres de ses ellipsoïdes, et le museau finit derrière le crâne. Les
-     lofts ne servent donc qu'aux membres et à la queue, qui descendent ;
-     le corps, le cou et la tête sont des chapelets d'ellipsoïdes. */
-  function piece(parent,fn){
-    var t=new Tas(3072); fn(t);
-    var m=new THREE.Mesh(t.geo(),MAT.atlas);
-    m.castShadow=true;
-    parent.add(m);
-    return m;
-  }
-  var POIL=CELL.cheveux, PEAU=CELL.peau;
-  var noir=teinte(CH_NOIR), fauve=teinte(CH_FAUVE), clair=teinte(CH_CLAIR), creme=teinte(CH_CREME);
-
-  /* ---- le tronc. Cotes du standard : 62 cm au garrot, poitrail
-     descendant à mi-hauteur, rein remonté, dos légèrement fuyant. ---- */
-  piece(corps,function(t){
-    ellipsoide(t, .330,-.005,0, .080,.118,.090, 16,10, fauve,POIL);   /* avant-poitrail */
-    ellipsoide(t, .230,-.010,0, .110,.150,.108, 18,12, fauve,POIL);   /* poitrail profond */
-    ellipsoide(t, .215, .022,0, .085,.140,.100, 16,10, fauve,POIL);   /* garrot */
-    ellipsoide(t, .105,-.015,0, .120,.146,.112, 18,12, fauve,POIL);
-    ellipsoide(t,-.030,-.030,0, .115,.118,.092, 18,12, fauve,POIL);   /* rein remonté */
-    ellipsoide(t,-.160,-.010,0, .110,.130,.100, 16,12, fauve,POIL);   /* bassin */
-    ellipsoide(t,-.290,-.020,0, .090,.110,.088, 16,10, fauve,POIL);   /* croupe fuyante */
-    ellipsoide(t,-.360,-.012,0, .055,.078,.066, 14,10, fauve,POIL);
-  });
-  /* Le manteau noir en une seule pièce : cinq calottes séparées se
-     lisaient en bosses, comme une chenille. Un seul ellipsoïde très
-     allongé, coupé au-dessus de son équateur, donne un dos continu qui
-     retombe sur les flancs — c'est ce qu'on voit sur un vrai. */
-  piece(corps,function(t){
-    ellipsoide(t, .020,-.006,0, .360,.150,.117, 28,10, noir,POIL, 0,.52);
-    ellipsoide(t, .235, .014,0, .115,.148,.112, 18,8, noir,POIL, 0,.46);
-  });
-  /* le dessous, plus clair, et le poitrail crème */
-  piece(corps,function(t){
-    ellipsoide(t, .090,-.026,0, .295,.132,.098, 24,8, creme,POIL, .86,1);
-    ellipsoide(t, .285,-.034,0, .088,.116,.086, 16,8, creme,POIL, .70,1);
-  });
-
-  /* ---- le cou, puissant et incliné, et la tête ---- */
-  var cou=new THREE.Group(); cou.position.set(.310,.060,0); corps.add(cou); art.cou=cou;
-  piece(cou,function(t){
-    ellipsoide(t,.030,.030,0, .085,.105,.086, 16,10, fauve,POIL);
-    ellipsoide(t,.105,.080,0, .075,.088,.072, 16,10, fauve,POIL);
-    ellipsoide(t,.060,.095,0, .100,.070,.078, 16,8, noir,POIL, 0,.48);   /* crinière */
-    ellipsoide(t,.070,-.010,0, .085,.062,.068, 16,8, creme,POIL, .58,1); /* gorge */
-  });
-  var tete=new THREE.Group(); tete.position.set(.165,.125,0); cou.add(tete); art.tete=tete;
-  piece(tete,function(t){
-    ellipsoide(t,0,0,0, .068,.060,.058, 16,12, fauve,POIL);              /* crâne */
-    ellipsoide(t,.060,-.012,0, .048,.040,.038, 14,10, fauve,POIL);       /* stop */
-    ellipsoide(t,.112,-.024,0, .046,.030,.029, 14,10, noir,POIL);        /* chanfrein */
-    ellipsoide(t,.156,-.030,0, .028,.024,.024, 12,10, noir,POIL);
-    ellipsoide(t,.180,-.026,0, .014,.013,.015, 10,8, teinte(0x14100e),PEAU); /* truffe */
-    ellipsoide(t,.038,.020,.040, .011,.010,.008, 8,6, teinte(0x241a11),PEAU);
-    ellipsoide(t,.038,.020,-.040, .011,.010,.008, 8,6, teinte(0x241a11),PEAU);
-    ellipsoide(t,.028,.034,.039, .018,.009,.013, 8,6, clair,POIL);       /* sourcils */
-    ellipsoide(t,.028,.034,-.039, .018,.009,.013, 8,6, clair,POIL);
-    ellipsoide(t,.070,-.036,0, .052,.018,.027, 14,8, clair,POIL, .5,1);  /* joues */
-  });
-  var machoire=new THREE.Group(); machoire.position.set(.045,-.032,0); tete.add(machoire); art.machoire=machoire;
-  piece(machoire,function(t){
-    ellipsoide(t,.040,-.006,0, .048,.022,.026, 12,8, noir,POIL);
-    ellipsoide(t,.100,-.010,0, .033,.017,.021, 10,8, noir,POIL);
-    ellipsoide(t,.122,.010,.013, .005,.012,.005, 6,4, teinte(0xe6dfce),PEAU);
-    ellipsoide(t,.122,.010,-.013, .005,.012,.005, 6,4, teinte(0xe6dfce),PEAU);
-    ellipsoide(t,.072,.008,0, .042,.009,.018, 10,6, teinte(0x8d4a4a),PEAU);
-  });
-  [1,-1].forEach(function(s){
-    var o=new THREE.Group(); o.position.set(-.026,.048,s*.038); tete.add(o);
-    art['oreille'+(s>0?'G':'D')]=o;
-    o.rotation.x=-s*0.20;
-    piece(o,function(t){
-      loft(t,[[.000,.038,.016],[.045,.034,.014],[.085,.022,.009],[.110,.004,.003]],10,noir,POIL,true,true);
-      ellipsoide(t,.006,.048,0, .024,.046,.007, 10,8, clair,POIL, .08,.92);
+  var root=new THREE.Group();
+  root.userData.pret=false;
+  chargerModeleChien().then(function(g){
+    if(!CHIEN || CHIEN!==root) return;
+    var mod=EXT.clone ? EXT.clone(g.scene) : g.scene;
+    /* le modèle regarde +z, le programme attend +x */
+    var pivot=new THREE.Group();
+    pivot.rotation.y=PI/2;
+    pivot.scale.setScalar(CH_ECHELLE);
+    pivot.add(mod);
+    root.add(pivot);
+    var robe=null;
+    mod.traverse(function(o){
+      if(!o.isMesh && !o.isSkinnedMesh) return;
+      o.castShadow=true; o.receiveShadow=false;
+      o.frustumCulled=false;   /* un squelette animé sort souvent de sa boîte */
+      if(o.material){
+        o.material=o.material.clone();
+        if(o.material.map){
+          if(!robe) robe=atlasChien(o.material.map);
+          deharnacherChien(o);
+          o.material.map=robe;
+        }
+        o.material.roughness=0.85; o.material.metalness=0;
+        o.material.needsUpdate=true;
+      }
     });
-  });
-
-  /* ---- les membres : les lofts descendent, aucune rotation à corriger.
-     Une masse d'épaule et une de cuisse recouvrent les articulations, sans
-     quoi les segments se lisent comme des tubes emboîtés. ---- */
-  function segment(parent,y1,r0,r1,col){
-    return piece(parent,function(t){
-      loft(t,[[0,r0,r0*0.88],[y1,r1,r1*0.88]],10,col,POIL,false,false);
+    var mix=new THREE.AnimationMixer(mod), actes={};
+    ['Idle','Walk','Run','Attack','Run_Jump'].forEach(function(n){
+      var c=clipChien(g,n);
+      if(!c) return;
+      var a=mix.clipAction(c);
+      if(n==='Attack' || n==='Run_Jump'){ a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true; }
+      actes[n]=a;
     });
-  }
-  [1,-1].forEach(function(s){
-    var g=s>0?'G':'D';
-    var ep=new THREE.Group(); ep.position.set(.235,.020,s*.082); corps.add(ep);
-    art['epaule'+g]=ep;
-    piece(ep,function(t){ ellipsoide(t,-.020,-.045,0, .062,.090,.052, 12,10, fauve,POIL); });
-    segment(ep,-.215,.060,.044,fauve);
-    var cd=new THREE.Group(); cd.position.set(0,-.215,0); ep.add(cd);
-    art['coude'+g]=cd;
-    segment(cd,-.195,.042,.029,clair);
-    var pd=new THREE.Group(); pd.position.set(0,-.195,0); cd.add(pd);
-    art['piedAv'+g]=pd;
-    piece(pd,function(t){ ellipsoide(t,.016,-.018,0, .047,.024,.033, 12,8, clair,POIL); });
-
-    var ha=new THREE.Group(); ha.position.set(-.230,.000,s*.080); corps.add(ha);
-    art['hanche'+g]=ha;
-    piece(ha,function(t){ ellipsoide(t,-.010,-.040,0, .078,.098,.058, 12,10, fauve,POIL); });
-    segment(ha,-.195,.076,.052,fauve);
-    var ge=new THREE.Group(); ge.position.set(0,-.195,0); ha.add(ge);
-    art['genou'+g]=ge;
-    segment(ge,-.180,.050,.032,clair);
-    var ja=new THREE.Group(); ja.position.set(0,-.180,0); ge.add(ja);
-    art['jarret'+g]=ja;
-    segment(ja,-.115,.029,.022,clair);
-    var pa=new THREE.Group(); pa.position.set(0,-.115,0); ja.add(pa);
-    art['piedAr'+g]=pa;
-    piece(pa,function(t){ ellipsoide(t,.014,-.017,0, .043,.023,.031, 12,8, clair,POIL); });
-  });
-
-  /* ---- la queue, en sabre : elle tombe vers l'arrière ---- */
-  var q1=new THREE.Group(); q1.position.set(-.375,.005,0); corps.add(q1); art.queue1=q1;
-  piece(q1,function(t){ loft(t,[[0,.042,.040],[-.145,.034,.032]],10,fauve,POIL,true,false); });
-  var q2=new THREE.Group(); q2.position.set(0,-.145,0); q1.add(q2); art.queue2=q2;
-  piece(q2,function(t){ loft(t,[[0,.034,.032],[-.140,.026,.024]],10,fauve,POIL,false,false); });
-  var q3=new THREE.Group(); q3.position.set(0,-.140,0); q2.add(q3); art.queue3=q3;
-  piece(q3,function(t){ loft(t,[[0,.026,.024],[-.120,.010,.009]],10,noir,POIL,false,true); });
-
-  corps.position.y=0.470;      /* le garrot tombe alors à 62 cm */
-  root.userData.art=art;
-  root.userData.corps=corps;
+    root.userData.mix=mix;
+    root.userData.actes=actes;
+    root.userData.acte=null;
+    root.userData.pret=true;
+  }).catch(function(e){ console.error(e); });
   return root;
 }
-
-/* ---------------- l'allure ----------------
-
-   Un quadrupède ne court pas comme un bipède. Au trot, les membres vont par
-   diagonales : antérieur gauche avec postérieur droit. Au galop, les deux
-   antérieurs se posent ensemble puis les deux postérieurs, avec un temps de
-   suspension — c'est ce qui donne le dos qui se voûte et se creuse. Le
-   passage de l'un à l'autre se fait vers 5,5 m/s, comme chez le vrai.   */
+/* une allure à la fois, avec un fondu court : passer sec de la marche au
+   galop se voit tout de suite, et un chien ne change pas de patte ainsi */
+function allureChien(nom,fondu){
+  var U=CHIEN.userData, a=U.actes && U.actes[nom];
+  if(!a || U.acte===a) return;
+  if(U.acte) U.acte.fadeOut(fondu||0.18);
+  a.reset();
+  a.setEffectiveWeight(1);
+  a.fadeIn(fondu||0.18).play();
+  U.acte=a;
+}
 function animerChien(dt){
-  if(!CHIEN) return;
-  var E=CHIEN.userData.etat, art=CHIEN.userData.art, corps=CHIEN.userData.corps;
-  var v=Math.abs(E.v);
-  /* cadence : de 0,8 à 3,4 foulées par seconde */
-  var cad=Math.max(0.8,Math.min(3.4,0.8+v*0.42));
-  E.phase+=cad*dt*2*PI;
-  var ph=E.phase, galop=v>5.5;
-  var amp=Math.min(1,v/4.2), agit=0.25+0.75*amp;
-
-  if(!galop){
-    /* trot : deux diagonales en opposition */
-    var A=Math.sin(ph), B=Math.sin(ph+PI);
-    var pose=function(cote,sw){
-      var s=cote>0?'G':'D';
-      art['epaule'+s].rotation.z = sw*0.52*agit;
-      art['coude'+s].rotation.z  = -0.16-Math.max(0,-sw)*0.80*agit;
-      art['piedAv'+s].rotation.z = -0.10-Math.max(0,-sw)*0.35*agit;
-    };
-    var poseAr=function(cote,sw){
-      var s=cote>0?'G':'D';
-      art['hanche'+s].rotation.z = sw*0.46*agit;
-      art['genou'+s].rotation.z  = 0.55-sw*0.30*agit;
-      art['jarret'+s].rotation.z = -0.60-Math.max(0,-sw)*0.45*agit;
-      art['piedAr'+s].rotation.z = 0.12+Math.max(0,sw)*0.25*agit;
-    };
-    pose(1,A); pose(-1,B); poseAr(1,B); poseAr(-1,A);
-    corps.position.y=0.470+Math.abs(Math.sin(ph))*0.020*agit;
-    corps.rotation.z=Math.sin(ph)*0.02*agit;
-    corps.rotation.x=Math.sin(ph*2)*0.015*agit;
-  } else {
-    /* galop : antérieurs ensemble, postérieurs ensemble, dos qui travaille */
-    var av=Math.sin(ph), ar=Math.sin(ph-2.1);
-    [1,-1].forEach(function(c){
-      var s=c>0?'G':'D', d=c>0?0:0.22;      /* les deux antérieurs décalés d'un rien */
-      var a=Math.sin(ph-d);
-      art['epaule'+s].rotation.z = a*0.86;
-      art['coude'+s].rotation.z  = -0.18-Math.max(0,-a)*1.25;
-      art['piedAv'+s].rotation.z = -0.12-Math.max(0,-a)*0.45;
-      var b=Math.sin(ph-2.1-d);
-      art['hanche'+s].rotation.z = b*0.78;
-      art['genou'+s].rotation.z  = 0.70-b*0.60;
-      art['jarret'+s].rotation.z = -0.75-Math.max(0,-b)*0.70;
-      art['piedAr'+s].rotation.z = 0.14+Math.max(0,b)*0.30;
-    });
-    corps.position.y=0.470+(Math.sin(ph-0.9)*0.050+0.018);
-    corps.rotation.x=Math.sin(ph-1.2)*0.14;
-    corps.rotation.z=0;
+  if(!CHIEN || !CHIEN.userData.pret) return;
+  var E=CHIEN.userData.etat, U=CHIEN.userData, v=Math.abs(E.v);
+  if(E.mode==='mord'){
+    /* le saut au visage : il bondit, puis il mord */
+    allureChien(E.tMode<0.30 ? 'Run_Jump' : 'Attack',0.06);
   }
-
-  /* la tête : elle oscille avec l'allure, et se tourne vers le coureur
-     quand il est proche — c'est ce qui fait qu'on se sent visé */
-  var versJoueur=ecartAngle(Math.atan2(J.z-E.z,J.x-E.x)-E.cap);
-  var pres=Math.max(0,Math.min(1,(6-E.d)/5));
-  art.cou.rotation.y=-versJoueur*0.45*pres;
-  art.cou.rotation.z=(E.mode==='charge'||E.mode==='mord') ? -0.18 : 0.06+Math.sin(ph)*0.05*agit;
-  art.tete.rotation.y=-versJoueur*0.30*pres;
-  art.tete.rotation.z=(E.mode==='mord') ? -0.30 : Math.sin(ph*2)*0.04*agit;
-
-  /* la gueule : fermée en suivant, ouverte quand il charge, grande ouverte
-     au moment de mordre */
-  var g=0;
-  if(E.mode==='charge') g=0.12+0.10*Math.abs(Math.sin(ph*3));
-  else if(E.mode==='mord') g=0.34+0.14*Math.sin(E.tMode*22);
-  else if(v>2) g=0.05+0.03*Math.abs(Math.sin(ph));
-  art.machoire.rotation.z=g;
-
-  /* les oreilles : dressées en suivant, rabattues en charge */
-  var rab=(E.mode==='charge'||E.mode==='mord')?1:0;
-  E.oreille+=(rab-E.oreille)*Math.min(1,dt*6);
-  art.oreilleG.rotation.z=-E.oreille*0.85;
-  art.oreilleD.rotation.z=-E.oreille*0.85;
-  art.oreilleG.rotation.x=-0.20-E.oreille*0.35;
-  art.oreilleD.rotation.x= 0.20+E.oreille*0.35;
-
-  /* la queue : elle balance au trot, se raidit à l'horizontale en charge */
-  var qb=(E.mode==='suit')?Math.sin(ph*1.6)*0.28*agit:Math.sin(ph*4)*0.10;
-  /* Les rotations se cumulent le long de la chaîne : trois valeurs
-     négatives en série redressaient la queue à l'horizontale au lieu de la
-     courber. Le premier segment part vers l'arrière, les deux suivants
-     reviennent un peu vers le bas — c'est le port en sabre. */
-  var qh=(E.mode==='suit')?-0.85:-0.40;
-  art.queue1.rotation.z=qh; art.queue1.rotation.y=qb;
-  art.queue2.rotation.z=0.19; art.queue3.rotation.z=0.22;
-  art.queue2.rotation.y=qb*0.8; art.queue3.rotation.y=qb*0.6;
+  else if(v<0.25) allureChien('Idle',0.25);
+  else if(v<2.4) allureChien('Walk');
+  else allureChien('Run');
+  /* la cadence suit la vitesse : le pas du modèle vaut environ 1,4 m/s
+     en marche et 6 m/s au galop, on étire le temps autour de cela */
+  var vit=1;
+  if(U.acte){
+    if(U.acte===U.actes.Walk) vit=Math.max(0.55,Math.min(1.9,v/1.4));
+    else if(U.acte===U.actes.Run) vit=Math.max(0.7,Math.min(1.8,v/6.0));
+    U.acte.setEffectiveTimeScale(vit);
+  }
+  U.mix.update(dt);
 }
 
 /* ---------------- le comportement ----------------
@@ -4226,7 +4178,99 @@ function animerChien(dt){
    celle de la race, onze mètres par seconde : au-delà de quarante à l'heure
    il ne suit plus, ce qui est la vérité.                                */
 var CH_VMAX=11.0;
-var _vRegard=new THREE.Vector3();
+var _vRegard=new THREE.Vector3(), _vBond=new THREE.Vector3();
+
+/* =================================================================
+   La farce : le chien saute au visage.
+
+   Elle ne se déclenche que si l'on s'est retourné et qu'il a rattrapé
+   — c'est déjà la condition de la morsure, qui demande de l'avoir
+   regardé. Avancer tout droit, s'arrêter, ne rien regarder derrière :
+   il reste à trotter dans le dos et rien n'arrive. C'est une blague,
+   elle ne doit jamais gêner celui qui ne la cherche pas.
+
+   Ce qu'on voit : le chien bondit vers la tête pendant trois dixièmes
+   de seconde, puis le noir tombe. Il ne se lève que lorsqu'on regarde
+   de nouveau devant soi, dans l'axe de course. Au bout de huit
+   secondes il se lève de lui-même : rester coincé dans le noir n'est
+   drôle pour personne.
+
+   Deux voiles, parce que deux mondes. À l'écran, un calque de page,
+   qui ne coûte rien. Au casque, un plan noir accroché à la caméra :
+   un calque de page ne s'y voit pas, l'image est faite par le moteur.
+================================================================= */
+var PEUR={actif:false, t:0, voile:null, plan:null};
+var PEUR_BOND=0.30, PEUR_MAX=8;
+
+function voilePage(){
+  if(PEUR.voile) return PEUR.voile;
+  var d=document.createElement('div');
+  d.id='e3-peur';
+  d.style.cssText='position:absolute;inset:0;z-index:70;background:#000;opacity:0;'+
+    'pointer-events:none;transition:opacity .12s linear';
+  var e3=$e('e3');
+  if(e3) e3.appendChild(d);
+  PEUR.voile=d;
+  return d;
+}
+function voileCasque(){
+  if(PEUR.plan) return PEUR.plan;
+  if(!camera) return null;
+  var m=new THREE.Mesh(new THREE.PlaneGeometry(6,6),
+    new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0,
+      depthTest:false, depthWrite:false, side:THREE.DoubleSide, toneMapped:false}));
+  m.position.set(0,0,-0.30);
+  m.renderOrder=99999;
+  m.frustumCulled=false;
+  m.visible=false;
+  camera.add(m);
+  PEUR.plan=m;
+  return m;
+}
+function lancerPeur(){
+  if(PEUR.actif) return;
+  if(!CHIEN || !CHIEN.visible) return;      /* pas de farce à la troisième personne */
+  PEUR.actif=true; PEUR.t=0;
+  voilePage(); voileCasque();
+}
+/* l'opacité du noir : rien pendant le bond, tout ensuite */
+function majPeur(dt){
+  var op=0;
+  if(PEUR.actif){
+    PEUR.t+=dt;
+    op=Math.max(0,Math.min(1,(PEUR.t-PEUR_BOND)/0.12));
+    /* on regarde de nouveau devant : le noir se lève */
+    var devant=false;
+    if(PEUR.t>PEUR_BOND+0.25){
+      var dv=camera.getWorldDirection(_vRegard);
+      var regard=(Math.abs(dv.x)+Math.abs(dv.z)>1e-4) ? Math.atan2(dv.z,dv.x) : CAM.yaw;
+      devant=Math.abs(ecartAngle(regard-J.cap))<0.65;
+    }
+    if(devant || PEUR.t>PEUR_MAX || !CHIEN_VOULU || !ouvert){ PEUR.actif=false; PEUR.t=0; op=0; }
+  }
+  if(PEUR.voile) PEUR.voile.style.opacity=op;
+  if(PEUR.plan){
+    PEUR.plan.visible=op>0.001;
+    PEUR.plan.material.opacity=op;
+  }
+}
+/* pendant le bond, le chien quitte le sol et vient à hauteur de visage :
+   c'est la seule fois où sa position n'est pas celle du comportement */
+function bondPeur(){
+  if(!PEUR.actif || !CHIEN || PEUR.t>PEUR_BOND+0.5) return false;
+  var f=Math.min(1,PEUR.t/PEUR_BOND);
+  var oeil=camera.getWorldPosition(_vBond);
+  var dv=camera.getWorldDirection(_vRegard);
+  var dx=dv.x, dz=dv.z, dr=Math.hypot(dx,dz)||1;
+  dx/=dr; dz/=dr;
+  var E=CHIEN.userData.etat;
+  /* de sa place jusqu'à un demi-mètre devant les yeux */
+  var cx=oeil.x+dx*0.55, cz=oeil.z+dz*0.55, cy=oeil.y-0.25;
+  CHIEN.position.set(E.x+(cx-E.x)*f, hauteur(E.x,E.z)+(cy-hauteur(E.x,E.z))*f, E.z+(cz-E.z)*f);
+  CHIEN.rotation.y=-Math.atan2(oeil.z-CHIEN.position.z, oeil.x-CHIEN.position.x);
+  return true;
+}
+
 function majChien(dt){
   if(!CHIEN) return;
   var E=CHIEN.userData.etat;
@@ -4254,7 +4298,7 @@ function majChien(dt){
   else if(E.mode==='recule' && E.tMode>1.4){ E.mode='suit'; E.tMode=0; }
   else if(E.mode==='charge' && !vu && E.tMode>1.2){ E.mode='suit'; E.tMode=0; }
   else if(E.mode==='suit' && vu && E.d<11){ E.mode='charge'; E.tMode=0; }
-  else if(E.mode==='charge' && E.d<1.5){ E.mode='mord'; E.tMode=0; E.morsures++; }
+  else if(E.mode==='charge' && E.d<1.5){ E.mode='mord'; E.tMode=0; E.morsures++; lancerPeur(); }
 
   /* la distance où il se tient */
   var dVoulu;
@@ -4287,8 +4331,12 @@ function majChien(dt){
      dans le dos du coureur plutôt que de courir éternellement derrière */
   if(E.d>90){ E.x=J.x-Math.cos(J.cap)*12; E.z=J.z-Math.sin(J.cap)*12; E.v=0; }
 
+  /* il ne se montre qu’à la première personne : à la troisième la caméra
+     est derrière le coureur et le chien lui passerait devant sans arrêt */
+  CHIEN.visible = CHIEN_VOULU && (VUE==='fp' || (typeof XR3D!=='undefined' && XR3D && XR3D.actif));
   CHIEN.position.set(E.x, hauteur(E.x,E.z), E.z);
   CHIEN.rotation.y=-E.cap;
+  bondPeur();          /* pendant la farce, le chien quitte sa trajectoire */
   animerChien(dt);
 }
 
@@ -4334,7 +4382,7 @@ function boucle(){
   /* en VR c'est le casque qui cadence, pas l'écran : setAnimationLoop rappelle boucle() */
   boucleId=XR3D.actif ? 1 : requestAnimationFrame(boucle);
   var dt=Math.min(0.06,horloge.getDelta());
-  if(XR3D.actif){ xrManches(); xrMesure(dt); }
+  if(XR3D.actif){ xrManches(dt); xrMesure(dt); }
   TSIM+=dt; IMAGES++;
   /* Le temps de la montre, à côté de celui de la simulation. Les cinq
      secondes promises à la main sont des secondes, pas des images : sur un
@@ -4382,6 +4430,7 @@ function boucle(){
   /* le chien : posé à la première image où l'atlas est prêt */
   if(CHIEN_VOULU && !CHIEN) poserChien();
   if(CHIEN) majChien(dt);
+  majPeur(dt);
 
   /* le gyroscope pousse la caméra comme le ferait un doigt, avant que le
      compte de liberté ne soit examiné */
@@ -14547,9 +14596,9 @@ function poserEnseignes(){
 
    Le manche gauche avance, recule, pas de côté : il nourrit les mêmes
    touches que le clavier, donc les collisions, le relief et l'allure
-   marchent sans rien savoir du casque. Le manche droit tourne par
-   crans de 30° : tourner en continu donne mal au cœur, un cran net ne
-   donne rien du tout. La gâchette accélère.
+   marchent sans rien savoir du casque. Le manche droit fait tourner le
+   corps sans à-coups, d’autant plus vite qu’il est poussé loin ; la
+   course du début est douce, pour viser. La gâchette accélère.
 
    Un Quest 2 demande 72 images par seconde, en double. C'est trois
    fois le budget d'un écran de téléphone : à l'entrée on force donc la
@@ -14559,8 +14608,8 @@ function poserEnseignes(){
    savoir si ça tient, personne ne peut lire un compteur dans le casque.
 ================================================================= */
 /* le casque fournit lui-même la hauteur des yeux : le support se pose au sol */
-var XR_CRAN=30*Math.PI/180;
-var XR_SEUIL=0.72;         /* le manche doit être franchement poussé pour tourner */
+var XR_TOUR=2.1;           /* radians par seconde, manche à fond : un tour en trois secondes */
+var XR_MORT=0.18;          /* sous ce quart de poussée, le manche est au repos */
 var XR_PROFIL={qualite:0, dist:180};
 
 /* le rendu normal, et celui du casque */
@@ -14582,7 +14631,7 @@ function rendreVue(){
 }
 
 /* ---------------- manettes ---------------- */
-function xrManches(){
+function xrManches(dt){
   var s=XR3D.session;
   if(!s || !s.inputSources) return;
   var av=0, lat=0, tour=0, vite=false;
@@ -14600,14 +14649,14 @@ function xrManches(){
   touches.__av=av>m; touches.__ar=av<-m;
   touches.__ga=lat<-m; touches.__dr=lat>m;
   touches.shift=vite;
-  /* rotation par crans : un cran par poussée, rien tant qu'on ne relâche pas */
-  if(Math.abs(tour)>XR_SEUIL){
-    if(!XR3D.tourne){
-      XR3D.tourne=(tour>0)?1:-1;
-      CAM.yaw+=XR3D.tourne*XR_CRAN;
-      if(typeof mainCamera==='function') mainCamera(true);
-    }
-  } else if(Math.abs(tour)<0.35) XR3D.tourne=0;
+  /* Rotation continue. Elle tournait par crans de 30°, ce qui épargne le mal
+     de cœur mais hache le regard ; Nicolas la veut fluide, alors elle l'est.
+     La poussée est mise au carré : le début de course tourne lentement, ce
+     qui permet de viser, et le fond du manche donne la pleine vitesse. */
+  if(Math.abs(tour)>XR_MORT){
+    var p=(Math.abs(tour)-XR_MORT)/(1-XR_MORT);
+    CAM.yaw += (tour>0?1:-1) * p*p * XR_TOUR * dt;
+  }
   /* la main tient la caméra tant qu'on est en VR : sans cela le programme
      reprendrait l'axe de course tout seul et arracherait le regard */
   if(typeof mainCamera==='function') mainCamera(true);
