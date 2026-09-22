@@ -4226,16 +4226,27 @@ function animerChien(dt){
    celle de la race, onze mètres par seconde : au-delà de quarante à l'heure
    il ne suit plus, ce qui est la vérité.                                */
 var CH_VMAX=11.0;
+var _vRegard=new THREE.Vector3();
 function majChien(dt){
   if(!CHIEN) return;
   var E=CHIEN.userData.etat;
   var dx=J.x-E.x, dz=J.z-E.z;
   E.d=Math.hypot(dx,dz);
 
-  /* est-ce qu'on le regarde ? À la première personne c'est le regard qui
-     compte ; à la troisième, la caméra voit tout, on prend l'axe du corps. */
+  /* Est-ce qu'on le regarde ? À la première personne et au casque, c'est le
+     regard qui compte ; à la troisième, la caméra voit tout et prendre son
+     axe ferait charger le chien en permanence, donc on prend l'axe du corps.
+
+     En VR, CAM.yaw n'est que l'orientation de la nacelle : tourner la tête
+     dans le casque ne le change pas. On lit donc la direction réelle de la
+     caméra dans le monde, ce qui vaut aussi bien à l'écran — et c'est le
+     seul moyen que se retourner physiquement soit vu comme se retourner. */
   var azChien=Math.atan2(E.z-J.z,E.x-J.x);
-  var regard=(VUE==='fp')?CAM.yaw:J.cap;
+  var regard;
+  if(VUE==='fp' || (typeof XR3D!=='undefined' && XR3D && XR3D.actif)){
+    var dv=camera.getWorldDirection(_vRegard);
+    regard=(Math.abs(dv.x)+Math.abs(dv.z)>1e-4) ? Math.atan2(dv.z,dv.x) : CAM.yaw;
+  } else regard=J.cap;
   var vu=Math.abs(ecartAngle(azChien-regard))<0.95 && E.d<14;
 
   E.tMode+=dt;
