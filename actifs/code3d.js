@@ -4179,6 +4179,34 @@ function animerChien(dt){
    il ne suit plus, ce qui est la vérité.                                */
 var CH_VMAX=11.0;
 var _vRegard=new THREE.Vector3(), _vBond=new THREE.Vector3();
+/* Le regard vrai, celui du casque.
+
+   Object3D.getWorldDirection recalcule la matrice du monde depuis la
+   position locale avant de la lire. À l'écran c'est exact. Au casque,
+   non : la caméra est rangée dans un support et sa position locale est
+   celle qu'écrit le programme, pas la pose de la tête. On relisait donc
+   un regard inventé, et le chien ne savait jamais qu'on s'était retourné
+   — il arrivait aux pieds et y restait.
+
+   La seule image où camera.matrixWorld porte la pose du casque, c'est
+   celle que vient de rendre le moteur. On la cueille là, juste après le
+   rendu, et tout ce qui a besoin du regard la lit ensuite. */
+var _xrRegard=new THREE.Vector3(0,0,-1), _xrOeil=new THREE.Vector3(), _xrPris=false;
+function cueillirRegardCasque(){
+  var e=camera.matrixWorld.elements;
+  _xrRegard.set(-e[8],-e[9],-e[10]);
+  if(_xrRegard.lengthSq()>1e-8) _xrRegard.normalize();
+  _xrOeil.set(e[12],e[13],e[14]);
+  _xrPris=true;
+}
+function regardMonde(){
+  if(XR3D.actif && _xrPris) return _xrRegard;
+  return camera.getWorldDirection(_vRegard);
+}
+function oeilMonde(){
+  if(XR3D.actif && _xrPris) return _xrOeil;
+  return camera.getWorldPosition(_vBond);
+}
 
 /* =================================================================
    La farce : le chien saute au visage.
@@ -4213,17 +4241,23 @@ function voilePage(){
   PEUR.voile=d;
   return d;
 }
+/* Au casque, le voile ne peut pas être un calque de page : l'image est
+   faite par le moteur. C'est donc un plan noir, et il est posé dans le
+   monde plutôt qu'accroché à la caméra — accroché, sa matrice serait
+   calculée avant que le moteur n'y mette la pose du casque, et il
+   flotterait aux pieds du coureur au lieu d'être devant les yeux. On le
+   place à chaque image depuis la pose cueillie au rendu précédent :
+   quatorze millisecondes de retard, que personne ne voit sur du noir. */
 function voileCasque(){
   if(PEUR.plan) return PEUR.plan;
-  if(!camera) return null;
-  var m=new THREE.Mesh(new THREE.PlaneGeometry(6,6),
+  if(!scene) return null;
+  var m=new THREE.Mesh(new THREE.PlaneGeometry(8,8),
     new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0,
       depthTest:false, depthWrite:false, side:THREE.DoubleSide, toneMapped:false}));
-  m.position.set(0,0,-0.30);
   m.renderOrder=99999;
   m.frustumCulled=false;
   m.visible=false;
-  camera.add(m);
+  scene.add(m);
   PEUR.plan=m;
   return m;
 }
@@ -4242,7 +4276,7 @@ function majPeur(dt){
     /* on regarde de nouveau devant : le noir se lève */
     var devant=false;
     if(PEUR.t>PEUR_BOND+0.25){
-      var dv=camera.getWorldDirection(_vRegard);
+      var dv=regardMonde();
       var regard=(Math.abs(dv.x)+Math.abs(dv.z)>1e-4) ? Math.atan2(dv.z,dv.x) : CAM.yaw;
       devant=Math.abs(ecartAngle(regard-J.cap))<0.65;
     }
@@ -4250,8 +4284,14 @@ function majPeur(dt){
   }
   if(PEUR.voile) PEUR.voile.style.opacity=op;
   if(PEUR.plan){
-    PEUR.plan.visible=op>0.001;
+    var montre=op>0.001 && XR3D.actif;
+    PEUR.plan.visible=montre;
     PEUR.plan.material.opacity=op;
+    if(montre){
+      var o=oeilMonde(), r=regardMonde();
+      PEUR.plan.position.set(o.x+r.x*0.35, o.y+r.y*0.35, o.z+r.z*0.35);
+      PEUR.plan.lookAt(o.x,o.y,o.z);
+    }
   }
 }
 /* pendant le bond, le chien quitte le sol et vient à hauteur de visage :
@@ -4259,8 +4299,8 @@ function majPeur(dt){
 function bondPeur(){
   if(!PEUR.actif || !CHIEN || PEUR.t>PEUR_BOND+0.5) return false;
   var f=Math.min(1,PEUR.t/PEUR_BOND);
-  var oeil=camera.getWorldPosition(_vBond);
-  var dv=camera.getWorldDirection(_vRegard);
+  var oeil=oeilMonde();
+  var dv=regardMonde();
   var dx=dv.x, dz=dv.z, dr=Math.hypot(dx,dz)||1;
   dx/=dr; dz/=dr;
   var E=CHIEN.userData.etat;
@@ -4288,7 +4328,7 @@ function majChien(dt){
   var azChien=Math.atan2(E.z-J.z,E.x-J.x);
   var regard;
   if(VUE==='fp' || (typeof XR3D!=='undefined' && XR3D && XR3D.actif)){
-    var dv=camera.getWorldDirection(_vRegard);
+    var dv=regardMonde();
     regard=(Math.abs(dv.x)+Math.abs(dv.z)>1e-4) ? Math.atan2(dv.z,dv.x) : CAM.yaw;
   } else regard=J.cap;
   var vu=Math.abs(ecartAngle(azChien-regard))<0.95 && E.d<14;
@@ -14626,6 +14666,7 @@ function rendreVue(){
   camera.position.set(0,0,0);
   camera.quaternion.set(0,0,0,1);
   renderer.render(scene,camera);
+  cueillirRegardCasque();   /* ici seulement, matrixWorld porte la pose du casque */
   camera.position.set(px,py,pz);
   camera.quaternion.set(qx,qy,qz,qw);
 }
