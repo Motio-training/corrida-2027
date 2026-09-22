@@ -209290,11 +209290,6 @@ function kmlParcours(){
   var a=POLY[0], b=POLY[POLY.length-1];
   s+='<Placemark><name>DÉPART</name><Point><coordinates>'+lon[a].toFixed(6)+','+lat[a].toFixed(6)+',0</coordinates></Point></Placemark>\n';
   s+='<Placemark><name>ARRIVÉE</name><Point><coordinates>'+lon[b].toFixed(6)+','+lat[b].toFixed(6)+',0</coordinates></Point></Placemark>\n';
-  JAL.forEach(function(j,i){
-    var r=kmDuJalon(j);
-    s+='<Placemark><name>'+esc2('Jalonneur '+(i+1))+'</name><description>'+esc2('km '+r.km.toFixed(2).replace('.',','))+'</description>';
-    s+='<Point><coordinates>'+j.lo.toFixed(6)+','+j.la.toFixed(6)+',0</coordinates></Point></Placemark>\n';
-  });
   s+='</Document>\n</kml>\n';
   return s;
 }
@@ -209307,7 +209302,7 @@ function ouvrirLienGoogle(){
       '<p class="mode">Google Maps n’accepte que onze points par itinéraire : le lien ci-dessous reprend les onze virages les plus marquants et Google relie le reste à sa façon, à pied. Il donne une bonne idée du circuit, pas le tracé exact.</p>'+
       '<textarea id="gm-url" readonly spellcheck="false"></textarea>'+
       '<div class="modale-actions"><button id="gm-copier" class="primaire">Copier le lien</button><button id="gm-ouvrir">Ouvrir dans Google Maps</button></div>'+
-      '<p class="mode credit">Pour le tracé exact, télécharge le KML puis importe-le dans Google My Maps (mymaps.google.com, « Créer une carte » puis « Importer ») ou ouvre-le dans Google Earth. La carte obtenue se partage par un lien Google, avec le tracé au mètre près et les jalonneurs.</p>'+
+      '<p class="mode credit">Pour le tracé exact, télécharge le KML puis importe-le dans Google My Maps (mymaps.google.com, « Créer une carte » puis « Importer ») ou ouvre-le dans Google Earth. La carte obtenue se partage par un lien Google, avec le tracé au mètre près, le départ et l’arrivée.</p>'+
       '<div class="modale-actions"><button id="gm-kml">Télécharger le tracé (.kml)</button><button id="gm-non">Fermer</button></div>'+
       '<p class="mode" id="gm-etat"></p></div>';
     document.body.appendChild(m);
