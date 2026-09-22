@@ -2069,7 +2069,7 @@ button.mini{
     <p class="mode">Les <b>chevrons</b> donnent le sens de la course. Quand le parcours emprunte deux fois la même voie, les deux passages sont écartés : chacun se décale à droite de son sens de marche.</p>
     <p class="mode">Molette pour zoomer, fond de carte pour déplacer la vue, <kbd>Ctrl</kbd>+<kbd>Z</kbd> pour annuler, <kbd>P</kbd> pour masquer le panneau. Le curseur <b>Repères</b> règle la taille des pastilles, triangles et points d'ancrage sur la carte, de 60 à 320 %. Les curseurs <b>Plan</b> et <b>Satellite</b> font apparaître la carte OpenStreetMap et la vue aérienne par-dessus le fond sombre.</p>
     <p class="mode"><b>Jalonneurs</b> : les triangles marquent les postes de signaleurs, posés automatiquement aux intersections et aux points de décision. <b>Rouge</b> = indispensable, <b>orange</b> = facultatif. Clique sur un triangle pour basculer sa couleur, tire-le pour le déplacer, clic droit pour le retirer. <b>+ Jalonneur</b> puis un clic sur la carte en ajoute un, <b>Jalonneurs auto</b> les replace tous d'après le tracé du moment.</p>
-    <p class="mode"><b>Menus du haut</b> : <b>Tracé</b> (hors rues, nettoyage, retour au dernier enregistrement), <b>Ajouter</b> (jalonneurs, policier, point de la ville : clic ensuite sur la carte), <b>Calques</b> (plan, satellite, taille des repères) et <b>Fichier</b> (ouvrir, exporter, GPX, liste des rues). Le bouton ◧ masque le panneau de droite.</p>
+    <p class="mode"><b>Menus du haut</b> : <b>Tracé</b> (hors rues, nettoyage, retour au dernier enregistrement), <b>Ajouter</b> (jalonneurs, policier, point de la ville : clic ensuite sur la carte), <b>Calques</b> (plan, satellite, taille des repères) et <b>Fichier</b> (ouvrir, exporter, GPX, liste des rues, image du parcours, lien Google Maps). Le bouton ◧ masque le panneau de droite.</p>
     <p class="mode"><b>Points de la ville</b> : « + Point » dans chaque liste puis clic sur la carte, double-clic sur un nom pour le renommer, ✕ (deux fois) pour le supprimer. Glisse une ligne d'une liste à l'autre pour le classer sur le parcours ou ailleurs, et tire sa pastille sur la carte pour la déplacer.</p>
     <p class="mode"><b>Sur téléphone</b> : mode consultation automatique, la vue 3D s’ouvre directement (bouton ◧ Carte pour revenir à la carte, ou <kbd>?carte=1</kbd> à la fin de l’adresse pour commencer par la carte). La carte se déplace au doigt et se zoome en pinçant, « Infos » ouvre la liste des points, jalonneurs et rues, un point touché affiche sa fiche. Rien ne peut être modifié. Ajoute <kbd>?edition=1</kbd> à l'adresse pour forcer l'édition, ou <kbd>?consultation=1</kbd> pour voir le mode consultation sur ordinateur.</p>
     <p class="mode"><b>Piste d'obstacles</b> : les carrés bruns numérotés de 1 à 20 sont les obstacles. Glisse-les pour les déplacer, clic droit pour les tourner de 15° (la petite flèche indique le sens de passage). Tout est repris dans la 3D.</p>
@@ -208557,6 +208557,10 @@ if(window.CONSULTATION){
     ['pointerup','touchend','click'].forEach(function(ty){ window.addEventListener(ty,premierGeste,{capture:true, passive:true}); });
     ['fullscreenchange','webkitfullscreenchange'].forEach(function(ty){ document.addEventListener(ty,function(){ if(enPleinEcran()) obtenu=true; }); });
     if(/carte=1/.test(q)) return;
+    /* Safari sur iPhone tombe en manque de mémoire pendant la construction de
+       la ville : on ne lui ouvre plus la 3D d'office. Il arrive sur la carte,
+       qui lui va très bien, et demande la 3D s'il la veut. */
+    if(/iP(hone|od|ad)/.test(navigator.platform||'') || /iPhone|iPad|iPod/.test(navigator.userAgent||'')) return;
     setTimeout(function(){
       var b=document.getElementById('b-3d');
       if(b && !document.body.classList.contains('en-3d')) b.click();
@@ -209031,10 +209035,623 @@ function telechargerRues(){
     if(pop && b.parentNode!==pop) pop.appendChild(b);
   },0);
 })();
+
+/* ---------------------------------------------------------------
+   Menu Fichier, deux sorties de plus :
+   - « Image du parcours (.png) » : la carte cadrée sur le parcours,
+     avec un aperçu qui se refait à chaque case cochée et le choix de
+     la résolution. Le dessin est refait à une largeur de référence,
+     la carte est clonée, allégée (zones de clic, infobulles, tout ce
+     qui sort du cadre), puis remise comme elle était ; le SVG obtenu
+     est peint sur un canevas à la taille voulue. La version
+     vectorielle reste téléchargeable à côté.
+   - « Lien Google Maps » : un itinéraire à pied passant par les
+     points marquants du tracé (Google n'accepte que 9 étapes
+     intermédiaires, le tracé exact est donné à côté en KML).
+   Chargé après ed_app21.
+--------------------------------------------------------------- */
+var IMG_REF=2000;          /* largeur de dessin, la résolution n'est qu'une mise à l'échelle */
+var IMG_FINESSE=0.92;      /* le tracé est à peine plus fin que sur la carte à l’écran */
+var IMG_LISERE=2.8;        /* liseré sombre sous le tracé, pour le détacher du fond */
+var IMG_HALO=0.34;         /* halo de la couleur du parcours autour du liseré */
+var IMG_AVIVE=1.18;        /* couleur du tracé relevée sur l’image */
+function aviverCouleur(coul){
+  var m=/^#([0-9a-fA-F]{6})$/.exec(coul||'');
+  if(!m) return null;
+  var n=parseInt(m[1],16), v=[(n>>16)&255,(n>>8)&255,n&255];
+  return '#'+v.map(function(x){
+    var y=Math.min(255,Math.round(x*IMG_AVIVE));
+    return (y<16?'0':'')+y.toString(16);
+  }).join('');
+}
+function telechargerBlob(nom,contenu,type){
+  var b=(contenu instanceof Blob) ? contenu : new Blob([contenu],{type:type+';charset=utf-8'});
+  var u=URL.createObjectURL(b), a=document.createElement('a');
+  a.href=u; a.download=nom;
+  document.body.appendChild(a); a.click(); a.parentNode.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(u); },5000);
+}
+function nomParcours(){ return (typeof PARC!=='undefined' && PARC) ? PARC.liste[PARC.actif].nom : ''; }
+/* identifiants posés une fois sur les calques, pour les retrouver dans la copie */
+(function(){
+  [[gAutres,'c-autres'],[gHalo,'c-halo'],[gTrace,'c-trace'],[gFleche,'c-fleche'],[gEquip,'c-equip'],
+   [gPiste,'c-piste'],[gKm,'c-km'],[gPoi,'c-poi'],[gJal,'c-jal'],[gWp,'c-wp']].forEach(function(p){
+    if(p[0] && !p[0].id) p[0].id=p[1];
+  });
+})();
+function metresParUnite(){
+  var lo=lon[POLY[0]]||-0.21, d=0.001;
+  var dx=X(lo+d)-X(lo);
+  return dx ? Math.abs(EQ_MLON*d/dx) : 1;
+}
+function redessinerCarte(){
+  majTransform();
+  [dessinerTrace,dessinerFleches,dessinerBornes,dessinerPois,dessinerJalons,dessinerEquip,dessinerPiste,dessinerAutres,dessinerPoignees]
+    .forEach(function(f){ if(typeof f==='function') try{ f(); }catch(e){ console.error(e); } });
+}
+/* le fond couvre toute la ville : hors du cadre, on jette */
+function elaguerHorsCadre(racine,x0,y0,x1,y1){
+  if(!racine) return;
+  Array.prototype.slice.call(racine.querySelectorAll('path')).forEach(function(p){
+    var d=p.getAttribute('d');
+    if(!d) return;
+    var n=d.match(/-?\d+(?:\.\d+)?/g);
+    if(!n || n.length<4) return;
+    var a=1e18,b=-1e18,cc=1e18,e=-1e18, i;
+    for(i=0;i+1<n.length;i+=2){
+      var u=+n[i], v=+n[i+1];
+      if(u<a)a=u; if(u>b)b=u; if(v<cc)cc=v; if(v>e)e=v;
+    }
+    if(b<x0 || a>x1 || e<y0 || cc>y1) p.parentNode.removeChild(p);
+  });
+  Array.prototype.slice.call(racine.querySelectorAll('image')).forEach(function(im){
+    var a=+im.getAttribute('x'), cc=+im.getAttribute('y');
+    var b=a+(+im.getAttribute('width')||0), e=cc+(+im.getAttribute('height')||0);
+    if(b<x0 || a>x1 || e<y0 || cc>y1) im.parentNode.removeChild(im);
+  });
+}
+/* le fond dessiné, calque par calque : les polygones se trient à la couleur */
+var FOND_BATI='#1D2533', FOND_EAU='#1A2C3A';
+function trierFond(V,ch){
+  if(!V) return;
+  Array.prototype.slice.call(V.children).forEach(function(g){
+    if(g.tagName==='rect' || g.id==='bati3d') return;
+    var st=g.getAttribute('stroke');
+    if(g.getAttribute('font-family')){ if(!ch.fNoms) V.removeChild(g); return; }
+    if(st==='#2E5570'){ if(!ch.fEau) V.removeChild(g); return; }
+    if(st==='#454F63'){ if(!ch.fRail) V.removeChild(g); return; }
+    if(st==='#7E9067'){ if(!ch.fEmprise) V.removeChild(g); return; }
+    if(st==='none'){
+      Array.prototype.slice.call(g.children).forEach(function(p){
+        var f=p.getAttribute('fill')||'';
+        var garde = (f===FOND_BATI) ? ch.fBati : (f===FOND_EAU ? ch.fEau : ch.fVeg);
+        if(!garde) g.removeChild(p);
+      });
+      return;
+    }
+    if(!ch.fRues) V.removeChild(g);
+  });
+}
+/* Les traits de la carte sont en « non-scaling-stroke » : leur épaisseur est
+   comptée en pixels de la fenêtre, donc plus l'image est grande, plus ils
+   paraissent fins. Pour que le fichier ressemble à l'aperçu quelle que soit
+   la résolution, on repasse tout en unités du dessin, divisées par l'échelle. */
+function figerEpaisseurs(racine,kk){
+  Array.prototype.slice.call(racine.querySelectorAll('[vector-effect]')).forEach(function(e){
+    if(e.getAttribute('vector-effect')!=='non-scaling-stroke' || e.dataset.fige) return;
+    function convertir(x,defaut){
+      if(x.dataset.fige) return;
+      x.dataset.fige='1';
+      var w=x.getAttribute('stroke-width');
+      if(w===null){ if(defaut) x.setAttribute('stroke-width',(1/kk).toFixed(4)); }
+      else x.setAttribute('stroke-width',(+w/kk).toFixed(4));
+      var d=x.getAttribute('stroke-dasharray');
+      if(d) x.setAttribute('stroke-dasharray',d.trim().split(/[\s,]+/).map(function(v){ return (+v/kk).toFixed(4); }).join(' '));
+    }
+    convertir(e,true);
+    Array.prototype.slice.call(e.querySelectorAll('[stroke-width],[stroke-dasharray]')).forEach(function(d){ convertir(d,false); });
+    e.removeAttribute('vector-effect');
+  });
+  Array.prototype.slice.call(racine.querySelectorAll('[vector-effect]')).forEach(function(e){ e.removeAttribute('vector-effect'); });
+  Array.prototype.slice.call(racine.querySelectorAll('[data-fige]')).forEach(function(e){ e.removeAttribute('data-fige'); });
+}
+/* cartouche : titre, chiffres, échelle et nord, en unités de la page */
+function cartoucheSVG(L,H,mpu,kk,ch){
+  var g=el('g',{}), y=H-64;
+  g.appendChild(el('rect',{x:0,y:y-20,width:L,height:84,fill:'#0B1019','fill-opacity':0.94}));
+  if(ch.cTitre){
+    var t1=el('text',{x:24,y:y+8,'font-family':'Oswald, Impact, sans-serif','font-size':26,'font-weight':600,fill:'#F2B33D'});
+    t1.textContent='CORRIDA 2027 ENSOA – PARCOURS '+nomParcours();
+    g.appendChild(t1);
+  }
+  if(ch.cChiffres){
+    var infos=(CUM[CUM.length-1]/1000).toFixed(2).replace('.',',')+' km';
+    if(INFO && INFO.dplus) infos+='  ·  '+Math.round(INFO.dplus)+' m D+';
+    if(JAL.length) infos+='  ·  '+JAL.length+' jalonneur'+(JAL.length>1?'s':'');
+    infos+='  ·  Saint-Maixent-l’École  ·  '+new Date().toLocaleDateString('fr-FR');
+    var t2=el('text',{x:24,y:y+36,'font-family':'Helvetica, Arial, sans-serif','font-size':15,fill:'#C9CED4'});
+    t2.textContent=infos;
+    g.appendChild(t2);
+  }
+  var x0=L-24;
+  if(ch.cEchelle){
+    /* une longueur ronde proche de 12 % de la largeur */
+    var visee=L*0.12*mpu/kk, pas=[50,100,200,250,500,1000,2000], m=pas[0], i;
+    for(i=0;i<pas.length;i++) if(Math.abs(pas[i]-visee)<Math.abs(m-visee)) m=pas[i];
+    var lpx=m*kk/mpu;
+    x0=L-24-lpx;
+    g.appendChild(el('line',{x1:x0,y1:y+22,x2:x0+lpx,y2:y+22,stroke:'#F4F4F0','stroke-width':3}));
+    [x0,x0+lpx].forEach(function(x){ g.appendChild(el('line',{x1:x,y1:y+15,x2:x,y2:y+29,stroke:'#F4F4F0','stroke-width':3})); });
+    var t3=el('text',{x:x0+lpx/2,y:y+8,'text-anchor':'middle','font-family':'Helvetica, Arial, sans-serif','font-size':14,fill:'#F4F4F0'});
+    t3.textContent=(m>=1000 ? (m/1000)+' km' : m+' m');
+    g.appendChild(t3);
+  }
+  if(ch.cNord){
+    /* la carte est en projection Mercator, le nord est vers le haut */
+    var xn=x0-46;
+    g.appendChild(el('path',{d:'M'+xn+' '+(y+30)+'L'+(xn-7)+' '+(y+30)+'L'+xn+' '+(y+4)+'L'+(xn+7)+' '+(y+30)+'Z',fill:'#F4F4F0'}));
+    var t4=el('text',{x:xn,y:y-2,'text-anchor':'middle','font-family':'Oswald, Impact, sans-serif','font-size':15,fill:'#F4F4F0'});
+    t4.textContent='N';
+    g.appendChild(t4);
+  }
+  return g;
+}
+var ZONE_MATERIEL=['arche','tente_chrono','tente_medicale','tente_ravito','sono','table_ravito','eclairage','ambulance',
+  'arche_depart','tente_accueil','tente_consigne','wc','sas_1','sas_2','sas_3'];
+function imageParcoursSVG(ch){
+  var L=IMG_REF;
+  var s={k:k, tx:tx, ty:ty, T:TAILLE, BAR:BAR, RUB:RUB, VEH:VEH, ZSV:ZSV, SELC:SELC};
+  if(ch.plan) construireTuiles('tuiles-data',raster,'png');
+  if(ch.sat) construireTuiles('sat-data',satellite,'jpeg');
+  var mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity, i;
+  for(i=0;i<POLY.length;i++){
+    var x=px[POLY[i]], y=py[POLY[i]];
+    if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y;
+  }
+  if(ch.piste && typeof PISTE_REP!=='undefined' && PISTE_REP) Object.keys(PISTE_REP).forEach(function(r){
+    var p=PISTE_REP[r], x2=X(p[1]), y2=Y(p[0]);
+    if(x2<mnx)mnx=x2; if(x2>mxx)mxx=x2; if(y2<mny)mny=y2; if(y2>mxy)mxy=y2;
+  });
+  var marge=54, larg=Math.max(1,mxx-mnx), haut=Math.max(1,mxy-mny);
+  var kk=(L-2*marge)/larg, cart=(ch.cTitre||ch.cChiffres||ch.cEchelle||ch.cNord);
+  var H=Math.round(haut*kk+2*marge+(cart?92:0));
+  k=kk; tx=marge-mnx*k; ty=marge-mny*k;
+  TAILLE=s.T*(L/VBW);
+  SELC=null;
+  /* le matériel partage un seul calque : on filtre les listes le temps du dessin */
+  var tousEq=ch.bar&&ch.rub&&ch.mat&&ch.veh&&ch.pol&&ch.zones;
+  var aucunEq=!(ch.bar||ch.rub||ch.mat||ch.veh||ch.pol||ch.zones);
+  if(!tousEq && !aucunEq){
+    if(!ch.bar) BAR=[];
+    if(!ch.rub) RUB=[];
+    if(!ch.zones) ZSV=[];
+    VEH=VEH.filter(function(v){
+      if(v.t==='policier') return !!ch.pol;
+      if(ZONE_MATERIEL.indexOf(v.t)>=0) return !!ch.mat;
+      return !!ch.veh;
+    });
+  }
+  redessinerCarte();
+  var c=svg.cloneNode(true);
+  var cadre=[(0-tx)/k, (0-ty)/k, (L-tx)/k, (H-ty)/k];
+  /* remise en état de la carte à l'écran avant toute autre chose */
+  k=s.k; tx=s.tx; ty=s.ty; TAILLE=s.T; BAR=s.BAR; RUB=s.RUB; VEH=s.VEH; ZSV=s.ZSV; SELC=s.SELC;
+  redessinerCarte();
+  c.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  c.setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+  c.setAttribute('viewBox','0 0 '+L+' '+H);
+  c.setAttribute('width',L); c.setAttribute('height',H);
+  c.removeAttribute('id'); c.removeAttribute('style'); c.removeAttribute('class');
+  function jeter(id){ var e=c.querySelector('#'+id); if(e && e.parentNode) e.parentNode.removeChild(e); }
+  if(!ch.plan) jeter('raster'); else { var r=c.querySelector('#raster'); if(r) r.setAttribute('style','opacity:1'); }
+  if(!ch.sat) jeter('satellite'); else { var sa=c.querySelector('#satellite'); if(sa) sa.setAttribute('style','opacity:1'); }
+  trierFond(c.querySelector('#vecteur'),ch);
+  var v=c.querySelector('#vecteur');
+  if(v && (ch.plan || ch.sat)){
+    /* le fond photo doit rester lisible : on retire le papier du dessin et on efface ses traits */
+    var pap=v.querySelector('rect');
+    if(pap) v.removeChild(pap);
+    v.setAttribute('style','opacity:0.35');
+  }
+  if(!ch.autres) jeter('c-autres');
+  if(!ch.halo) jeter('c-halo');
+  if(!ch.trace) jeter('c-trace');
+  if(!ch.fleches) jeter('c-fleche');
+  if(!ch.km) jeter('c-km');
+  if(!ch.pois) jeter('c-poi');
+  if(!ch.piste) jeter('c-piste');
+  if(!ch.jal) jeter('c-jal');
+  if(aucunEq) jeter('c-equip');
+  /* départ et arrivée : les deux pastilles de la couche d'édition, rien d'autre */
+  var wp=c.querySelector('#c-wp');
+  if(wp){
+    if(!ch.da) wp.parentNode.removeChild(wp);
+    else Array.prototype.slice.call(wp.children).forEach(function(g){
+      if(!g.classList || !g.classList.contains('borne')) wp.removeChild(g);
+    });
+  }
+  if(ch.jal && !ch.jalNum) Array.prototype.slice.call(c.querySelectorAll('#c-jal text')).forEach(function(t){ t.parentNode.removeChild(t); });
+  /* les gestes du jalonneur encombrent l'image : ni bras tendu ni bras croisés,
+     on garde le triangle et son numéro */
+  Array.prototype.slice.call(c.querySelectorAll('#c-jal line')).forEach(function(l){ l.parentNode.removeChild(l); });
+  Array.prototype.slice.call(c.querySelectorAll('#c-jal circle')).forEach(function(q){
+    if(q.getAttribute('fill')==='#EAE4D8') q.parentNode.removeChild(q);
+  });
+  /* tracé un peu plus fin qu'à l'écran */
+  ['c-trace','c-halo'].forEach(function(id){
+    var g=c.querySelector('#'+id);
+    if(!g) return;
+    Array.prototype.slice.call(g.querySelectorAll('[stroke-width]')).forEach(function(p){
+      p.setAttribute('stroke-width',(+p.getAttribute('stroke-width')*IMG_FINESSE).toFixed(2));
+    });
+  });
+  /* le tracé doit se détacher du fond : liseré sombre dessous, couleur avivée dessus,
+     et le halo un peu plus présent pour écarter la carte autour */
+  var gT=c.querySelector('#c-trace');
+  if(gT) Array.prototype.slice.call(gT.querySelectorAll('path[stroke]')).forEach(function(p){
+    var coul=aviverCouleur(p.getAttribute('stroke'));
+    if(!coul) return;                       /* zone de clic transparente : on la laisse */
+    var w=+p.getAttribute('stroke-width')||3;
+    var lis=p.cloneNode(false);
+    lis.setAttribute('stroke','#080C14');
+    lis.setAttribute('stroke-width',(w+IMG_LISERE).toFixed(2));
+    gT.insertBefore(lis,p);
+    p.setAttribute('stroke',coul);
+  });
+  var gHa=c.querySelector('#c-halo');
+  if(gHa) Array.prototype.slice.call(gHa.querySelectorAll('path[stroke]')).forEach(function(p){
+    var coul=aviverCouleur(p.getAttribute('stroke'));
+    if(!coul) return;
+    p.setAttribute('stroke-opacity',IMG_HALO);
+    p.setAttribute('stroke',coul);
+  });
+  /* allègement : infobulles, zones de clic invisibles, curseurs */
+  Array.prototype.slice.call(c.querySelectorAll('title')).forEach(function(e){ e.parentNode.removeChild(e); });
+  Array.prototype.slice.call(c.querySelectorAll('[fill="transparent"],[stroke="transparent"]')).forEach(function(e){
+    if(e.getAttribute('fill')==='transparent' && !e.getAttribute('stroke')) e.parentNode.removeChild(e);
+    else if(e.getAttribute('stroke')==='transparent' && (e.getAttribute('fill')==='none' || !e.getAttribute('fill'))) e.parentNode.removeChild(e);
+  });
+  Array.prototype.slice.call(c.querySelectorAll('[style*="cursor"]')).forEach(function(e){ e.removeAttribute('style'); });
+  Array.prototype.slice.call(c.querySelectorAll('[pointer-events]')).forEach(function(e){ e.removeAttribute('pointer-events'); });
+  ['vecteur','raster','satellite'].forEach(function(id){ elaguerHorsCadre(c.querySelector('#'+id),cadre[0],cadre[1],cadre[2],cadre[3]); });
+  figerEpaisseurs(c,kk);
+  c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:'#0B1019'}),c.firstChild);
+  if(cart) c.appendChild(cartoucheSVG(L,H,metresParUnite(),kk,ch));
+  return {txt:'<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(c)+'\n', L:L, H:H};
+}
+/* peinture du SVG sur un canevas à la résolution demandée */
+function imagePNG(svgTxt,L,H,largeur){
+  return new Promise(function(ok,rate){
+    var url=URL.createObjectURL(new Blob([svgTxt],{type:'image/svg+xml;charset=utf-8'})), im=new Image();
+    im.onload=function(){
+      try{
+        var cv=document.createElement('canvas');
+        cv.width=Math.round(largeur); cv.height=Math.round(largeur*H/L);
+        var cx=cv.getContext('2d');
+        cx.drawImage(im,0,0,cv.width,cv.height);
+        cv.toBlob(function(b){
+          URL.revokeObjectURL(url);
+          if(b) ok({blob:b, l:cv.width, h:cv.height}); else rate(new Error('image trop grande pour ce navigateur'));
+        },'image/png');
+      }catch(e){ URL.revokeObjectURL(url); rate(e); }
+    };
+    im.onerror=function(){ URL.revokeObjectURL(url); rate(new Error('dessin illisible')); };
+    im.src=url;
+  });
+}
+
+var IMG_CHOIX={fRues:true, fBati:true, fVeg:true, fEau:true, fEmprise:true, fRail:true, fNoms:true,
+  plan:false, sat:false,
+  trace:true, halo:true, fleches:true, km:true, da:true, autres:false,
+  jal:true, jalNum:true, bar:true, rub:true, mat:true, veh:true, pol:true, zones:true, pois:false, piste:false,
+  cTitre:true, cChiffres:true, cEchelle:true, cNord:true, largeur:3000};
+var IMG_SECTIONS=[
+  ['Fond de carte',[['fRues','Rues et places'],['fBati','Bâtiments'],['fVeg','Végétation et terrains'],
+    ['fEau','Rivière et plans d’eau'],['fEmprise','Limites des quartiers militaires'],['fRail','Voie ferrée'],
+    ['fNoms','Noms de lieux'],['plan','Plan OpenStreetMap'],['sat','Vue satellite']]],
+  ['Parcours',[['trace','Tracé'],['halo','Halo du tracé'],['fleches','Flèches du sens de course'],
+    ['km','Bornes kilométriques'],['da','Départ et arrivée'],['autres','Autres parcours']]],
+  ['Dispositif',[['jal','Jalonneurs'],['jalNum','Numéros des jalonneurs'],['bar','Barrières municipales'],['rub','Rubalise et ses ancrages'],
+    ['mat','Matériel de zone'],['veh','Véhicules militaires'],['pol','Policiers'],
+    ['zones','Zones fermées à la circulation'],['pois','Points de la ville'],['piste','Piste d’obstacles']]],
+  ['Cartouche',[['cTitre','Titre'],['cChiffres','Distance, dénivelé, jalonneurs'],['cEchelle','Échelle'],['cNord','Nord']]]
+];
+var IMG_VUE={url:null, svg:null, L:0, H:0, attente:null};
+function majApercu(){
+  var m=document.getElementById('modale-image');
+  if(!m || m.hidden) return;
+  var et=m.querySelector('#img-etat'), img=m.querySelector('#img-apercu');
+  try{
+    var r=imageParcoursSVG(IMG_CHOIX);
+    if(IMG_VUE.url) URL.revokeObjectURL(IMG_VUE.url);
+    IMG_VUE.svg=r.txt; IMG_VUE.L=r.L; IMG_VUE.H=r.H;
+    IMG_VUE.url=URL.createObjectURL(new Blob([r.txt],{type:'image/svg+xml;charset=utf-8'}));
+    img.src=IMG_VUE.url;
+    var lg=IMG_CHOIX.largeur;
+    et.textContent='Aperçu à l’échelle. Le fichier fera '+lg+' × '+Math.round(lg*r.H/r.L)+' pixels.';
+  }catch(e){ console.error(e); et.textContent='Aperçu impossible : '+e.message; }
+}
+function apercuPlusTard(){
+  if(IMG_VUE.attente) clearTimeout(IMG_VUE.attente);
+  IMG_VUE.attente=setTimeout(function(){ IMG_VUE.attente=null; majApercu(); },140);
+}
+function ouvrirImageParcours(){
+  var m=document.getElementById('modale-image');
+  if(!m){
+    m=document.createElement('div');
+    m.className='modale'; m.id='modale-image'; m.hidden=true;
+    m.innerHTML='<div class="modale-in" style="width:min(1060px,100%)"><h2>Image du parcours</h2>'+
+      '<p class="mode">Coche ce que l’image doit montrer, l’aperçu suit. L’image est cadrée sur le parcours, pas sur ce qui est à l’écran.</p>'+
+      '<div style="background:#0B1019;border:1px solid var(--trait);border-radius:3px;padding:8px;display:flex;justify-content:center">'+
+      '<img id="img-apercu" alt="Aperçu du parcours" style="max-width:100%;max-height:44vh;display:block"></div>'+
+      '<div id="img-cases" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:4px 18px;align-items:start"></div>'+
+      '<label class="mode" style="display:flex;align-items:center;gap:10px">Résolution de l’image '+
+      '<select id="img-largeur"><option value="1200">1200 px</option><option value="2000">2000 px</option>'+
+      '<option value="3000" selected>3000 px</option><option value="4500">4500 px</option><option value="6000">6000 px</option></select></label>'+
+      '<p class="mode" id="img-etat"></p>'+
+      '<div class="modale-actions"><button id="img-ok" class="primaire">Télécharger l’image (.png)</button>'+
+      '<button id="img-svg">Version vectorielle (.svg)</button><button id="img-non">Fermer</button></div></div>';
+    document.body.appendChild(m);
+    var box=m.querySelector('#img-cases');
+    IMG_SECTIONS.forEach(function(sec){
+      var col=document.createElement('div');
+      var t=document.createElement('div');
+      t.className='menu-titre'; t.textContent=sec[0]; t.style.cssText='margin-bottom:4px';
+      col.appendChild(t);
+      sec[1].forEach(function(l){
+        var lab=document.createElement('label');
+        lab.className='mode';
+        lab.style.cssText='display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin:0 0 2px';
+        var c=document.createElement('input');
+        c.type='checkbox'; c.dataset.cle=l[0]; c.checked=!!IMG_CHOIX[l[0]];
+        c.addEventListener('change',function(){ IMG_CHOIX[l[0]]=c.checked; apercuPlusTard(); });
+        lab.appendChild(c);
+        lab.appendChild(document.createTextNode(l[1]));
+        col.appendChild(lab);
+      });
+      box.appendChild(col);
+    });
+    m.querySelector('#img-largeur').addEventListener('change',function(){
+      IMG_CHOIX.largeur=+this.value;
+      var et=m.querySelector('#img-etat');
+      if(IMG_VUE.L) et.textContent='Aperçu à l’échelle. Le fichier fera '+IMG_CHOIX.largeur+' × '+Math.round(IMG_CHOIX.largeur*IMG_VUE.H/IMG_VUE.L)+' pixels.';
+    });
+    m.addEventListener('click',function(ev){ if(ev.target===m) m.hidden=true; });
+    m.querySelector('#img-non').onclick=function(){ m.hidden=true; };
+    m.querySelector('#img-ok').onclick=function(){
+      var et=m.querySelector('#img-etat');
+      if(!IMG_VUE.svg){ et.textContent='Aperçu pas encore prêt.'; return; }
+      et.textContent='Peinture de l’image…';
+      imagePNG(IMG_VUE.svg,IMG_VUE.L,IMG_VUE.H,IMG_CHOIX.largeur).then(function(r){
+        telechargerBlob('corrida-2027-parcours-'+(nomParcours()||'x')+'.png',r.blob);
+        et.textContent='Image téléchargée : '+r.l+' × '+r.h+' pixels, '+Math.round(r.blob.size/1024)+' Ko.';
+        dire('Image du parcours '+nomParcours()+' téléchargée.','ok');
+      }).catch(function(e){ console.error(e); et.textContent='Échec de l’image : '+e.message+'. Essaie une résolution plus petite.'; });
+    };
+    m.querySelector('#img-svg').onclick=function(){
+      var et=m.querySelector('#img-etat');
+      if(!IMG_VUE.svg){ et.textContent='Aperçu pas encore prêt.'; return; }
+      telechargerBlob('corrida-2027-parcours-'+(nomParcours()||'x')+'.svg',IMG_VUE.svg,'image/svg+xml');
+      et.textContent='Fichier vectoriel téléchargé ('+Math.round(IMG_VUE.svg.length/1024)+' Ko). Il s’imprime à n’importe quelle taille sans perdre en qualité.';
+    };
+  }
+  m.querySelector('h2').textContent='Image du parcours '+nomParcours();
+  m.querySelector('#img-etat').textContent='Dessin de l’aperçu…';
+  m.hidden=false;
+  setTimeout(majApercu,20);
+}
+
+/* ---------- lien Google Maps et tracé KML ---------- */
+/* Google Maps n'accepte que 9 étapes entre le départ et l'arrivée : on garde
+   les points qui s'écartent le plus de la ligne, comme Douglas-Peucker. */
+function pointsMarquants(n){
+  var pts=[], i;
+  for(i=0;i<POLY.length;i++) pts.push([lat[POLY[i]], lon[POLY[i]]]);
+  if(pts.length<=n) return pts;
+  var garde=[0,pts.length-1];
+  while(garde.length<n){
+    var mieux=-1, dMax=0, pos=-1;
+    for(var g=1;g<garde.length;g++){
+      var a=pts[garde[g-1]], b=pts[garde[g]];
+      for(i=garde[g-1]+1;i<garde[g];i++){
+        var vx=(b[1]-a[1])*EQ_MLON, vy=(b[0]-a[0])*EQ_MLAT;
+        var wx=(pts[i][1]-a[1])*EQ_MLON, wy=(pts[i][0]-a[0])*EQ_MLAT;
+        var L2=vx*vx+vy*vy, t=L2 ? (wx*vx+wy*vy)/L2 : 0;
+        if(t<0) t=0; else if(t>1) t=1;
+        var d=Math.hypot(wx-t*vx, wy-t*vy);
+        if(d>dMax){ dMax=d; mieux=i; pos=g; }
+      }
+    }
+    if(mieux<0) break;
+    garde.splice(pos,0,mieux);
+  }
+  return garde.map(function(i){ return pts[i]; });
+}
+function lienGoogleMaps(){
+  var p=pointsMarquants(11);
+  function c(q){ return q[0].toFixed(6)+','+q[1].toFixed(6); }
+  var u='https://www.google.com/maps/dir/?api=1&travelmode=walking';
+  u+='&origin='+c(p[0])+'&destination='+c(p[p.length-1]);
+  if(p.length>2) u+='&waypoints='+p.slice(1,-1).map(c).join('%7C');
+  return u;
+}
+function kmlParcours(){
+  var nom=nomParcours(), total=(CUM[CUM.length-1]/1000).toFixed(2).replace('.',',');
+  function esc2(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var s='<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n';
+  s+='<name>'+esc2('Corrida 2027 ENSOA - parcours '+nom+' ('+total+' km)')+'</name>\n';
+  s+='<Style id="trace"><LineStyle><color>ff3db3f2</color><width>5</width></LineStyle></Style>\n';
+  s+='<Placemark><name>'+esc2('Parcours '+nom)+'</name><styleUrl>#trace</styleUrl>\n<LineString><tessellate>1</tessellate><coordinates>\n';
+  for(var i=0;i<POLY.length;i++){
+    var n=POLY[i];
+    s+=lon[n].toFixed(6)+','+lat[n].toFixed(6)+','+(ele[n]||0).toFixed(1)+'\n';
+  }
+  s+='</coordinates></LineString></Placemark>\n';
+  var a=POLY[0], b=POLY[POLY.length-1];
+  s+='<Placemark><name>DÉPART</name><Point><coordinates>'+lon[a].toFixed(6)+','+lat[a].toFixed(6)+',0</coordinates></Point></Placemark>\n';
+  s+='<Placemark><name>ARRIVÉE</name><Point><coordinates>'+lon[b].toFixed(6)+','+lat[b].toFixed(6)+',0</coordinates></Point></Placemark>\n';
+  s+='</Document>\n</kml>\n';
+  return s;
+}
+function ouvrirLienGoogle(){
+  var m=document.getElementById('modale-gmaps');
+  if(!m){
+    m=document.createElement('div');
+    m.className='modale'; m.id='modale-gmaps'; m.hidden=true;
+    m.innerHTML='<div class="modale-in"><h2>Le parcours sur Google Maps</h2>'+
+      '<p class="mode">Google Maps n’accepte que onze points par itinéraire : le lien ci-dessous reprend les onze virages les plus marquants et Google relie le reste à sa façon, à pied. Il donne une bonne idée du circuit, pas le tracé exact.</p>'+
+      '<textarea id="gm-url" readonly spellcheck="false"></textarea>'+
+      '<div class="modale-actions"><button id="gm-copier" class="primaire">Copier le lien</button><button id="gm-ouvrir">Ouvrir dans Google Maps</button></div>'+
+      '<p class="mode credit">Pour le tracé exact, télécharge le KML puis importe-le dans Google My Maps (mymaps.google.com, « Créer une carte » puis « Importer ») ou ouvre-le dans Google Earth. La carte obtenue se partage par un lien Google, avec le tracé au mètre près, le départ et l’arrivée.</p>'+
+      '<div class="modale-actions"><button id="gm-kml">Télécharger le tracé (.kml)</button><button id="gm-non">Fermer</button></div>'+
+      '<p class="mode" id="gm-etat"></p></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click',function(ev){ if(ev.target===m) m.hidden=true; });
+    m.querySelector('#gm-non').onclick=function(){ m.hidden=true; };
+    m.querySelector('#gm-copier').onclick=function(){
+      var t=m.querySelector('#gm-url'), et=m.querySelector('#gm-etat');
+      t.focus(); t.select();
+      function fini(ok){ et.textContent=ok?'Lien copié.':'Copie refusée par le navigateur : le lien est sélectionné, fais Ctrl+C.'; }
+      if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t.value).then(function(){fini(true);},function(){fini(false);});
+      else { var ok=false; try{ ok=document.execCommand('copy'); }catch(e){} fini(ok); }
+    };
+    m.querySelector('#gm-ouvrir').onclick=function(){ window.open(m.querySelector('#gm-url').value,'_blank','noopener'); };
+    m.querySelector('#gm-kml').onclick=function(){
+      telechargerBlob('corrida-2027-parcours-'+(nomParcours()||'x')+'.kml',kmlParcours(),'application/vnd.google-earth.kml+xml');
+      m.querySelector('#gm-etat').textContent='KML téléchargé. Importe-le dans Google My Maps pour obtenir un lien Google avec le tracé exact.';
+    };
+  }
+  m.querySelector('h2').textContent='Le parcours '+nomParcours()+' sur Google Maps';
+  m.querySelector('#gm-url').value=lienGoogleMaps();
+  m.querySelector('#gm-etat').textContent='';
+  m.hidden=false;
+}
+
+(function(){
+  if(window.CONSULTATION) return;
+  var save=document.getElementById('b-save');
+  function ajout(id,txt,titre,fn){
+    var b=document.createElement('button');
+    b.id=id; b.type='button'; b.textContent=txt; b.title=titre; b.onclick=fn;
+    if(save && save.parentNode) save.parentNode.insertBefore(b,save);
+    return b;
+  }
+  var b1=ajout('b-image','Image du parcours (.png)','Image du parcours affiché, avec aperçu et choix des éléments montrés',ouvrirImageParcours);
+  var b2=ajout('b-gmaps','Lien Google Maps','Itinéraire Google Maps du parcours affiché, et tracé exact en KML',ouvrirLienGoogle);
+  setTimeout(function(){
+    var pop=document.querySelector('.bar .menu[data-m="fichier"] .menu-pop');
+    if(!pop) return;
+    [b1,b2].forEach(function(b){ if(b.parentNode!==pop) pop.appendChild(b); });
+  },0);
+})();
+
+/* ---------------------------------------------------------------
+   iPhone. Safari ne se comporte pas comme Chrome sur deux points qui
+   gênaient vraiment :
+
+   1. La hauteur. « 100vh » vaut chez lui la fenêtre sans ses barres,
+      donc le bas de la page passe sous la barre d'outils. Les
+      fenêtres du programme sont centrées dans cette hauteur-là : leur
+      bouton « Fermer », tout en bas, devenait inatteignable, et il
+      n'y a pas de touche Échap sur un téléphone pour s'en sortir.
+      On repasse partout en « dvh », la hauteur réellement visible, on
+      pose une croix en haut à droite de chaque fenêtre, toujours au
+      même endroit, et un appui à côté de la fenêtre la referme aussi.
+   2. Le son. iOS ne laisse sortir le son d'une page que si la session
+      audio a été ouverte par un vrai geste, et le coupe quand le
+      petit bouton latéral est sur silencieux. On ouvre la session au
+      premier toucher avec un silence joué en boucle, ce qui fait
+      passer la page en catégorie « lecture » ; le silence ne tourne
+      que pendant que la musique est allumée.
+
+   Chargé après ed_app22, et actif aussi en consultation.
+--------------------------------------------------------------- */
+(function(){
+  var SUR_IOS = /iP(hone|od|ad)/.test(navigator.platform||'') ||
+    (/Mac/.test(navigator.platform||'') && navigator.maxTouchPoints>1) ||
+    /iPhone|iPad|iPod/.test(navigator.userAgent||'');
+  window.SUR_IOS=SUR_IOS;
+
+  /* ---------- hauteurs réelles, marges de l'encoche, croix de fermeture ---------- */
+  var css=document.createElement('style');
+  css.textContent=
+    '.app{height:100vh;height:100dvh}'+
+    '#e3{height:100vh;height:100dvh}'+
+    '.modale,.e3-modale{height:100vh;height:100dvh;'+
+      'padding-top:max(14px,env(safe-area-inset-top));padding-bottom:max(14px,env(safe-area-inset-bottom));'+
+      'padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}'+
+    '.modale-in,.e3-boite{max-height:82vh;max-height:82dvh;overflow-y:auto;'+
+      '-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}'+
+    '.ferme-x{position:absolute;z-index:6;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));'+
+      'width:42px;height:42px;padding:0;border-radius:50%;font-size:20px;line-height:1;'+
+      'display:flex;align-items:center;justify-content:center;'+
+      'background:#1B2536;color:#EAE4D8;border:1px solid #3A4A66;box-shadow:0 4px 14px rgba(0,0,0,.5)}'+
+    '.ferme-x:hover{background:#25334A}'+
+    '@media (max-width:980px){.modale-in,.e3-boite{padding-right:60px}}'+
+    'html{-webkit-text-size-adjust:100%}';
+  document.head.appendChild(css);
+
+  function equiper(m){
+    if(!m || m.__fermeX) return;
+    m.__fermeX=true;
+    m.addEventListener('click',function(ev){ if(ev.target===m) m.hidden=true; });
+    var b=document.createElement('button');
+    b.type='button'; b.className='ferme-x'; b.textContent='✕';
+    b.setAttribute('aria-label','Fermer');
+    b.addEventListener('click',function(ev){ ev.preventDefault(); ev.stopPropagation(); m.hidden=true; });
+    m.appendChild(b);
+  }
+  Array.prototype.slice.call(document.querySelectorAll('.modale, .e3-modale')).forEach(equiper);
+  /* les fenêtres du menu Fichier et celles de la 3D naissent plus tard */
+  if(window.MutationObserver){
+    new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var a=muts[i].addedNodes;
+        for(var j=0;j<a.length;j++){
+          var n=a[j];
+          if(n.nodeType!==1) continue;
+          if(n.classList && (n.classList.contains('modale') || n.classList.contains('e3-modale'))) equiper(n);
+          else if(n.querySelectorAll) Array.prototype.slice.call(n.querySelectorAll('.modale, .e3-modale')).forEach(equiper);
+        }
+      }
+    }).observe(document.body,{childList:true, subtree:true});
+  }
+
+  /* ---------- son : ouvrir la session audio sur un vrai geste ---------- */
+  if(!SUR_IOS) return;
+  var SILENCE='data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQQAAAAAAAAA';
+  var mut=null, veille=0;
+  function suivreMusique(){
+    if(!mut) return;
+    var veut=false;
+    try{ veut=!!(window.MUSIQUE && MUSIQUE.actif && MUSIQUE.actif()); }catch(e){}
+    try{
+      if(veut && mut.paused){ var p=mut.play(); if(p && p.catch) p.catch(function(){}); }
+      else if(!veut && !mut.paused) mut.pause();
+    }catch(e){}
+  }
+  function ouvrirSession(){
+    if(mut) return;
+    try{
+      mut=new Audio(SILENCE);
+      mut.loop=true; mut.volume=0.0001;
+      mut.setAttribute('playsinline','');
+      mut.setAttribute('webkit-playsinline','');
+      var p=mut.play();
+      if(p && p.catch) p.catch(function(){});
+    }catch(e){ mut=null; return; }
+    if(!veille) veille=setInterval(suivreMusique,1500);
+  }
+  var premier=function(){
+    ouvrirSession();
+    ['pointerup','touchend','click'].forEach(function(t){ window.removeEventListener(t,premier,true); });
+  };
+  ['pointerup','touchend','click'].forEach(function(t){ window.addEventListener(t,premier,{capture:true, passive:true}); });
+})();
 })();
 </script>
 <script>
-window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","musique.js","code3d.js"],mobiles_sans:["a_perso3.js","a_perso4.js"]};
+window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","musique.js","code3d.js"],mobiles_sans:["a_perso3.js","a_perso4.js"],ios_sans:["a_ciel.js","a_tex2.js"]};
 /* Chargement différé de la 3D : bibliothèque, modèles et code ne sont
    téléchargés qu'à l'ouverture de la vue 3D, la carte s'ouvre donc vite.
    Sur téléphone, les piétons (les modèles les plus lourds) sont laissés de côté. */
@@ -209058,7 +209675,15 @@ window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree
       if(e3) e3.hidden=false;
       if(voile){ voile.hidden=false; voile.classList.remove('parti'); }
       if(enCours) return;
-      var L=C.fichiers.filter(function(f){ return !(window.CONSULTATION && (C.mobiles_sans||[]).indexOf(f)>=0); }), n=0;
+      /* Safari sur iPhone a une réserve de mémoire plus courte : le ciel
+         photographique et le second lot de textures y sont laissés de côté,
+         le programme sait s’en passer. */
+      var iOS=!!window.SUR_IOS;
+      var L=C.fichiers.filter(function(f){
+        if(window.CONSULTATION && (C.mobiles_sans||[]).indexOf(f)>=0) return false;
+        if(iOS && (C.ios_sans||[]).indexOf(f)>=0) return false;
+        return true;
+      }), n=0;
       enCours=L.reduce(function(p,f){
         return p.then(function(){
           n++;
