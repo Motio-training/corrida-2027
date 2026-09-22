@@ -208553,6 +208553,10 @@ if(window.CONSULTATION){
     ['pointerup','touchend','click'].forEach(function(ty){ window.addEventListener(ty,premierGeste,{capture:true, passive:true}); });
     ['fullscreenchange','webkitfullscreenchange'].forEach(function(ty){ document.addEventListener(ty,function(){ if(enPleinEcran()) obtenu=true; }); });
     if(/carte=1/.test(q)) return;
+    /* Safari sur iPhone tombe en manque de mémoire pendant la construction de
+       la ville : on ne lui ouvre plus la 3D d'office. Il arrive sur la carte,
+       qui lui va très bien, et demande la 3D s'il la veut. */
+    if(/iP(hone|od|ad)/.test(navigator.platform||'') || /iPhone|iPad|iPod/.test(navigator.userAgent||'')) return;
     setTimeout(function(){
       var b=document.getElementById('b-3d');
       if(b && !document.body.classList.contains('en-3d')) b.click();
@@ -209562,6 +209566,7 @@ function ouvrirLienGoogle(){
   var SUR_IOS = /iP(hone|od|ad)/.test(navigator.platform||'') ||
     (/Mac/.test(navigator.platform||'') && navigator.maxTouchPoints>1) ||
     /iPhone|iPad|iPod/.test(navigator.userAgent||'');
+  window.SUR_IOS=SUR_IOS;
 
   /* ---------- hauteurs réelles, marges de l'encoche, croix de fermeture ---------- */
   var css=document.createElement('style');
@@ -209642,7 +209647,7 @@ function ouvrirLienGoogle(){
 })();
 </script>
 <script>
-window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","musique.js","code3d.js"],mobiles_sans:["a_perso3.js","a_perso4.js"]};
+window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","musique.js","code3d.js"],mobiles_sans:["a_perso3.js","a_perso4.js"],ios_sans:["a_ciel.js","a_tex2.js"]};
 /* Chargement différé de la 3D : bibliothèque, modèles et code ne sont
    téléchargés qu'à l'ouverture de la vue 3D, la carte s'ouvre donc vite.
    Sur téléphone, les piétons (les modèles les plus lourds) sont laissés de côté. */
@@ -209666,7 +209671,15 @@ window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree
       if(e3) e3.hidden=false;
       if(voile){ voile.hidden=false; voile.classList.remove('parti'); }
       if(enCours) return;
-      var L=C.fichiers.filter(function(f){ return !(window.CONSULTATION && (C.mobiles_sans||[]).indexOf(f)>=0); }), n=0;
+      /* Safari sur iPhone a une réserve de mémoire plus courte : le ciel
+         photographique et le second lot de textures y sont laissés de côté,
+         le programme sait s’en passer. */
+      var iOS=!!window.SUR_IOS;
+      var L=C.fichiers.filter(function(f){
+        if(window.CONSULTATION && (C.mobiles_sans||[]).indexOf(f)>=0) return false;
+        if(iOS && (C.ios_sans||[]).indexOf(f)>=0) return false;
+        return true;
+      }), n=0;
       enCours=L.reduce(function(p,f){
         return p.then(function(){
           n++;

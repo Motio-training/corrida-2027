@@ -3306,6 +3306,12 @@ function mainCamera(on){
   if(!on) CAM.libre=CAM_LIBRE;
 }
 
+/* Safari sur iPhone tue la page bien avant les autres navigateurs : sa réserve
+   de mémoire est plus courte, et la ville la remplit. On y allège d'office. */
+var SUR_IOS_3D = /iP(hone|od|ad)/.test(navigator.platform||'') ||
+  (/Mac/.test(navigator.platform||'') && navigator.maxTouchPoints>1) ||
+  /iPhone|iPad|iPod/.test(navigator.userAgent||'');
+
 /* état du casque de réalité virtuelle ; le module est en fin de fichier */
 var XR3D={dispo:false, actif:false, session:null, rig:null, bouton:null, sauve:null,
   tourne:0, images:0, duree:0, pire:0};
@@ -4415,7 +4421,7 @@ function etapeBatis(){
   ajouter(b.deco,MAT.deco,true,true);
 }
 function etapeArbres(){
-  if(SOL) semerArbresCanopee(Darbres,Dvoies,4200);
+  if(SOL) semerArbresCanopee(Darbres,Dvoies,SUR_IOS_3D?900:4200);
   else {
     for(var i=0;i<Dzones.length;i++){
       var l=Dzones[i].split('\t');
@@ -4468,6 +4474,26 @@ function echecConstruction(err){
   $e('e3-vtxt').textContent='Erreur : '+((err&&err.message)||err);
   enConstruction=false;
 }
+/* Une fois la ville bâtie, les images et les modèles encore gardés en base64
+   ne servent plus qu'à remplir la mémoire : ils sont devenus des textures et
+   des maillages. Safari sur iPhone tue la page pour bien moins que cela, et
+   une chaîne de douze mégaoctets en pèse autant tant qu'on la retient. */
+function libererActifs(){
+  var A=window.ACTIFS;
+  if(!A) return 0;
+  var n=0;
+  Object.keys(A).forEach(function(k){
+    var v=A[k];
+    if(typeof v!=='string' || v.length<4096) return;
+    /* les photos et le ciel ne sont lus qu'à la construction */
+    var jeter=/^ph2?_/.test(k) || k==='ciel_jour.hdr';
+    /* sur iPhone on jette aussi les avatars déjà montés ; le policier,
+       lui, se charge à la demande quand on en pose un */
+    if(SUR_IOS_3D && /\.fbx$/i.test(k) && !/^Police_/i.test(k)) jeter=true;
+    if(jeter){ n+=v.length; delete A[k]; }
+  });
+  return n;
+}
 function lancerEtape(i){
   if(i>=ETAPES.length){
     construit=true; enConstruction=false;
@@ -4475,6 +4501,9 @@ function lancerEtape(i){
     var v=$e('e3-voile');
     v.classList.add('parti');
     setTimeout(function(){ v.hidden=true; v.classList.remove('parti'); },650);
+    /* la ville est là : ce qui a servi à la bâtir peut partir */
+    var libere=libererActifs();
+    if(libere>1e6) console.log('mémoire rendue : '+Math.round(libere/1048576)+' Mo de sources');
     dire('Flèches pour courir, A et E pour pivoter la caméra, F pour la vue à la première personne, clic sur un jalonneur pour l’éditer.');
     demarrerBoucle();
     return;
@@ -4624,7 +4653,7 @@ function etapeBatis(){
   ajouter(b.deco,MAT.deco,true,true);
 }
 function etapeArbres(){
-  if(SOL) semerArbresCanopee(Darbres,Dvoies,4200);
+  if(SOL) semerArbresCanopee(Darbres,Dvoies,SUR_IOS_3D?900:4200);
   else {
     for(var i=0;i<Dzones.length;i++){
       var l=Dzones[i].split('\t');
@@ -11318,6 +11347,8 @@ function geoImposteur(I){
   return tas.geo();
 }
 function etapeImposteurs(){
+  /* le pré-rendu des arbres lointains coûte une passe de rendu et sa texture */
+  if(SUR_IOS_3D) return;
   if(!ARB.pret || !ARB.varH || !ARB.loin) return;
   try{
     [0,4].forEach(function(vi,t){
