@@ -3564,6 +3564,7 @@ function brancherInterface(){
     else if(k==='m') basculerCarteGlobale();
     else if(k==='b') basculerSon();
     else if(k==='y') basculerGyro();
+    else if(k==='k') basculerChien();
     else if(k==='escape') echap();
   });
   addEventListener('keyup',function(e){ touches[e.key.toLowerCase()]=false; });
@@ -3660,6 +3661,12 @@ function brancherInterface(){
          musique */
       if(MUSIQUE.surEtat) MUSIQUE.surEtat(majBoutonSon);
     }
+  }
+  var bChien=$e('e3-chien');
+  if(bChien){
+    try{ CHIEN_VOULU=localStorage.getItem('corrida-chien')!=='0'; }catch(e){}
+    bChien.onclick=basculerChien;
+    majBoutonChien();
   }
   GYRO.dispo=gyroPossible();
   var bGyro=$e('e3-gyro');
@@ -3943,6 +3950,352 @@ function basculerPanneau(){
   $e('e3-liste').classList.toggle('on',!p.classList.contains('replie'));
 }
 
+/* =================================================================
+   Le chien du parcours : un berger allemand qui suit le coureur.
+
+   Pourquoi il est fabriqué ici et non téléchargé : aucune bibliothèque de
+   modèles n'est joignable depuis l'atelier — Sketchfab, Quaternius, Poly
+   Pizza, tout répond « rien du tout », et le seul canidé libre atteignable
+   sur GitHub est un renard stylisé. Le chien est donc monté comme le reste
+   du monde, à la géométrie : le projet fabrique déjà ses bâtiments, ses
+   arbres et ses coureurs de la même façon, avec loft() et ellipsoide() sur
+   l'atlas commun. Le grain de la fourrure est celui des cheveux, teinté.
+
+   Les mesures sont celles du standard de la race : 62 cm au garrot, 72 cm
+   du poitrail à la pointe de la fesse, tête de 26 cm dont 12 de museau,
+   oreilles de 11 cm portées droites, queue de 40 cm tombante. La robe est
+   la plus reconnaissable : manteau noir sur le dos, masque noir, fauve
+   dessous.
+
+   Si un jour un vrai modèle rigué arrive dans actifs/, il se branche à la
+   place de construireChien() sans toucher au comportement : celui-ci ne
+   demande que des articulations nommées.
+================================================================= */
+var CHIEN=null;
+var CHIEN_VOULU=true;
+/* robe : noir chaud du manteau, fauve du poil, crème du poitrail */
+var CH_NOIR=0x1b1512, CH_FAUVE=0x8d5f2c, CH_CLAIR=0xb2834a, CH_CREME=0xc2a173;
+
+function construireChien(){
+  var root=new THREE.Group(), corps=new THREE.Group();
+  root.add(corps);
+  var art={};
+  /* Tout est bâti dans le repère du chien : x vers l'avant, y vers le haut.
+     Rien n'est tourné après coup — une pièce tournée emmène aussi les
+     centres de ses ellipsoïdes, et le museau finit derrière le crâne. Les
+     lofts ne servent donc qu'aux membres et à la queue, qui descendent ;
+     le corps, le cou et la tête sont des chapelets d'ellipsoïdes. */
+  function piece(parent,fn){
+    var t=new Tas(3072); fn(t);
+    var m=new THREE.Mesh(t.geo(),MAT.atlas);
+    m.castShadow=true;
+    parent.add(m);
+    return m;
+  }
+  var POIL=CELL.cheveux, PEAU=CELL.peau;
+  var noir=teinte(CH_NOIR), fauve=teinte(CH_FAUVE), clair=teinte(CH_CLAIR), creme=teinte(CH_CREME);
+
+  /* ---- le tronc. Cotes du standard : 62 cm au garrot, poitrail
+     descendant à mi-hauteur, rein remonté, dos légèrement fuyant. ---- */
+  piece(corps,function(t){
+    ellipsoide(t, .330,-.005,0, .080,.118,.090, 16,10, fauve,POIL);   /* avant-poitrail */
+    ellipsoide(t, .230,-.010,0, .110,.150,.108, 18,12, fauve,POIL);   /* poitrail profond */
+    ellipsoide(t, .215, .022,0, .085,.140,.100, 16,10, fauve,POIL);   /* garrot */
+    ellipsoide(t, .105,-.015,0, .120,.146,.112, 18,12, fauve,POIL);
+    ellipsoide(t,-.030,-.030,0, .115,.118,.092, 18,12, fauve,POIL);   /* rein remonté */
+    ellipsoide(t,-.160,-.010,0, .110,.130,.100, 16,12, fauve,POIL);   /* bassin */
+    ellipsoide(t,-.290,-.020,0, .090,.110,.088, 16,10, fauve,POIL);   /* croupe fuyante */
+    ellipsoide(t,-.360,-.012,0, .055,.078,.066, 14,10, fauve,POIL);
+  });
+  /* Le manteau noir en une seule pièce : cinq calottes séparées se
+     lisaient en bosses, comme une chenille. Un seul ellipsoïde très
+     allongé, coupé au-dessus de son équateur, donne un dos continu qui
+     retombe sur les flancs — c'est ce qu'on voit sur un vrai. */
+  piece(corps,function(t){
+    ellipsoide(t, .020,-.006,0, .360,.150,.117, 28,10, noir,POIL, 0,.52);
+    ellipsoide(t, .235, .014,0, .115,.148,.112, 18,8, noir,POIL, 0,.46);
+  });
+  /* le dessous, plus clair, et le poitrail crème */
+  piece(corps,function(t){
+    ellipsoide(t, .090,-.026,0, .295,.132,.098, 24,8, creme,POIL, .86,1);
+    ellipsoide(t, .285,-.034,0, .088,.116,.086, 16,8, creme,POIL, .70,1);
+  });
+
+  /* ---- le cou, puissant et incliné, et la tête ---- */
+  var cou=new THREE.Group(); cou.position.set(.310,.060,0); corps.add(cou); art.cou=cou;
+  piece(cou,function(t){
+    ellipsoide(t,.030,.030,0, .085,.105,.086, 16,10, fauve,POIL);
+    ellipsoide(t,.105,.080,0, .075,.088,.072, 16,10, fauve,POIL);
+    ellipsoide(t,.060,.095,0, .100,.070,.078, 16,8, noir,POIL, 0,.48);   /* crinière */
+    ellipsoide(t,.070,-.010,0, .085,.062,.068, 16,8, creme,POIL, .58,1); /* gorge */
+  });
+  var tete=new THREE.Group(); tete.position.set(.165,.125,0); cou.add(tete); art.tete=tete;
+  piece(tete,function(t){
+    ellipsoide(t,0,0,0, .068,.060,.058, 16,12, fauve,POIL);              /* crâne */
+    ellipsoide(t,.060,-.012,0, .048,.040,.038, 14,10, fauve,POIL);       /* stop */
+    ellipsoide(t,.112,-.024,0, .046,.030,.029, 14,10, noir,POIL);        /* chanfrein */
+    ellipsoide(t,.156,-.030,0, .028,.024,.024, 12,10, noir,POIL);
+    ellipsoide(t,.180,-.026,0, .014,.013,.015, 10,8, teinte(0x14100e),PEAU); /* truffe */
+    ellipsoide(t,.038,.020,.040, .011,.010,.008, 8,6, teinte(0x241a11),PEAU);
+    ellipsoide(t,.038,.020,-.040, .011,.010,.008, 8,6, teinte(0x241a11),PEAU);
+    ellipsoide(t,.028,.034,.039, .018,.009,.013, 8,6, clair,POIL);       /* sourcils */
+    ellipsoide(t,.028,.034,-.039, .018,.009,.013, 8,6, clair,POIL);
+    ellipsoide(t,.070,-.036,0, .052,.018,.027, 14,8, clair,POIL, .5,1);  /* joues */
+  });
+  var machoire=new THREE.Group(); machoire.position.set(.045,-.032,0); tete.add(machoire); art.machoire=machoire;
+  piece(machoire,function(t){
+    ellipsoide(t,.040,-.006,0, .048,.022,.026, 12,8, noir,POIL);
+    ellipsoide(t,.100,-.010,0, .033,.017,.021, 10,8, noir,POIL);
+    ellipsoide(t,.122,.010,.013, .005,.012,.005, 6,4, teinte(0xe6dfce),PEAU);
+    ellipsoide(t,.122,.010,-.013, .005,.012,.005, 6,4, teinte(0xe6dfce),PEAU);
+    ellipsoide(t,.072,.008,0, .042,.009,.018, 10,6, teinte(0x8d4a4a),PEAU);
+  });
+  [1,-1].forEach(function(s){
+    var o=new THREE.Group(); o.position.set(-.026,.048,s*.038); tete.add(o);
+    art['oreille'+(s>0?'G':'D')]=o;
+    o.rotation.x=-s*0.20;
+    piece(o,function(t){
+      loft(t,[[.000,.038,.016],[.045,.034,.014],[.085,.022,.009],[.110,.004,.003]],10,noir,POIL,true,true);
+      ellipsoide(t,.006,.048,0, .024,.046,.007, 10,8, clair,POIL, .08,.92);
+    });
+  });
+
+  /* ---- les membres : les lofts descendent, aucune rotation à corriger.
+     Une masse d'épaule et une de cuisse recouvrent les articulations, sans
+     quoi les segments se lisent comme des tubes emboîtés. ---- */
+  function segment(parent,y1,r0,r1,col){
+    return piece(parent,function(t){
+      loft(t,[[0,r0,r0*0.88],[y1,r1,r1*0.88]],10,col,POIL,false,false);
+    });
+  }
+  [1,-1].forEach(function(s){
+    var g=s>0?'G':'D';
+    var ep=new THREE.Group(); ep.position.set(.235,.020,s*.082); corps.add(ep);
+    art['epaule'+g]=ep;
+    piece(ep,function(t){ ellipsoide(t,-.020,-.045,0, .062,.090,.052, 12,10, fauve,POIL); });
+    segment(ep,-.215,.060,.044,fauve);
+    var cd=new THREE.Group(); cd.position.set(0,-.215,0); ep.add(cd);
+    art['coude'+g]=cd;
+    segment(cd,-.195,.042,.029,clair);
+    var pd=new THREE.Group(); pd.position.set(0,-.195,0); cd.add(pd);
+    art['piedAv'+g]=pd;
+    piece(pd,function(t){ ellipsoide(t,.016,-.018,0, .047,.024,.033, 12,8, clair,POIL); });
+
+    var ha=new THREE.Group(); ha.position.set(-.230,.000,s*.080); corps.add(ha);
+    art['hanche'+g]=ha;
+    piece(ha,function(t){ ellipsoide(t,-.010,-.040,0, .078,.098,.058, 12,10, fauve,POIL); });
+    segment(ha,-.195,.076,.052,fauve);
+    var ge=new THREE.Group(); ge.position.set(0,-.195,0); ha.add(ge);
+    art['genou'+g]=ge;
+    segment(ge,-.180,.050,.032,clair);
+    var ja=new THREE.Group(); ja.position.set(0,-.180,0); ge.add(ja);
+    art['jarret'+g]=ja;
+    segment(ja,-.115,.029,.022,clair);
+    var pa=new THREE.Group(); pa.position.set(0,-.115,0); ja.add(pa);
+    art['piedAr'+g]=pa;
+    piece(pa,function(t){ ellipsoide(t,.014,-.017,0, .043,.023,.031, 12,8, clair,POIL); });
+  });
+
+  /* ---- la queue, en sabre : elle tombe vers l'arrière ---- */
+  var q1=new THREE.Group(); q1.position.set(-.375,.005,0); corps.add(q1); art.queue1=q1;
+  piece(q1,function(t){ loft(t,[[0,.042,.040],[-.145,.034,.032]],10,fauve,POIL,true,false); });
+  var q2=new THREE.Group(); q2.position.set(0,-.145,0); q1.add(q2); art.queue2=q2;
+  piece(q2,function(t){ loft(t,[[0,.034,.032],[-.140,.026,.024]],10,fauve,POIL,false,false); });
+  var q3=new THREE.Group(); q3.position.set(0,-.140,0); q2.add(q3); art.queue3=q3;
+  piece(q3,function(t){ loft(t,[[0,.026,.024],[-.120,.010,.009]],10,noir,POIL,false,true); });
+
+  corps.position.y=0.470;      /* le garrot tombe alors à 62 cm */
+  root.userData.art=art;
+  root.userData.corps=corps;
+  return root;
+}
+
+/* ---------------- l'allure ----------------
+
+   Un quadrupède ne court pas comme un bipède. Au trot, les membres vont par
+   diagonales : antérieur gauche avec postérieur droit. Au galop, les deux
+   antérieurs se posent ensemble puis les deux postérieurs, avec un temps de
+   suspension — c'est ce qui donne le dos qui se voûte et se creuse. Le
+   passage de l'un à l'autre se fait vers 5,5 m/s, comme chez le vrai.   */
+function animerChien(dt){
+  if(!CHIEN) return;
+  var E=CHIEN.userData.etat, art=CHIEN.userData.art, corps=CHIEN.userData.corps;
+  var v=Math.abs(E.v);
+  /* cadence : de 0,8 à 3,4 foulées par seconde */
+  var cad=Math.max(0.8,Math.min(3.4,0.8+v*0.42));
+  E.phase+=cad*dt*2*PI;
+  var ph=E.phase, galop=v>5.5;
+  var amp=Math.min(1,v/4.2), agit=0.25+0.75*amp;
+
+  if(!galop){
+    /* trot : deux diagonales en opposition */
+    var A=Math.sin(ph), B=Math.sin(ph+PI);
+    var pose=function(cote,sw){
+      var s=cote>0?'G':'D';
+      art['epaule'+s].rotation.z = sw*0.52*agit;
+      art['coude'+s].rotation.z  = -0.16-Math.max(0,-sw)*0.80*agit;
+      art['piedAv'+s].rotation.z = -0.10-Math.max(0,-sw)*0.35*agit;
+    };
+    var poseAr=function(cote,sw){
+      var s=cote>0?'G':'D';
+      art['hanche'+s].rotation.z = sw*0.46*agit;
+      art['genou'+s].rotation.z  = 0.55-sw*0.30*agit;
+      art['jarret'+s].rotation.z = -0.60-Math.max(0,-sw)*0.45*agit;
+      art['piedAr'+s].rotation.z = 0.12+Math.max(0,sw)*0.25*agit;
+    };
+    pose(1,A); pose(-1,B); poseAr(1,B); poseAr(-1,A);
+    corps.position.y=0.470+Math.abs(Math.sin(ph))*0.020*agit;
+    corps.rotation.z=Math.sin(ph)*0.02*agit;
+    corps.rotation.x=Math.sin(ph*2)*0.015*agit;
+  } else {
+    /* galop : antérieurs ensemble, postérieurs ensemble, dos qui travaille */
+    var av=Math.sin(ph), ar=Math.sin(ph-2.1);
+    [1,-1].forEach(function(c){
+      var s=c>0?'G':'D', d=c>0?0:0.22;      /* les deux antérieurs décalés d'un rien */
+      var a=Math.sin(ph-d);
+      art['epaule'+s].rotation.z = a*0.86;
+      art['coude'+s].rotation.z  = -0.18-Math.max(0,-a)*1.25;
+      art['piedAv'+s].rotation.z = -0.12-Math.max(0,-a)*0.45;
+      var b=Math.sin(ph-2.1-d);
+      art['hanche'+s].rotation.z = b*0.78;
+      art['genou'+s].rotation.z  = 0.70-b*0.60;
+      art['jarret'+s].rotation.z = -0.75-Math.max(0,-b)*0.70;
+      art['piedAr'+s].rotation.z = 0.14+Math.max(0,b)*0.30;
+    });
+    corps.position.y=0.470+(Math.sin(ph-0.9)*0.050+0.018);
+    corps.rotation.x=Math.sin(ph-1.2)*0.14;
+    corps.rotation.z=0;
+  }
+
+  /* la tête : elle oscille avec l'allure, et se tourne vers le coureur
+     quand il est proche — c'est ce qui fait qu'on se sent visé */
+  var versJoueur=ecartAngle(Math.atan2(J.z-E.z,J.x-E.x)-E.cap);
+  var pres=Math.max(0,Math.min(1,(6-E.d)/5));
+  art.cou.rotation.y=-versJoueur*0.45*pres;
+  art.cou.rotation.z=(E.mode==='charge'||E.mode==='mord') ? -0.18 : 0.06+Math.sin(ph)*0.05*agit;
+  art.tete.rotation.y=-versJoueur*0.30*pres;
+  art.tete.rotation.z=(E.mode==='mord') ? -0.30 : Math.sin(ph*2)*0.04*agit;
+
+  /* la gueule : fermée en suivant, ouverte quand il charge, grande ouverte
+     au moment de mordre */
+  var g=0;
+  if(E.mode==='charge') g=0.12+0.10*Math.abs(Math.sin(ph*3));
+  else if(E.mode==='mord') g=0.34+0.14*Math.sin(E.tMode*22);
+  else if(v>2) g=0.05+0.03*Math.abs(Math.sin(ph));
+  art.machoire.rotation.z=g;
+
+  /* les oreilles : dressées en suivant, rabattues en charge */
+  var rab=(E.mode==='charge'||E.mode==='mord')?1:0;
+  E.oreille+=(rab-E.oreille)*Math.min(1,dt*6);
+  art.oreilleG.rotation.z=-E.oreille*0.85;
+  art.oreilleD.rotation.z=-E.oreille*0.85;
+  art.oreilleG.rotation.x=-0.20-E.oreille*0.35;
+  art.oreilleD.rotation.x= 0.20+E.oreille*0.35;
+
+  /* la queue : elle balance au trot, se raidit à l'horizontale en charge */
+  var qb=(E.mode==='suit')?Math.sin(ph*1.6)*0.28*agit:Math.sin(ph*4)*0.10;
+  /* Les rotations se cumulent le long de la chaîne : trois valeurs
+     négatives en série redressaient la queue à l'horizontale au lieu de la
+     courber. Le premier segment part vers l'arrière, les deux suivants
+     reviennent un peu vers le bas — c'est le port en sabre. */
+  var qh=(E.mode==='suit')?-0.85:-0.40;
+  art.queue1.rotation.z=qh; art.queue1.rotation.y=qb;
+  art.queue2.rotation.z=0.19; art.queue3.rotation.z=0.22;
+  art.queue2.rotation.y=qb*0.8; art.queue3.rotation.y=qb*0.6;
+}
+
+/* ---------------- le comportement ----------------
+
+   Deux règles, celles demandées : la distance à laquelle il se tient croît
+   avec l'allure du coureur — on s'arrête, il arrive au talon ; on court, il
+   décroche — et il charge dès qu'on le regarde. Sa vitesse de pointe est
+   celle de la race, onze mètres par seconde : au-delà de quarante à l'heure
+   il ne suit plus, ce qui est la vérité.                                */
+var CH_VMAX=11.0;
+function majChien(dt){
+  if(!CHIEN) return;
+  var E=CHIEN.userData.etat;
+  var dx=J.x-E.x, dz=J.z-E.z;
+  E.d=Math.hypot(dx,dz);
+
+  /* est-ce qu'on le regarde ? À la première personne c'est le regard qui
+     compte ; à la troisième, la caméra voit tout, on prend l'axe du corps. */
+  var azChien=Math.atan2(E.z-J.z,E.x-J.x);
+  var regard=(VUE==='fp')?CAM.yaw:J.cap;
+  var vu=Math.abs(ecartAngle(azChien-regard))<0.95 && E.d<14;
+
+  E.tMode+=dt;
+  if(E.mode==='mord' && E.tMode>0.55){ E.mode='recule'; E.tMode=0; }
+  else if(E.mode==='recule' && E.tMode>1.4){ E.mode='suit'; E.tMode=0; }
+  else if(E.mode==='charge' && !vu && E.tMode>1.2){ E.mode='suit'; E.tMode=0; }
+  else if(E.mode==='suit' && vu && E.d<11){ E.mode='charge'; E.tMode=0; }
+  else if(E.mode==='charge' && E.d<1.5){ E.mode='mord'; E.tMode=0; E.morsures++; }
+
+  /* la distance où il se tient */
+  var dVoulu;
+  if(E.mode==='charge') dVoulu=0.9;
+  else if(E.mode==='mord') dVoulu=1.0;
+  else if(E.mode==='recule') dVoulu=3.2;
+  else dVoulu=1.15+Math.abs(J.v)*2.2;
+  var vMax=(E.mode==='charge')?CH_VMAX:(E.mode==='recule'?3.2:CH_VMAX*0.92);
+
+  /* il vise un point derrière le coureur, dans son dos */
+  var cx=J.x-Math.cos(J.cap)*dVoulu, cz=J.z-Math.sin(J.cap)*dVoulu;
+  if(E.mode==='charge'||E.mode==='mord'){ cx=J.x-Math.cos(J.cap)*dVoulu*0.4; cz=J.z-Math.sin(J.cap)*dVoulu*0.4; }
+  var ex=cx-E.x, ez=cz-E.z, er=Math.hypot(ex,ez);
+
+  /* cap : il tourne vite mais pas instantanément */
+  if(er>0.05){
+    var vise=Math.atan2(ez,ex), d2=ecartAngle(vise-E.cap);
+    E.cap+=d2*Math.min(1,dt*5.5);
+  }
+  /* vitesse : proportionnelle à l'écart, puis lissée — un chien ne passe
+     pas de zéro à onze mètres par seconde en une image */
+  var vCible=Math.max(0,Math.min(vMax,er*2.6));
+  if(E.mode==='recule') vCible=Math.min(vCible,3.2);
+  E.v+=(vCible-E.v)*Math.min(1,dt*3.2);
+  if(E.v<0.05) E.v=0;
+  E.x+=Math.cos(E.cap)*E.v*dt;
+  E.z+=Math.sin(E.cap)*E.v*dt;
+
+  /* s'il s'est laissé distancer au point de ne plus compter, il réapparaît
+     dans le dos du coureur plutôt que de courir éternellement derrière */
+  if(E.d>90){ E.x=J.x-Math.cos(J.cap)*12; E.z=J.z-Math.sin(J.cap)*12; E.v=0; }
+
+  CHIEN.position.set(E.x, hauteur(E.x,E.z), E.z);
+  CHIEN.rotation.y=-E.cap;
+  animerChien(dt);
+}
+
+function poserChien(){
+  if(CHIEN || !MAT.atlas) return;
+  CHIEN=construireChien();
+  CHIEN.userData.etat={x:J.x-Math.cos(J.cap)*4, z:J.z-Math.sin(J.cap)*4, cap:J.cap,
+                       v:0, phase:0, d:4, mode:'suit', tMode:0, oreille:0, morsures:0};
+  monde.add(CHIEN);
+  CHIEN.visible=CHIEN_VOULU;
+}
+function majBoutonChien(){
+  var b=$e('e3-chien');
+  if(!b) return;
+  b.classList.toggle('on',CHIEN_VOULU);
+  b.title=(CHIEN_VOULU?'Renvoyer le chien':'Un chien qui te suit')+' (K)';
+  var t=$e('e3-tc');
+  if(t) t.classList.toggle('on',CHIEN_VOULU);
+}
+function basculerChien(){
+  CHIEN_VOULU=!CHIEN_VOULU;
+  try{ localStorage.setItem('corrida-chien', CHIEN_VOULU?'1':'0'); }catch(e){}
+  if(CHIEN_VOULU && !CHIEN) poserChien();
+  if(CHIEN){
+    CHIEN.visible=CHIEN_VOULU;
+    if(CHIEN_VOULU){ var E=CHIEN.userData.etat;
+      E.x=J.x-Math.cos(J.cap)*5; E.z=J.z-Math.sin(J.cap)*5; E.cap=J.cap; E.v=0; E.mode='suit'; E.tMode=0; }
+  }
+  majBoutonChien();
+  dire(CHIEN_VOULU?'Le chien te suit. Retourne-toi pour voir.':'Le chien est renvoyé');
+}
+
 /* ---------------- boucle ---------------- */
 var tHud=0;
 /* Temps propre à la simulation, et nombre d'images. Sur une machine sans
@@ -3999,6 +4352,9 @@ function boucle(){
   }
   var sp=surLeParcours(J.x,J.z); J.d=sp.d; J.ecart=sp.ecart;
   majJoueur(dt);
+  /* le chien : posé à la première image où l'atlas est prêt */
+  if(CHIEN_VOULU && !CHIEN) poserChien();
+  if(CHIEN) majChien(dt);
 
   /* le gyroscope pousse la caméra comme le ferait un doigt, avant que le
      compte de liberté ne soit examiné */
@@ -11417,7 +11773,7 @@ function compacter3D(){
     m.appendChild(b); m.appendChild(pop);
     return m;
   }
-  var mVue=menu('🎥 Vue','Point de vue et déplacements',['e3-vuep','e3-haute','e3-auto','e3-gyro','e3-depart']);
+  var mVue=menu('🎥 Vue','Point de vue et déplacements',['e3-vuep','e3-haute','e3-auto','e3-gyro','e3-chien','e3-depart']);
   var mPoser=menu('➕ Poser','Poser jalonneurs, matériel, véhicules et policiers',['#Personnes','e3-ajout','e3-b-veh','#Matériel','e3-b-bar','e3-b-rub']);
   var mAff=menu('👁 Afficher','Ce qui est affiché dans la scène',['e3-liste','e3-b-parc','e3-b-trace','e3-circ','e3-nuit','e3-detail']);
   var bv=$e('e3-b-veh'); if(bv) bv.textContent='🪖 Véhicules et 👮 policiers';
@@ -11994,6 +12350,7 @@ function interfaceConsultation3D(){
       un bouton qui ne peut rien faire vaut moins que pas de bouton */
    ['🧭','Tourner la caméra en tournant le téléphone',function(){ basculerGyro(); },'e3-tg',
     function(){ return gyroPossible(); }],
+   ['🐕','Un chien qui te suit',function(){ basculerChien(); },'e3-tc'],
    ['⏮','Revenir au départ',function(){ if(VUE==='jal') sortirVueJal(); placerJoueur(0); dire('Retour au départ'); }],
    ['⛶','Plein écran',function(){ if(window.pleinEcranPaysage) window.pleinEcranPaysage(false); }]
   ].forEach(function(d){
@@ -12908,6 +13265,10 @@ window.ESPACE3D.etat=function(){
     /* de quoi mesurer le recentrage depuis l'extérieur : sans cela
        outils/essai_camera.js ne pourrait que regarder l'image et deviner */
     temps:+TSIM.toFixed(2), images:IMAGES, virages:ARR_BILAN,
+    chien:CHIEN?{pose:true, visible:!!CHIEN.visible, mode:CHIEN.userData.etat.mode,
+                 d:+CHIEN.userData.etat.d.toFixed(2), v:+CHIEN.userData.etat.v.toFixed(2),
+                 morsures:CHIEN.userData.etat.morsures,
+                 xz:[+CHIEN.userData.etat.x.toFixed(2),+CHIEN.userData.etat.z.toFixed(2)]}:{pose:false},
     gyro:{dispo:GYRO.dispo, actif:GYRO.actif, recu:GYRO.vu>0,
           vitesse:+(GYRO.bouge*180/PI).toFixed(1), seuil:+(GYRO_SEUIL*180/PI).toFixed(1)},
     axe:{ camera:+(CAM.yaw*180/PI).toFixed(2), coureur:+(J.cap*180/PI).toFixed(2),
@@ -12954,6 +13315,24 @@ window.ESPACE3D.batisPoses=function(){
    o : {la, lo} ou {x, z} ; h hauteur de l'oeil au-dessus du sol (1,63 m par
    défaut) ou y absolu ; az azimut et el élévation en degrés ; champ le
    champ horizontal en degrés.                                            */
+/* Prise de contrôle du chien, pour outils/essai_chien.js : je ne vois pas
+   la 3D bouger, et un quadrupède mal articulé ne se corrige qu'en le
+   regardant. On fixe la pose, on rend, on juge sur l'image. */
+window.ESPACE3D.chienEssai=function(o){
+  if(!CHIEN) poserChien();
+  if(!CHIEN) return null;
+  var E=CHIEN.userData.etat;
+  if(o){
+    ['x','z','cap','v','phase','mode','d'].forEach(function(k){ if(o[k]!==undefined) E[k]=o[k]; });
+    if(o.oreille!==undefined) E.oreille=o.oreille;
+    if(o.tMode!==undefined) E.tMode=o.tMode;
+  }
+  CHIEN.visible=true;
+  CHIEN.position.set(E.x, hauteur(E.x,E.z), E.z);
+  CHIEN.rotation.y=-E.cap;
+  animerChien(o&&o.dt!==undefined?o.dt:0);
+  return {xz:[E.x,E.z], cap:E.cap, mode:E.mode, y:hauteur(E.x,E.z)};
+};
 window.ESPACE3D.clicheLibre=function(o,qualite){
   if(!construit || !renderer) return null;
   var x=(o.x!==undefined)?o.x:pX(o.lo), z=(o.z!==undefined)?o.z:pZ(o.la);

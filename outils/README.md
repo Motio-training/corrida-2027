@@ -628,6 +628,55 @@ troisième fois dans ce projet qu'une fonction dupliquée finit par diverger de
 son jumeau — `triOriente`, `panneau` — et celle-ci décide de chaque note
 qu'on entendra.
 
+## `essai_chien.js`
+
+Le chien du parcours : à quoi ressemble-t-il, et se comporte-t-il comme
+demandé ?
+
+```sh
+node outils/essai_chien.js            # les vues
+node outils/essai_chien.js --suite    # et la mesure du comportement
+SORTIE_CHIEN=/tmp/chien node outils/essai_chien.js
+```
+
+**Pourquoi le chien est fabriqué et non téléchargé.** Aucune bibliothèque de
+modèles n'est joignable depuis l'atelier : Sketchfab, Quaternius, Poly Pizza,
+Ready Player Me répondent tous « rien du tout », et le seul canidé libre
+atteignable sur GitHub est un renard stylié. Le berger allemand est donc
+monté à la géométrie, comme les bâtiments, les arbres et les coureurs du
+projet, aux cotes du standard : 62 cm au garrot, poitrail à mi-hauteur, rein
+remonté, museau de 12 cm, oreilles de 11 cm portées droites, queue en sabre,
+manteau noir sur robe fauve.
+
+**La moitié visuelle.** Je ne vois pas la 3D bouger, et un quadrupède mal
+articulé ne se corrige qu'en le regardant : le banc fixe la pose, rend neuf
+vues rapprochées et les écrit sur le disque. Ce qu'elles ont montré, et que
+rien d'autre n'aurait montré :
+
+- **une pièce tournée emmène les centres de ses ellipsoïdes.** Le premier jet
+  construisait le corps couché en tournant les maillages d'un quart de tour :
+  le museau finissait derrière le crâne et la queue sur le poitrail. Tout est
+  maintenant bâti dans le repère du chien, et les lofts ne servent qu'aux
+  membres et à la queue, qui descendent.
+- **cinq calottes noires ne font pas un manteau** : elles se lisaient en
+  bosses, comme une chenille. Un seul ellipsoïde très allongé, coupé
+  au-dessus de son équateur, donne un dos continu qui retombe sur les flancs.
+- **les rotations se cumulent le long d'une chaîne** : trois valeurs négatives
+  en série redressaient la queue à l'horizontale au lieu de la courber.
+
+**La moitié mesurée** (`--suite`), qui vérifie les deux règles demandées — il
+se rapproche à l'arrêt, il décroche à la course :
+
+| allure du coureur | distance du chien | sa vitesse |
+|---|---|---|
+| arrêt | **1,1 m** (au talon) | 0 |
+| 6 km/h | 5,5 m | 1,7 m/s |
+| 13 km/h | 10,5 m | 3,6 m/s |
+| 25 km/h | 19,1 m | 7,0 m/s |
+
+Sa pointe est plafonnée à 11 m/s, celle de la race : au-delà de quarante à
+l'heure il ne suit plus, ce qui est la vérité.
+
 ## `essai_musique_auto.js`
 
 La musique part-elle avec la 3D, et se tait-elle quand on la coupe ?
