@@ -209043,7 +209043,7 @@ function telechargerRues(){
    Chargé après ed_app21.
 --------------------------------------------------------------- */
 var IMG_REF=2000;          /* largeur de dessin, la résolution n'est qu'une mise à l'échelle */
-var IMG_FINESSE=0.8;       /* le tracé est un peu plus fin que sur la carte à l'écran */
+var IMG_FINESSE=0.92;      /* le tracé est à peine plus fin que sur la carte à l’écran */
 function telechargerBlob(nom,contenu,type){
   var b=(contenu instanceof Blob) ? contenu : new Blob([contenu],{type:type+';charset=utf-8'});
   var u=URL.createObjectURL(b), a=document.createElement('a');
@@ -209228,6 +209228,16 @@ function imageParcoursSVG(ch){
     });
   }
   if(ch.jal && !ch.jalNum) Array.prototype.slice.call(c.querySelectorAll('#c-jal text')).forEach(function(t){ t.parentNode.removeChild(t); });
+  /* le bras tendu encombre l'image : on garde le triangle, son numéro et la croix des accès fermés */
+  Array.prototype.slice.call(c.querySelectorAll('#c-jal line')).forEach(function(l){
+    if(l.getAttribute('stroke')!=='#EAE4D8') return;
+    var p=l.previousElementSibling;
+    if(p && p.tagName==='line' && p.getAttribute('stroke')==='#0B1019') p.parentNode.removeChild(p);
+    l.parentNode.removeChild(l);
+  });
+  Array.prototype.slice.call(c.querySelectorAll('#c-jal circle')).forEach(function(q){
+    if(q.getAttribute('fill')==='#EAE4D8') q.parentNode.removeChild(q);
+  });
   /* tracé un peu plus fin qu'à l'écran */
   ['c-trace','c-halo'].forEach(function(id){
     var g=c.querySelector('#'+id);
