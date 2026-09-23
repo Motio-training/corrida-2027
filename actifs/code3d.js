@@ -5949,12 +5949,18 @@ function faireGrillage(){
 function grillage(tas,post,pts){
   var q=densifier(pts,2.5), qx=q.x, qz=q.z, h=1.9, vert=teinte(0x2e4c37), bl=teinte(0xffffff);
   var px=pX(-0.2120720), pz=pZ(46.4136569);
+  /* le portail nord : là où le parcours ressort du quartier près du rang de
+     véhicules, sans muret ni haie construits — un simple passage dans la
+     clôture, comme au sud. Rayon large : le tracé y bouge encore un peu. */
+  var pnx=pX(-0.216712), pnz=pZ(46.416247);
   for(var i=1;i<qx.length;i++){
     var ax=qx[i-1], az=qz[i-1], bx=qx[i], bz=qz[i], L=Math.hypot(bx-ax,bz-az);
     if(L<0.2) continue;
+    var mx=(ax+bx)/2, mz=(az+bz)/2;
     /* le portail de l'ENSOA a ses propres murets et haies */
-    if(Math.hypot((ax+bx)/2-px,(az+bz)/2-pz)<9.5) continue;
-    if(IDX_CH && (dansChaussee(IDX_CH,(ax+bx)/2,(az+bz)/2,-1,0.6) || dansChaussee(IDX_CH,ax,az,-1,0.2) || dansChaussee(IDX_CH,bx,bz,-1,0.2))) continue;
+    if(Math.hypot(mx-px,mz-pz)<9.5) continue;
+    if(Math.hypot(mx-pnx,mz-pnz)<16) continue;
+    if(IDX_CH && (dansChaussee(IDX_CH,mx,mz,-1,0.6) || dansChaussee(IDX_CH,ax,az,-1,0.2) || dansChaussee(IDX_CH,bx,bz,-1,0.2))) continue;
     var ya=hauteur(ax,az)-0.05, yb=hauteur(bx,bz)-0.05, nx=(bz-az)/L, nz=-(bx-ax)/L, u=L/2.5;
     tas.tri(ax,ya,az, bx,yb,bz, bx,yb+h,bz, nx,0,nz,[0,0,u,0,u,1],bl);
     tas.tri(ax,ya,az, bx,yb+h,bz, ax,ya+h,az, nx,0,nz,[0,0,u,1,0,1],bl);
