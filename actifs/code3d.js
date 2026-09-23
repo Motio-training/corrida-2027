@@ -15710,12 +15710,16 @@ function majCoureurs(dt){
   if(!FOULE.pret || !LONGUEUR || !camera) return;
   var loin=(J.ecart!==undefined && J.ecart>250);
   var N=loin?0:NB_COUREURS[PERF.qualite], d0=J.d||0;
+  /* pendant le peloton, pas de coureurs isolés : on n'en fait plus naître,
+     et ceux qui sont là s'effacent dès qu'ils sortent de la vue proche */
+  var pel=(typeof PELOTON!=='undefined' && PELOTON.actif);
+  if(pel) N=0;
   FOULE.coureurs=FOULE.coureurs.filter(function(c){
-    var ok=c.d<LONGUEUR-3 && Math.abs(c.d-d0)<270;
+    var ok=c.d<LONGUEUR-3 && Math.abs(c.d-d0)<(pel?45:270);
     if(!ok) liberer2(c);
     return ok;
   });
-  while(FOULE.coureurs.length>N) liberer2(FOULE.coureurs.pop());
+  if(!pel) while(FOULE.coureurs.length>N) liberer2(FOULE.coureurs.pop());
   for(var k=0;k<2 && FOULE.coureurs.length<N;k++) nouveauCoureur(d0);
   if(FOULE.coureurs.length>=N) FOULE.plein=true;
   var ombre=QUAL().ombre>0;
@@ -15820,7 +15824,11 @@ window.ESPACE3D.foule=function(){
       vue de côté elle donnait un damier sombre ; elles sont maintenant en
       pierre calcaire unie.
    4. Peloton. En visite guidée, dix coureurs autour du joueur, à son
-      allure, lui au centre. Bouton « Peloton » dans le menu Vue, touche L.
+      allure, lui au centre, qui changent de place d'eux-mêmes. Bouton
+      « Peloton » dans le menu Vue, touche L. Pendant le peloton, plus de
+      coureurs isolés.
+   5. Interface épurée pour la vue publique.
+   6. La tribune de la place d'armes, d'après photos.
 ================================================================= */
 
 /* ---------------- 1. post-traitement ---------------- */
@@ -16079,32 +16087,62 @@ rendreVue=function(){
 };
 
 /* ---------------- 3. le peloton ---------------- */
-/* Dix places autour du joueur : [avance le long du tracé, écart latéral],
-   en mètres. Le joueur est au centre ; personne juste derrière lui, pour
-   ne pas boucher la vue à la troisième personne. */
-var PELOTON_PLACES=[[3.3,-1.2],[3.0,1.0],[5.6,0.1],[0.9,-1.7],[0.3,1.8],
-                    [-1.8,-1.4],[-2.3,1.5],[-4.0,-1.9],[-4.6,1.9],[7.8,-1.0]];
+/* Dix coureurs autour du joueur. Chacun a une place (avance le long du
+   tracé, écart latéral, en mètres) qu'il rejoint sans à-coup, puis au
+   bout de quelques secondes il en choisit une autre : il passe de gauche
+   à droite, remonte, se laisse glisser derrière le joueur. Ils s'écartent
+   les uns des autres et du joueur, qui reste au milieu du groupe.
+   Seuls les quatre plus proches portent une ombre : c'est ce qui coûtait
+   le plus sur un portable, et l'œil ne fait pas la différence. */
+var PEL_ZONE={av:8.5, ar:-7.5, lat:2.4, moi:1.6, eux:1.25};
 var PELOTON={voulu:true, gens:[], rigs:[], t:0, actif:false};
 try{ if(localStorage.getItem('corrida3d-peloton')==='0') PELOTON.voulu=false; }catch(e){}
 function libererPeloton(){ PELOTON.gens.forEach(liberer2); PELOTON.gens=[]; }
+function placeLibre(moi,proche){
+  var Z=PEL_ZONE, best=null, bestScore=-1;
+  for(var essai=0;essai<14;essai++){
+    var o, l;
+    if(proche && moi){
+      /* un petit déplacement : changer de côté, avancer ou reculer un peu */
+      l=(moi.l>0?-1:1)*(0.5+Math.random()*1.8);
+      o=moi.o+(Math.random()*2-1)*3.2;
+    } else {
+      o=Z.ar+Math.random()*(Z.av-Z.ar);
+      l=(Math.random()*2-1)*Z.lat;
+    }
+    o=Math.max(Z.ar,Math.min(Z.av,o)); l=Math.max(-Z.lat,Math.min(Z.lat,l));
+    var dJ=Math.hypot(o*0.8,l);
+    if(dJ<Z.moi+0.4) continue;
+    var dMin=99;
+    PELOTON.gens.forEach(function(c){
+      if(c===moi || c.libre) return;
+      dMin=Math.min(dMin,Math.hypot((c.to-o)*0.8,c.tl-l),Math.hypot((c.o-o)*0.8,c.l-l));
+    });
+    if(dMin>bestScore){ bestScore=dMin; best=[o,l]; }
+    if(dMin>2.2) break;
+  }
+  return best||[moi?moi.o:4,moi?moi.l:1.5];
+}
 function formerPeloton(){
   libererPeloton();
   var noms=Object.keys(FOULE.modeles);
   if(!noms.length || !FOULE.run) return;
   /* des tenues différentes d'abord, on ne repioche qu'une fois toutes vues */
   var tirage=noms.slice().sort(function(){ return Math.random()-0.5; });
-  PELOTON_PLACES.forEach(function(pl,i){
-    var nom=tirage[i%tirage.length];
-    var rig=prendreRig(PELOTON.rigs,nom,creerRigCoureur,PELOTON_PLACES.length+2);
-    if(!rig) return;
+  for(var i=0;i<10;i++){
+    var rig=prendreRig(PELOTON.rigs,tirage[i%tirage.length],creerRigCoureur,12);
+    if(!rig) continue;
     rig.mix.stopAllAction();
     var a=rig.mix.clipAction(FOULE.run);
     a.reset().play(); a.time=Math.random()*FOULE.run.duration;
-    PELOTON.gens.push({rig:rig, act:a, off:pl[0], lat:pl[1], fl:1,
-      ph1:Math.random()*6.28, ph2:Math.random()*6.28, cad:0.95+Math.random()*0.1,
-      d:dAuto+pl[0], cap:capArrondi(Math.max(0,dAuto+pl[0])), v:VITESSE, libre:false});
+    var c={rig:rig, act:a, o:0, l:0, to:0, tl:0, vo:0, vl:0, fl:1, cad:0.95+Math.random()*0.1,
+           prochain:3+Math.random()*9, d:dAuto, cap:capArrondi(Math.max(0,dAuto)), v:VITESSE, libre:false};
+    PELOTON.gens.push(c);
+    var p=placeLibre(c,false);
+    c.o=c.to=p[0]; c.l=c.tl=p[1];
+    c.d=dAuto+c.o;
     rig.libre=false; rig.g.visible=true;
-  });
+  }
 }
 function majPeloton(dt){
   if(!FOULE.pret || !LONGUEUR) return;
@@ -16114,38 +16152,75 @@ function majPeloton(dt){
   if(!PELOTON.gens.length) return;
   if(!PELOTON.voulu){ libererPeloton(); return; }
   PELOTON.t+=dt;
-  var t=PELOTON.t, ombre=QUAL().ombre>0, vJ=auto?J.v:0;
-  PELOTON.gens=PELOTON.gens.filter(function(c){
+  var Z=PEL_ZONE, vJ=auto?J.v:0, G=PELOTON.gens;
+  G.forEach(function(c){
+    if(c.libre) return;
+    /* une nouvelle place de temps en temps, pas tous en même temps */
+    c.prochain-=dt;
+    if(c.prochain<=0){
+      var p=placeLibre(c,Math.random()<0.6);
+      c.to=p[0]; c.tl=p[1]; c.prochain=5+Math.random()*10;
+    }
+    /* ressort amorti vers la place, plus écartement des voisins */
+    var ao=(c.to-c.o)*0.35-c.vo*0.95, al=(c.tl-c.l)*0.45-c.vl*1.25;
+    var le=c.l*c.fl;
+    G.forEach(function(k){
+      if(k===c || k.libre) return;
+      var dx=c.o-k.o, dl=le-k.l*k.fl, d=Math.hypot(dx*0.8,dl);
+      if(d<Z.eux && d>1e-3){ var f=(Z.eux-d)*3.0/d; ao+=dx*f; al+=dl*f; }
+    });
+    var dJ=Math.hypot(c.o*0.8,le);
+    if(dJ<Z.moi && dJ>1e-3){ var fJ=(Z.moi-dJ)*5.0/dJ; ao+=c.o*fJ; al+=le*fJ; }
+    c.vo=Math.max(-0.9,Math.min(0.9,c.vo+ao*dt));
+    c.vl=Math.max(-0.7,Math.min(0.7,c.vl+al*dt));
+    c.o=Math.max(Z.ar-1,Math.min(Z.av+1,c.o+c.vo*dt));
+    c.l=Math.max(-Z.lat-0.3,Math.min(Z.lat+0.3,c.l+c.vl*dt));
+    /* garde-fou : jamais à moins de 1,3 m du joueur, même en le doublant */
+    var ex=c.o*0.8, el=c.l*c.fl, dd=Math.hypot(ex,el);
+    if(dd<1.3){
+      if(dd<1e-3){ el=(c.tl>=0?1:-1)*0.01; dd=0.01; }
+      var k=1.3/dd;
+      c.o=ex*k/0.8;
+      if(c.fl>0.2) c.l=el*k/c.fl;
+      if(c.vo*c.o<0) c.vo*=0.3;
+    }
+    /* rattrapage doux si l'écart s'est creusé (virage, joueur qui accélère) */
+    var cible=dAuto+c.o;
+    c.v=vJ+c.vo+(cible-c.d)*1.2;
+    c.d+=c.v*dt;
+  });
+  PELOTON.gens=G.filter(function(c){
     if(c.libre){
       /* visite arrêtée : ils continuent leur course et s'éloignent */
+      c.vl*=0.9;
       c.d+=c.v*dt;
       if(c.d>LONGUEUR-2 || Math.abs(c.d-(J.d||0))>90){ liberer2(c); return false; }
-    } else {
-      /* à leur place, avec un léger flottement : on n'avance pas au cordeau */
-      var cible=dAuto+c.off*(1+(1-c.fl)*1.3)+0.45*Math.sin(t*0.8+c.ph1);
-      c.v=vJ+(cible-c.d)*1.5;
-      c.d+=c.v*dt;
     }
     var dd=Math.max(0,Math.min(LONGUEUR,c.d));
     var p=pointArrondi(dd), cap=capArrondi(dd);
     c.cap+=ecartAngle(cap-c.cap)*Math.min(1,dt*5);
-    /* dans un passage étroit, le peloton se resserre vers l'axe */
-    var lat=c.lat+0.3*Math.sin(t*0.55+c.ph2), fl=1;
+    /* dans un passage étroit, le groupe se resserre vers l'axe */
+    var fl=1;
     for(var k=0;k<3;k++){
-      var xs=p[0]-Math.sin(c.cap)*lat*fl, zs=p[1]+Math.cos(c.cap)*lat*fl;
+      var xs=p[0]-Math.sin(c.cap)*c.l*fl, zs=p[1]+Math.cos(c.cap)*c.l*fl;
       if(!bloquer(xs,zs)) break;
       fl*=0.5;
     }
     c.fl+=(fl-c.fl)*Math.min(1,dt*3);
-    var x=p[0]-Math.sin(c.cap)*lat*c.fl, z=p[1]+Math.cos(c.cap)*lat*c.fl;
+    var x=p[0]-Math.sin(c.cap)*c.l*c.fl, z=p[1]+Math.cos(c.cap)*c.l*c.fl;
     var g=c.rig.g;
     g.position.set(x,hauteurSol(x,z,0),z);
-    g.rotation.y=-c.cap;
+    /* le corps suit un peu le sens du déplacement quand il change de côté */
+    g.rotation.y=-(c.cap+Math.atan2(c.vl*c.fl,Math.max(1.5,c.v)));
     c.act.timeScale=Math.max(0,c.v)/3.4*c.cad;
     c.rig.mix.update(dt);
-    c.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
     return true;
   });
+  /* ombres : les quatre plus proches de la caméra seulement */
+  var ombre=QUAL().ombre>0, cx=camera.position.x, cz=camera.position.z;
+  PELOTON.gens.map(function(c){ return [Math.hypot(c.rig.g.position.x-cx,c.rig.g.position.z-cz),c]; })
+    .sort(function(a,b){ return a[0]-b[0]; })
+    .forEach(function(e,i){ var s=ombre && i<4; e[1].rig.meshes.forEach(function(m){ m.castShadow=s; }); });
 }
 function basculerPeloton(){
   PELOTON.voulu=!PELOTON.voulu;
@@ -16174,6 +16249,186 @@ brancherInterface=function(){
 };
 window.ESPACE3D.peloton=function(){
   return {voulu:PELOTON.voulu, actif:PELOTON.actif, coureurs:PELOTON.gens.length,
-          places:PELOTON.gens.map(function(c){ return [+(c.d-dAuto).toFixed(1), +(c.lat*c.fl).toFixed(1)]; })};
+          places:PELOTON.gens.map(function(c){ return [+(c.d-dAuto).toFixed(1), +(c.l*c.fl).toFixed(1)]; })};
 };
+
+/* ---------------- 5. une interface épurée ---------------- */
+/* Pendant la visite, l'écran doit montrer la ville, pas des boutons.
+   - l'encart des jalonneurs disparaît de la vue publique : on ne le
+     touche pas pendant une visite, et la fiche d'un jalonneur reste à un
+     toucher de son personnage
+   - boutons ronds réduits à l'essentiel : vue, visite (▶ devient ⏸),
+     retour au départ, plein écran (masqué quand on y est déjà). Le chien
+     et le gyroscope restent dans le menu Vue
+   - sur téléphone, le casque VR passe dans le menu Vue, la musique se
+     réduit à sa note
+   - visite en cours : au bout de quatre secondes sans toucher l'écran,
+     barre et boutons s'effacent ; le moindre toucher les ramène. Restent
+     les compteurs et la mini-carte. */
+var EPURE={dernier:0, pret:false, tel:false};
+function epurerInterface(){
+  if(EPURE.pret || !window.CONSULTATION) return;
+  var e3=$e('e3');
+  if(!e3) return;
+  EPURE.pret=true;
+  EPURE.tel=matchMedia('(pointer:coarse)').matches && Math.min(screen.width||999,screen.height||999)<=900;
+  var s=document.createElement('style');
+  s.textContent=[
+    '#e3.consultation #e3-panneau,#e3.consultation #e3-liste{display:none!important}',
+    '#e3 .e3-barre,#e3 #e3-tact-btn,#e3 #e3-joy-aide,#e3 .e3-allure{transition:opacity .6s}',
+    '#e3.e3-calme .e3-barre,#e3.e3-calme #e3-tact-btn,#e3.e3-calme .e3-allure{opacity:0;pointer-events:none}',
+    '#e3.e3-visite #e3-joy-aide{opacity:0!important}',
+    '#e3 #e3-tact-btn button.on{border-color:#F2B33D;color:#F2B33D}'
+  ].join('\n');
+  document.head.appendChild(s);
+  var box=$e('e3-tact-btn');
+  if(box){
+    [].slice.call(box.children).forEach(function(b){
+      var t=b.textContent;
+      if(t==='🧭' || t==='🐕') b.remove();
+      else if(t==='▶'){ b.id='e3-t-auto'; b.title='Lancer ou arrêter la visite guidée'; }
+      else if(t==='⛶') b.id='e3-t-plein';
+    });
+  }
+  var son=$e('e3-son');
+  if(son && EPURE.tel) son.textContent='♪';
+  if(EPURE.tel) rangerVR();
+  var reveil=function(ev){
+    if(ev && ev.type==='pointermove' && ev.pointerType!=='mouse') return;
+    EPURE.dernier=performance.now();
+    e3.classList.remove('e3-calme');
+  };
+  document.addEventListener('pointerdown',reveil,true);
+  document.addEventListener('pointermove',reveil,true);
+  document.addEventListener('keydown',reveil,true);
+  EPURE.dernier=performance.now();
+}
+/* le casque VR dans le menu Vue, sur téléphone : il arrive après coup,
+   quand le navigateur a répondu qu'il sait faire de la VR */
+function rangerVR(){
+  var b=$e('e3-vr');
+  if(!b) return;
+  var pop=null;
+  document.querySelectorAll('#e3 .e3-menu').forEach(function(m){
+    var mb=m.querySelector('.e3-menu-b');
+    if(mb && /Vue|🎥/.test(mb.dataset.lib||mb.textContent)) pop=m.querySelector('.e3-pop');
+  });
+  if(pop && b.parentNode!==pop) pop.appendChild(b);
+}
+var _poserVRe=poserBoutonVR;
+poserBoutonVR=function(){ _poserVRe(); if(EPURE.tel) rangerVR(); };
+/* l'état des boutons suit la visite, qu'elle ait été lancée au clavier,
+   au menu ou arrêtée à l'arrivée */
+function majEpure(){
+  if(!EPURE.pret) return;
+  var e3=$e('e3'), ba=$e('e3-t-auto'), bp=$e('e3-t-plein');
+  if(ba){ var t=auto?'⏸':'▶'; if(ba.textContent!==t) ba.textContent=t; ba.classList.toggle('on',!!auto); }
+  if(bp){ var pl=!!(document.fullscreenElement||document.webkitFullscreenElement); if(bp.hidden!==pl) bp.hidden=pl; }
+  e3.classList.toggle('e3-visite',!!auto);
+  var menuOuvert=!!document.querySelector('#e3 .e3-pop:not([hidden])') || ($e('e3-vit-menu') && !$e('e3-vit-menu').hidden);
+  var calme=auto && !menuOuvert && performance.now()-EPURE.dernier>4000;
+  if(calme!==e3.classList.contains('e3-calme')) e3.classList.toggle('e3-calme',calme);
+}
+var _decorEpure=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _decorEpure(dt,cx,cz);
+  try{ majEpure(); }catch(e){}
+};
+var _brancherEpure=brancherInterface;
+brancherInterface=function(){ _brancherEpure(); try{ epurerInterface(); }catch(e){ console.warn('interface :',e); } };
+var _majSonEpure=majBoutonSon;
+majBoutonSon=function(){ _majSonEpure(); var b=$e('e3-son'); if(b && EPURE.tel) b.textContent='♪'; };
+
+/* ---------------- 6. la tribune de la place d'armes ---------------- */
+/* Le bâtiment qui borde la place d'armes au nord du parcours, d'après les
+   photos de Nicolas : un volume moderne à cadre de béton blanc, deux
+   étages entièrement vitrés à balcons filants et garde-corps de verre,
+   posés en porte-à-faux sur un rez-de-chaussée en retrait. Les gradins
+   sont sous l'avancée et débordent largement de part et d'autre.
+   L'emprise est celle d'OpenStreetMap (28 m de façade sur la place, 50 m
+   de profondeur), la hauteur celle de l'IGN (11,2 m). Les proportions du
+   détail (retrait de 6,5 m, étages de 3 m, trumeau plein de 3 m côté sud)
+   sont lues sur les photos : à reprendre si une mesure les dément. */
+var TRIBUNE={A:[-649.2,-317.6], B:[-652.0,-289.4], D:49.7, c:[-675.3,-305.9]};
+var _repriseTrib=repriseParMonument;
+repriseParMonument=function(cx,cz){
+  if(Math.hypot(cx-TRIBUNE.c[0],cz-TRIBUNE.c[1])<4) return true;
+  return _repriseTrib(cx,cz);
+};
+/* gradins : sous l'avancée, et 18 m de part et d'autre du bâtiment */
+if(typeof GRADINS!=='undefined' && GRADINS[0]){
+  GRADINS[0].longueur=64; GRADINS[0].rangs=8; GRADINS[0].marche=0.36;
+  GRADINS[0].profondeur=0.95; GRADINS[0].recul=-6.3;
+}
+function etapeTribune(){
+  var A=TRIBUNE.A, B=TRIBUNE.B, c=TRIBUNE.c;
+  var ex=B[0]-A[0], ez=B[1]-A[1], W=Math.hypot(ex,ez);
+  var mx=(A[0]+B[0])/2, mz=(A[1]+B[1])/2;
+  var nx=-ez/W, nz=ex/W;
+  if((mx-c[0])*nx+(mz-c[1])*nz<0){ nx=-nx; nz=-nz; }
+  /* u vers la gauche de qui regarde la façade depuis la place */
+  var M={ax:mx, az:mz, nx:nx, nz:nz, ux:-nz, uz:nx};
+  var yb=hauteur(mx,mz), D=TRIBUNE.D, w=W/2;
+  var beton=new Tas(8192), verre=new Tas(4096), rail=new Tas(2048);
+  var blanc=teinte(0xeceae4), blancOmbre=teinte(0xdedbd3), brique=teinte(0x8e5f4b), metal=teinte(0x40464d), sombre=teinte(0x2c3036);
+  function b(t,u0,u1,p0,p1,y0,y1,col){ blocDev(t,M,u0,u1,yb+y0,yb+y1,p0,p1,col); }
+  var HR=5.0, S1=5.6, S2a=8.0, S2b=8.3, TOIT=10.2, HT=11.2, RET=-6.5, BAL=-1.3;
+  /* rez-de-chaussée en retrait, en brique, enterré à l'arrière où le sol monte */
+  b(beton,-w+0.5,w-0.5,-D+0.5,RET,-2.6,HR,brique);
+  /* portes et baies vitrées du rez-de-chaussée, sous l'avancée */
+  b(verre,-9,9,RET,RET+0.06,0.15,3.1,blanc);
+  for(var u=-9;u<=9.01;u+=2.25) b(beton,u-0.05,u+0.05,RET,RET+0.09,0.15,3.1,metal);
+  /* dalles blanches : plancher du premier (le dessous de l'avancée), plancher du second, toiture */
+  b(beton,-w,w,-D,0,HR,S1,blanc);
+  b(beton,-w,w,-D,0,S2a,S2b,blancOmbre);
+  b(beton,-w,w,-D,0,TOIT,HT,blanc);
+  /* le volume vitré des deux étages, en retrait des nez de dalle */
+  b(verre,-w+0.35,w-0.35,-D+0.35,BAL,S1,TOIT,blanc);
+  /* le cadre : trumeau plein côté gauche (vu de la place), fin montant à droite */
+  b(beton,w-3.0,w,-9,0,S1,TOIT,blanc);
+  b(beton,-w,-w+0.45,BAL,0,S1,TOIT,blanc);
+  /* montants de la façade avant et des façades latérales */
+  var y, k;
+  for(u=-w+0.5;u<w-3.0;u+=1.5) b(beton,u-0.04,u+0.04,BAL,BAL+0.12,S1,TOIT,metal);
+  for(var p=-D+0.5;p<BAL-0.5;p+=1.6){
+    b(beton,-w+0.23,-w+0.35,p-0.04,p+0.04,S1,TOIT,metal);
+    if(p<-9) b(beton,w-0.35,w-0.23,p-0.04,p+0.04,S1,TOIT,metal);
+  }
+  for(u=-w+0.5;u<w-0.5;u+=1.6) b(beton,u-0.04,u+0.04,-D+0.23,-D+0.35,S1,TOIT,metal);
+  /* garde-corps de verre et main courante, aux deux étages */
+  [S1,S2b].forEach(function(y0){
+    b(rail,-w+0.45,w-3.0,-0.12,-0.06,y0,y0+1.05,blanc);
+    var a=[mx+M.ux*(-w+0.45)+nx*-0.09, mz+M.uz*(-w+0.45)+nz*-0.09], z2=[mx+M.ux*(w-3.0)+nx*-0.09, mz+M.uz*(w-3.0)+nz*-0.09];
+    tube(beton,a[0],yb+y0+1.07,a[1],z2[0],yb+y0+1.07,z2[1],0.035,0.035,6,metal,true,true);
+  });
+  /* poteaux sous l'avancée, qui traversent les gradins */
+  for(k=0;k<5;k++){
+    u=-11+k*5.5;
+    var q=[mx+M.ux*u+nx*-1.2, mz+M.uz*u+nz*-1.2];
+    tube(beton,q[0],yb-1.5,q[1],q[0],yb+HR,q[1],0.24,0.24,12,blanc,false,false);
+  }
+  /* édicule technique sur le toit */
+  b(beton,-6,6,-32,-16,HT,HT+1.3,blancOmbre);
+  /* le mât des couleurs, devant le bâtiment sur la place */
+  var fx=mx+nx*22, fz=mz+nz*22, fy=hauteur(fx,fz);
+  tube(beton,fx,fy-0.3,fz,fx,fy+12,fz,0.09,0.05,10,teinte(0xd8dade),false,true);
+  var bands=[teinte(0x1f3e8c),teinte(0xf2f2f2),teinte(0xd7263d)];
+  for(k=0;k<3;k++){
+    var a0=0.08+k*0.6, a1=a0+0.6, h0=fy+10.6, h1=fy+11.8;
+    var P0=[fx+M.ux*a0,h0,fz+M.uz*a0], P1=[fx+M.ux*a1,h0,fz+M.uz*a1], Q1=[fx+M.ux*a1,h1,fz+M.uz*a1], Q0=[fx+M.ux*a0,h1,fz+M.uz*a0];
+    toileDouble(beton,P0,P1,Q1,Q0,bands[k]);
+  }
+  var mb=new THREE.MeshStandardMaterial({vertexColors:true, map:textureDe(faireBeton(),1,1), roughness:0.82, metalness:0.02});
+  mb.name='tribune béton';
+  var mv=new THREE.MeshStandardMaterial({color:0x2c3a45, roughness:0.05, metalness:0.78, emissive:0x5a4a2e, emissiveIntensity:nuit?1:0});
+  mv.name='tribune vitrage';
+  var mr=new THREE.MeshStandardMaterial({color:0xa9bcc6, roughness:0.08, metalness:0.3, transparent:true, opacity:0.32, depthWrite:false});
+  mr.name='tribune garde-corps';
+  if(MAT.fenetresNuit) MAT.fenetresNuit.push(mv);
+  ajouter(beton,mb,true,true);
+  ajouter(verre,mv,true,true);
+  ajouter(rail,mr,false,false);
+  TRIBUNE.fait={yb:yb, W:W, n:[nx,nz]};
+}
+ETAPES.forEach(function(e,i){ if(e[0]==='Gradins de la place d’armes') ETAPES.splice(i+1,0,['Tribune de la place d’armes',etapeTribune]); });
 })();
