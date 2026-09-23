@@ -2114,6 +2114,7 @@ button.mini{
     <button id="e3-carte" class="e3-fort" title="Revenir à la carte : elle est déjà à jour">◧ Carte</button>
     <button id="e3-vuep" title="Vue à la troisième ou à la première personne (F)">👤 3e personne</button>
     <button id="e3-auto" title="Visite guidée (V)">▶ Visite</button>
+    <button id="e3-peloton" title="Dix coureurs autour de toi pendant la visite guidée (L)">🏃 Peloton</button>
     <button id="e3-depart" title="Revenir au départ (R)">⏮ Départ</button>
     <button id="e3-haute" title="Vue haute">⤢ Vue haute</button>
     <button id="e3-gyro" title="Tourner la caméra en tournant le téléphone (Y)" hidden>🧭 Gyroscope</button>
@@ -214007,7 +214008,7 @@ function ouvrirLienGoogle(){
 })();
 </script>
 <script>
-window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_tex_hd.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","a_perso6.js","a_perso7.js","a_chien.js","musique.js","code3d.js"],mobiles_sans:["a_perso3.js","a_perso4.js","a_perso7.js","a_tex_hd.js"],ios_sans:["a_ciel.js","a_tex2.js","a_perso6.js"]};
+window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","post.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_tex_hd.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","a_perso6.js","a_perso7.js","a_chien.js","musique.js","code3d.js"],mobiles_sans:[],ios_sans:["a_ciel.js","a_tex2.js","a_perso6.js"]};
 /* Chargement différé de la 3D : bibliothèque, modèles et code ne sont
    téléchargés qu'à l'ouverture de la vue 3D, la carte s'ouvre donc vite.
    Sur téléphone, les piétons (les modèles les plus lourds) sont laissés de côté. */

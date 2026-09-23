@@ -11968,7 +11968,7 @@ function compacter3D(){
     m.appendChild(b); m.appendChild(pop);
     return m;
   }
-  var mVue=menu('🎥 Vue','Point de vue et déplacements',['e3-vuep','e3-haute','e3-auto','e3-gyro','e3-chien','e3-depart']);
+  var mVue=menu('🎥 Vue','Point de vue et déplacements',['e3-vuep','e3-haute','e3-auto','e3-peloton','e3-gyro','e3-chien','e3-depart']);
   var mPoser=menu('➕ Poser','Poser jalonneurs, matériel, véhicules et policiers',['#Personnes','e3-ajout','e3-b-veh','#Matériel','e3-b-bar','e3-b-rub']);
   var mAff=menu('👁 Afficher','Ce qui est affiché dans la scène',['e3-liste','e3-b-parc','e3-b-trace','e3-circ','e3-nuit','e3-detail']);
   var bv=$e('e3-b-veh'); if(bv) bv.textContent='🪖 Véhicules et 👮 policiers';
@@ -15083,7 +15083,7 @@ function reliefPossible(){
   if(SUR_IOS_3D) return false;
   var mem=navigator.deviceMemory||8;
   var tel=(navigator.maxTouchPoints||0)>0 && Math.min(screen.width||999,screen.height||999)<900;
-  return !(tel && mem<6);
+  return !(tel && mem<4);
 }
 var _batisV1=construireBatis;
 construireBatis=function(b){
@@ -15790,5 +15790,390 @@ animerDecor=function(dt,cx,cz){
 window.ESPACE3D.foule=function(){
   return {pret:FOULE.pret, modeles:Object.keys(FOULE.modeles), coureurs:FOULE.coureurs.length,
           spectateurs:FOULE.spect.length, pietons:VIE.pietons.length, avatarsPietons:Object.keys(VIE.modeles)};
+};
+
+/* =================================================================
+   Rendu V3 : se rapprocher de la photo.
+
+   1. Post-traitement. Ce qui trahissait encore l'image de synthèse,
+      c'était l'absence d'ombre de contact : un mur posé sur le trottoir,
+      un angle rentrant, le dessous d'une corniche restaient aussi clairs
+      que le reste, et les bâtiments semblaient flotter. L'occlusion
+      ambiante (GTAO de three.js) assombrit ces recoins. Elle lit la
+      profondeur déjà calculée par le rendu principal et en déduit les
+      normales : pas de second passage sur la scène, et elle travaille en
+      demi-résolution. Viennent ensuite un halo discret sur les fortes
+      lumières (surtout la nuit, lampadaires et vitrines), un étalonnage
+      léger (ombres un peu froides, lumières un peu chaudes, vignetage) et
+      un anticrénelage SMAA, puisque l'anticrénelage matériel ne s'applique
+      plus quand on dessine dans une texture.
+      En qualité Basse et en mode « Fluide », occlusion et halo sont
+      éteints. Casque VR : rendu direct. Si le navigateur refuse la
+      chaîne, on revient au rendu direct.
+   2. Patine. Des coulures verticales et de grandes taches de salissure,
+      calées sur le monde et non sur la texture, cassent l'uniformité des
+      façades : deux maisons voisines n'ont plus le même mur au pixel
+      près. Au pied des murs, la remontée d'humidité ; plus bas dans la
+      rue, moins de ciel et des murs plus sombres. Sur les tuiles, des
+      plaques de lichen. La nuit, une fenêtre sur deux reste éteinte.
+   3. Bordures de trottoir. Leurs joues recevaient la texture des dalles,
+      vue de côté elle donnait un damier sombre ; elles sont maintenant en
+      pierre calcaire unie.
+   4. Peloton. En visite guidée, dix coureurs autour du joueur, à son
+      allure, lui au centre. Bouton « Peloton » dans le menu Vue, touche L.
+================================================================= */
+
+/* ---------------- 1. post-traitement ---------------- */
+var POST={ok:null, comp:null, ao:null, bloom:null, grade:null, smaa:null, w:0, h:0, t:0};
+var _pv2=new THREE.Vector2();
+var ETALON={
+  uniforms:{tDiffuse:{value:null}, sat:{value:1.05}, contr:{value:1.06}, vign:{value:0.20},
+            chaud:{value:new THREE.Vector3(1.025,1.0,0.965)}, froid:{value:new THREE.Vector3(0.965,0.995,1.045)},
+            grain:{value:0.010}, temps:{value:0}},
+  vertexShader:'varying vec2 vUv;\nvoid main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+  fragmentShader:[
+    'uniform sampler2D tDiffuse; uniform float sat,contr,vign,grain,temps; uniform vec3 chaud,froid; varying vec2 vUv;',
+    'float bruit(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }',
+    'void main(){',
+    '  vec4 c=texture2D(tDiffuse,vUv); vec3 x=c.rgb;',
+    '  float l=dot(x,vec3(0.2126,0.7152,0.0722));',
+    '  x=mix(vec3(l),x,sat);',
+    '  x=mix(x*froid,x*chaud,smoothstep(0.12,0.7,l));',
+    '  x=clamp((x-0.5)*contr+0.5,0.0,1.0);',
+    '  vec2 d=vUv-0.5; x*=1.0-vign*dot(d,d)*1.8;',
+    '  x+=(bruit(vUv*vec2(1733.0,977.0)+temps)-0.5)*grain;',
+    '  gl_FragColor=vec4(x,c.a);',
+    '}'].join('\n')
+};
+function postVoulu(){
+  if(POST.ok===false || !renderer || !construit) return false;
+  return !(window.XR3D && XR3D.actif);
+}
+function creerPost(){
+  if(POST.ok!==null) return POST.ok;
+  POST.ok=false;
+  if(!EXT.EffectComposer || !EXT.GTAOPass || !EXT.SMAAPass || !renderer.capabilities.isWebGL2) return false;
+  try{
+    renderer.getDrawingBufferSize(_pv2);
+    var w=_pv2.x, h=_pv2.y;
+    var dt=new THREE.DepthTexture(w,h); dt.type=THREE.UnsignedIntType;
+    var rt=new THREE.WebGLRenderTarget(w,h,{type:THREE.HalfFloatType, depthTexture:dt});
+    var comp=new EXT.EffectComposer(renderer,rt);
+    var ao=new EXT.GTAOPass(scene,camera,w,h);
+    /* la profondeur du rendu principal suffit : les normales en sont
+       déduites, la scène n'est pas redessinée une seconde fois */
+    ao.setGBuffer(rt.depthTexture);
+    ao.updateGtaoMaterial({radius:2.2, distanceExponent:1.2, thickness:3.0, scale:1.6, samples:12, distanceFallOff:1.0});
+    ao.updatePdMaterial({lumaPhi:10, depthPhi:2, normalPhi:3, radius:5, rings:2, samples:12});
+    ao.blendIntensity=0.9;
+    var aoRendu=ao.render, aoTaille=ao.setSize;
+    ao.render=function(r,wb,rb,d,m){
+      var t=rb.depthTexture;
+      if(t && ao.depthTexture!==t){
+        ao.depthTexture=t;
+        ao.gtaoMaterial.uniforms.tDepth.value=t;
+        ao.pdMaterial.uniforms.tDepth.value=t;
+      }
+      return aoRendu.call(ao,r,wb,rb,d,m);
+    };
+    ao.setSize=function(a,b){ aoTaille.call(ao,Math.max(2,Math.round(a*0.5)),Math.max(2,Math.round(b*0.5))); };
+    ao.setSize(w,h);
+    var bloom=new EXT.UnrealBloomPass(new THREE.Vector2(w,h),0.12,0.35,1.6);
+    var grade=new EXT.ShaderPass(ETALON);
+    var smaa=new EXT.SMAAPass(w,h);
+    comp.addPass(new EXT.RenderPass(scene,camera));
+    comp.addPass(ao);
+    comp.addPass(bloom);
+    comp.addPass(new EXT.OutputPass());
+    comp.addPass(grade);
+    comp.addPass(smaa);
+    POST.comp=comp; POST.ao=ao; POST.bloom=bloom; POST.grade=grade; POST.smaa=smaa;
+    POST.w=w; POST.h=h;
+    POST.ok=true;
+  }catch(e){ console.warn('Post-traitement indisponible :',e); POST.ok=false; }
+  return POST.ok;
+}
+function reglerPost(){
+  renderer.getDrawingBufferSize(_pv2);
+  if(_pv2.x!==POST.w || _pv2.y!==POST.h){ POST.w=_pv2.x; POST.h=_pv2.y; POST.comp.setSize(POST.w,POST.h); }
+  var n=(typeof nuit!=='undefined' && nuit), g=POST.grade.uniforms;
+  /* En qualité Basse ou en mode Fluide, la chaîne reste en place : en
+     sortir forcerait à recompiler tous les shaders, plusieurs secondes de
+     gel. Seules l'occlusion et le halo s'éteignent. Le halo coûte cinq
+     passes : la nuit toujours (lampadaires, vitrines), le jour seulement
+     en qualité Haute, pour les reflets de soleil. */
+  var fin=PERF.qualite>=1 && !(typeof detail!=='undefined' && !detail);
+  POST.ao.enabled=fin;
+  POST.bloom.enabled=fin && (n || PERF.qualite>=2);
+  POST.bloom.strength=n?0.32:0.10;
+  POST.bloom.threshold=n?0.9:1.6;
+  POST.bloom.radius=n?0.4:0.3;
+  POST.ao.blendIntensity=n?0.6:0.9;
+  g.sat.value=n?0.96:1.05;
+  g.contr.value=n?1.0:1.06;
+  g.vign.value=n?0.32:0.20;
+  g.temps.value=(POST.t=(POST.t+0.37)%97);
+}
+var _rendreVueV2=rendreVue;
+rendreVue=function(){
+  if(!postVoulu() || !creerPost()){ _rendreVueV2(); return; }
+  try{ reglerPost(); POST.comp.render(); }
+  catch(e){ console.warn('Post-traitement coupé :',e); POST.ok=false; _rendreVueV2(); }
+};
+/* les vues de référence passent par le même rendu que l'écran */
+window.ESPACE3D.cliche=function(qualite){
+  if(!construit || !renderer) return null;
+  rendreVue();
+  return renderer.domElement.toDataURL('image/jpeg',qualite||0.72);
+};
+window.ESPACE3D.clicheLibre=function(o,qualite){
+  if(!construit || !renderer) return null;
+  var x=(o.x!==undefined)?o.x:pX(o.lo), z=(o.z!==undefined)?o.z:pZ(o.la);
+  var y=(o.y!==undefined)?o.y:(hauteur(x,z)+((o.h!==undefined)?o.h:1.63));
+  var a=(o.az||0)*PI/180, el=(o.el||0)*PI/180;
+  var dx=Math.sin(a)*Math.cos(el), dy=Math.sin(el), dz=-Math.cos(a)*Math.cos(el);
+  var asp=camera.aspect||1.6, ch=(o.champ||60)*PI/180;
+  camera.fov=2*Math.atan(Math.tan(ch/2)/asp)*180/PI;
+  camera.position.set(x,y,z);
+  camera.up.set(0,1,0);
+  camera.lookAt(x+dx, y+dy, z+dz);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+  rendreVue();
+  return {image:(qualite===0)?null:renderer.domElement.toDataURL('image/jpeg',qualite||0.85),
+          oeil:[x,y,z], aspect:asp, fovV:camera.fov,
+          large:renderer.domElement.width, haut:renderer.domElement.height};
+};
+window.ESPACE3D.post=function(o){
+  if(o){
+    if(o.coupe!==undefined) POST.ok=o.coupe?false:(POST.comp?true:null);
+    if(o.sortie!==undefined && POST.ao) POST.ao.output=o.sortie;
+  }
+  return {actif:postVoulu() && !!POST.ok, qualite:QUAL().nom, taille:[POST.w,POST.h],
+          halo:!!(POST.bloom && POST.bloom.enabled)};
+};
+
+/* ---------------- 2. patine des façades et des toits ---------------- */
+/* greffe un morceau de shader sur un matériau sans écraser ce qui s'y
+   trouve déjà, et avec une clé de programme propre */
+function greffer(mat,cle,fn){
+  var ob=mat.onBeforeCompile, avant=mat.hasOwnProperty('customProgramCacheKey')?mat.customProgramCacheKey:null;
+  var txt=(ob && ob!==THREE.Material.prototype.onBeforeCompile)?ob.toString():'';
+  mat.onBeforeCompile=function(sh,r){
+    if(ob) ob.call(mat,sh,r);
+    sh.uniforms.tPat={value:TEX_MACRO};
+    sh.uniforms.tSol={value:SOL_TEX.tex}; sh.uniforms.solMin={value:SOL_TEX.min}; sh.uniforms.solTaille={value:SOL_TEX.taille};
+    if(sh.vertexShader.indexOf('vPatW')<0){
+      sh.vertexShader=sh.vertexShader
+        .replace('#include <common>','#include <common>\nvarying vec3 vPatW;\nvarying vec3 vPatN;')
+        .replace('#include <begin_vertex>','#include <begin_vertex>\nvPatW=(modelMatrix*vec4(transformed,1.0)).xyz;\nvPatN=normalize(mat3(modelMatrix)*objectNormal);');
+      sh.fragmentShader=sh.fragmentShader
+        .replace('#include <common>','#include <common>\nvarying vec3 vPatW;\nvarying vec3 vPatN;\nuniform sampler2D tPat;\nuniform sampler2D tSol;\nuniform vec2 solMin, solTaille;');
+    }
+    fn(sh);
+  };
+  mat.customProgramCacheKey=function(){ return (avant?avant.call(mat):txt)+'|'+cle; };
+  mat.needsUpdate=true;
+}
+/* Hauteur au-dessus du sol, lue dans une carte du relief : c'est elle qui
+   place la remontée d'humidité au pied des murs (le bas des vieilles
+   façades du Poitou est toujours plus sombre, verdi sur quelques
+   décimètres) et qui assombrit les rez-de-chaussée, qui voient moins de
+   ciel que les étages dans une rue étroite. */
+var GLSL_FACADE=[
+  '{',
+  '  vec2 pw=vec2(vPatW.x+vPatW.z*0.71, vPatW.y);',
+  '  float tache=texture2D(tPat, vPatW.xz*0.0068+vec2(0.0,vPatW.y*0.004)).r;',
+  '  float coul=texture2D(tPat, vec2(pw.x*0.31, pw.y*0.016+0.21)).r;',
+  '  float f=(tache-0.5)*0.34+(coul-0.5)*0.26;',
+  '  diffuseColor.rgb*=1.0+f;',
+  '  diffuseColor.rgb=mix(diffuseColor.rgb, diffuseColor.rgb*vec3(0.92,0.91,0.88), clamp(-f*3.0,0.0,1.0)*0.55);',
+  '  float hs=vPatW.y-texture2D(tSol,(vPatW.xz-solMin)/solTaille).r;',
+  '  float bord=texture2D(tPat, vec2(pw.x*0.09, 0.5)).r;',
+  '  float humide=1.0-smoothstep(0.15, 0.55+0.9*bord, hs);',
+  '  diffuseColor.rgb=mix(diffuseColor.rgb, diffuseColor.rgb*vec3(0.66,0.66,0.60), humide*0.75);',
+  '  diffuseColor.rgb*=1.0-0.30*(1.0-smoothstep(0.0,0.35,hs));',
+  '  diffuseColor.rgb*=mix(0.80,1.0,smoothstep(0.5,11.0,hs));',
+  '}'].join('\n');
+/* La nuit, toutes les fenêtres étaient allumées. Une façade est peinte
+   par travées (une travée, un étage : une case de la texture), si bien
+   qu'un tirage par case allume ou éteint une fenêtre entière, jamais une
+   moitié. Environ une sur deux reste noire, et l'intensité varie. Le
+   tirage change aussi de quartier en quartier (cases de 40 m), sans quoi
+   toutes les maisons auraient les mêmes fenêtres allumées. */
+var GLSL_NUIT=[
+  '{',
+  '  vec2 cel=floor(vMapUv+0.001)+floor(vPatW.xz/40.0)*17.13;',
+  '  float h=fract(sin(dot(cel,vec2(12.9898,78.233)))*43758.5453);',
+  '  totalEmissiveRadiance*=step(0.45,h)*(0.65+0.7*fract(h*7.31));',
+  '}'].join('\n');
+var SOL_TEX=null;
+function faireCarteSol(){
+  var L=2.5, nx=Math.ceil((XMAX-XMIN)/L)+1, nz=Math.ceil((ZMAX-ZMIN)/L)+1;
+  var d=new Uint16Array(nx*nz), i, j;
+  for(j=0;j<nz;j++) for(i=0;i<nx;i++)
+    d[j*nx+i]=THREE.DataUtils.toHalfFloat(hauteur(XMIN+i*L, ZMIN+j*L));
+  var t=new THREE.DataTexture(d,nx,nz,THREE.RedFormat,THREE.HalfFloatType);
+  t.magFilter=t.minFilter=THREE.LinearFilter;
+  t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;
+  t.needsUpdate=true;
+  SOL_TEX={tex:t, min:new THREE.Vector2(XMIN-L*0.5,ZMIN-L*0.5), taille:new THREE.Vector2(nx*L,nz*L)};
+}
+var GLSL_TUILES=[
+  '{',
+  '  float gr=texture2D(tPat, vPatW.xz*0.021).r, fin=texture2D(tPat, vPatW.xz*0.13+0.3).r;',
+  '  diffuseColor.rgb*=0.86+0.28*gr;',
+  '  float lich=smoothstep(0.52,0.66,gr*0.55+fin*0.6-0.08);',
+  '  float lu=dot(diffuseColor.rgb,vec3(0.33));',
+  '  diffuseColor.rgb=mix(diffuseColor.rgb, vec3(lu*1.05,lu*1.03,lu*0.72), lich*0.45);',
+  '}'].join('\n');
+var GLSL_ARDOISE=[
+  '{',
+  '  float gr=texture2D(tPat, vPatW.xz*0.024).r, fin=texture2D(tPat, vPatW.xz*0.17+0.6).r;',
+  '  diffuseColor.rgb*=0.84+0.22*gr+0.12*fin;',
+  '}'].join('\n');
+/* la joue d'une bordure : pierre calcaire unie, grain léger */
+var GLSL_JOUE=[
+  'if(abs(vPatN.y)<0.55){',
+  '  float g=texture2D(tPat, vec2(vPatW.x+vPatW.z, vPatW.y)*0.9).r;',
+  '  diffuseColor.rgb=vec3(0.50,0.49,0.46)*(0.86+0.28*g);',
+  '}'].join('\n');
+var GLSL_JOUE_N='if(abs(vPatN.y)<0.55) normal=nonPerturbedNormal;';
+var PATINE={fait:false, mats:0};
+function patiner(){
+  PATINE.fait=true;
+  if(!TEX_MACRO) TEX_MACRO=faireMacro();
+  if(!SOL_TEX) faireCarteSol();
+  var vus=new Set();
+  scene.traverse(function(o){
+    if(!o.isMesh || !o.material) return;
+    (Array.isArray(o.material)?o.material:[o.material]).forEach(function(m){
+      if(!m || vus.has(m) || !m.isMeshStandardMaterial) return;
+      vus.add(m);
+      var n=m.name||'', code=null, cle=null;
+      if(/^(mur f|rdc f|rdc commerce|annexe|corniche|cheminee|mur ecole|pierre de taille)/.test(n)){ code=GLSL_FACADE; cle='patF'; }
+      else if(/^toit tuiles/.test(n)){ code=GLSL_TUILES; cle='patT'; }
+      else if(/^toit ardoise/.test(n)){ code=GLSL_ARDOISE; cle='patA'; }
+      else if(n==='trot'){
+        greffer(m,'patJ',function(sh){
+          sh.fragmentShader=sh.fragmentShader
+            .replace('#include <color_fragment>','#include <color_fragment>\n'+GLSL_JOUE)
+            .replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\n'+GLSL_JOUE_N);
+        });
+        PATINE.mats++;
+        return;
+      }
+      if(!code) return;
+      greffer(m,cle,function(sh){
+        sh.fragmentShader=sh.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n'+code);
+        if(cle==='patF') sh.fragmentShader=sh.fragmentShader.replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n'+GLSL_NUIT);
+      });
+      PATINE.mats++;
+    });
+  });
+}
+var _rendreVueP=rendreVue;
+rendreVue=function(){
+  if(!PATINE.fait && construit){ try{ patiner(); }catch(e){ console.warn('patine :',e); } }
+  _rendreVueP();
+};
+
+/* ---------------- 3. le peloton ---------------- */
+/* Dix places autour du joueur : [avance le long du tracé, écart latéral],
+   en mètres. Le joueur est au centre ; personne juste derrière lui, pour
+   ne pas boucher la vue à la troisième personne. */
+var PELOTON_PLACES=[[3.3,-1.2],[3.0,1.0],[5.6,0.1],[0.9,-1.7],[0.3,1.8],
+                    [-1.8,-1.4],[-2.3,1.5],[-4.0,-1.9],[-4.6,1.9],[7.8,-1.0]];
+var PELOTON={voulu:true, gens:[], rigs:[], t:0, actif:false};
+try{ if(localStorage.getItem('corrida3d-peloton')==='0') PELOTON.voulu=false; }catch(e){}
+function libererPeloton(){ PELOTON.gens.forEach(liberer2); PELOTON.gens=[]; }
+function formerPeloton(){
+  libererPeloton();
+  var noms=Object.keys(FOULE.modeles);
+  if(!noms.length || !FOULE.run) return;
+  /* des tenues différentes d'abord, on ne repioche qu'une fois toutes vues */
+  var tirage=noms.slice().sort(function(){ return Math.random()-0.5; });
+  PELOTON_PLACES.forEach(function(pl,i){
+    var nom=tirage[i%tirage.length];
+    var rig=prendreRig(PELOTON.rigs,nom,creerRigCoureur,PELOTON_PLACES.length+2);
+    if(!rig) return;
+    rig.mix.stopAllAction();
+    var a=rig.mix.clipAction(FOULE.run);
+    a.reset().play(); a.time=Math.random()*FOULE.run.duration;
+    PELOTON.gens.push({rig:rig, act:a, off:pl[0], lat:pl[1], fl:1,
+      ph1:Math.random()*6.28, ph2:Math.random()*6.28, cad:0.95+Math.random()*0.1,
+      d:dAuto+pl[0], cap:capArrondi(Math.max(0,dAuto+pl[0])), v:VITESSE, libre:false});
+    rig.libre=false; rig.g.visible=true;
+  });
+}
+function majPeloton(dt){
+  if(!FOULE.pret || !LONGUEUR) return;
+  var veut=PELOTON.voulu && auto && VUE!=='jal';
+  if(veut && !PELOTON.actif){ PELOTON.actif=true; formerPeloton(); }
+  if(!veut && PELOTON.actif){ PELOTON.actif=false; PELOTON.gens.forEach(function(c){ c.libre=true; }); }
+  if(!PELOTON.gens.length) return;
+  if(!PELOTON.voulu){ libererPeloton(); return; }
+  PELOTON.t+=dt;
+  var t=PELOTON.t, ombre=QUAL().ombre>0, vJ=auto?J.v:0;
+  PELOTON.gens=PELOTON.gens.filter(function(c){
+    if(c.libre){
+      /* visite arrêtée : ils continuent leur course et s'éloignent */
+      c.d+=c.v*dt;
+      if(c.d>LONGUEUR-2 || Math.abs(c.d-(J.d||0))>90){ liberer2(c); return false; }
+    } else {
+      /* à leur place, avec un léger flottement : on n'avance pas au cordeau */
+      var cible=dAuto+c.off*(1+(1-c.fl)*1.3)+0.45*Math.sin(t*0.8+c.ph1);
+      c.v=vJ+(cible-c.d)*1.5;
+      c.d+=c.v*dt;
+    }
+    var dd=Math.max(0,Math.min(LONGUEUR,c.d));
+    var p=pointArrondi(dd), cap=capArrondi(dd);
+    c.cap+=ecartAngle(cap-c.cap)*Math.min(1,dt*5);
+    /* dans un passage étroit, le peloton se resserre vers l'axe */
+    var lat=c.lat+0.3*Math.sin(t*0.55+c.ph2), fl=1;
+    for(var k=0;k<3;k++){
+      var xs=p[0]-Math.sin(c.cap)*lat*fl, zs=p[1]+Math.cos(c.cap)*lat*fl;
+      if(!bloquer(xs,zs)) break;
+      fl*=0.5;
+    }
+    c.fl+=(fl-c.fl)*Math.min(1,dt*3);
+    var x=p[0]-Math.sin(c.cap)*lat*c.fl, z=p[1]+Math.cos(c.cap)*lat*c.fl;
+    var g=c.rig.g;
+    g.position.set(x,hauteurSol(x,z,0),z);
+    g.rotation.y=-c.cap;
+    c.act.timeScale=Math.max(0,c.v)/3.4*c.cad;
+    c.rig.mix.update(dt);
+    c.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
+    return true;
+  });
+}
+function basculerPeloton(){
+  PELOTON.voulu=!PELOTON.voulu;
+  try{ localStorage.setItem('corrida3d-peloton',PELOTON.voulu?'1':'0'); }catch(e){}
+  if(!PELOTON.voulu){ libererPeloton(); PELOTON.actif=false; }
+  var b=$e('e3-peloton'); if(b) b.classList.toggle('on',PELOTON.voulu);
+  dire(PELOTON.voulu?(auto?'Peloton : dix coureurs autour de toi':'Peloton activé : il t’entoure dès que la visite guidée démarre')
+                    :'Peloton désactivé');
+}
+var _decorPeloton=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _decorPeloton(dt,cx,cz);
+  try{ majPeloton(Math.min(dt,0.1)); }catch(e){ console.warn('peloton :',e); }
+};
+var _brancherPel=brancherInterface;
+brancherInterface=function(){
+  _brancherPel();
+  var b=$e('e3-peloton');
+  if(b){ b.onclick=basculerPeloton; b.classList.toggle('on',PELOTON.voulu); }
+  addEventListener('keydown',function(e){
+    if(!ouvert || e.repeat) return;
+    var tg=e.target;
+    if(tg && ((tg.tagName==='INPUT' && tg.type!=='range') || tg.tagName==='TEXTAREA' || tg.tagName==='SELECT')) return;
+    if(e.key.toLowerCase()==='l') basculerPeloton();
+  });
+};
+window.ESPACE3D.peloton=function(){
+  return {voulu:PELOTON.voulu, actif:PELOTON.actif, coureurs:PELOTON.gens.length,
+          places:PELOTON.gens.map(function(c){ return [+(c.d-dAuto).toFixed(1), +(c.lat*c.fl).toFixed(1)]; })};
 };
 })();
