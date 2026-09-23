@@ -224,7 +224,7 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 
 <section id="v-guidage">
   <div class="bascule" id="bascule">
-    <button data-m="lot" class="on" id="m-lot">Lot de validation</button>
+    <button data-m="lot" class="on" id="m-lot">Devantures</button>
     <button data-m="tout">Tout le parcours</button>
   </div>
   <div class="cible" id="cible">
@@ -352,7 +352,7 @@ ul.arrets .compte{font-family:"Roboto Mono",monospace;font-size:11px;color:var(-
 /* Affiché en haut de l'écran : à monter à chaque mise à jour. C'est ce qui
    permet de dire au premier coup d'œil si le téléphone a bien la dernière
    version ou une copie en cache. */
-var VERSION='v5 · 360 au doigt';
+var VERSION='v6 · devantures';
 var $=function(s){ return document.querySelector(s); };
 var PLAN=null, POS=null, CAP=null, CIBLE=null, FAIT=lireFait(), BASE=null;
 /* vues 3D de référence : une par photo à prendre, rendues hors ligne par
@@ -368,7 +368,7 @@ var PRISE='arret';   /* 'arret' ou 'libre' : ce que le prochain déclenchement e
 /* une cible choisie avant le premier point GPS ne vaut rien : on la remplace
    dès qu'on sait où l'on est, mais jamais celle que tu as désignée toi-même */
 var PROVISOIRE=true;
-/* on démarre sur le lot de validation : la sortie courte qui décide du projet */
+/* on démarre sur le lot en cours : les devantures des commerces du parcours */
 var MODE=(function(){ try{ return localStorage.getItem('releve-mode')||'lot'; }catch(e){ return 'lot'; } })();
 var TYPES={f:'facade', p:'poste'};
 
@@ -558,13 +558,13 @@ function polaire(cx,cy,r,az){
 }
 function dessiner(){
   var L=lotFait();
-  $('#m-lot').textContent='Lot de validation ('+L.faits+'/'+L.total+')';
+  $('#m-lot').textContent='Devantures ('+L.faits+'/'+L.total+')';
   var a=CIBLE;
   if(!a){
     if(MODE==='lot'){
-      $('#c-chapo').textContent='Lot de validation bouclé';
+      $('#c-chapo').textContent='Devantures bouclées';
       $('#c-titre').textContent=L.total+' arrêts faits';
-      $('#c-consigne').innerHTML='Récupère l\'archive dans <b>Envoi</b> et envoie-la moi : je traite ce lot dans la 3D avant que tu marches le reste. Pour continuer quand même, passe sur <b>Tout le parcours</b>.';
+      $('#c-consigne').innerHTML='Récupère l\'archive dans <b>Envoi</b> et envoie-la moi : je recale chaque devanture de la 3D sur ta photo : couleurs, lettrage, store. Pour continuer quand même, passe sur <b>Tout le parcours</b>.';
     } else {
       $('#c-chapo').textContent='Relevé terminé';
       $('#c-titre').textContent='Plus rien à photographier';

@@ -2074,7 +2074,7 @@ button.mini{
     <p class="mode"><b>Sur téléphone</b> : mode consultation automatique, la vue 3D s’ouvre directement (bouton ◧ Carte pour revenir à la carte, ou <kbd>?carte=1</kbd> à la fin de l’adresse pour commencer par la carte). La carte se déplace au doigt et se zoome en pinçant, « Infos » ouvre la liste des points, jalonneurs et rues, un point touché affiche sa fiche. Rien ne peut être modifié. Ajoute <kbd>?edition=1</kbd> à l'adresse pour forcer l'édition, ou <kbd>?consultation=1</kbd> pour voir le mode consultation sur ordinateur.</p>
     <p class="mode"><b>Piste d'obstacles</b> : les carrés bruns numérotés de 1 à 20 sont les obstacles. Glisse-les pour les déplacer, clic droit pour les tourner de 15° (la petite flèche indique le sens de passage). Tout est repris dans la 3D.</p>
     <p class="mode">Le bouton <b>Enregistrer</b> est orange tant que des modifications ne sont pas enregistrées, et gris quand tout l'est.</p>
-    <p class="credit">Réseau et plan : © les contributeurs OpenStreetMap (ODbL). Vue satellite : Esri World Imagery. Relief : IGN RGE ALTI 5 m. Hauteurs, toitures et matériaux des bâtiments : IGN BD TOPO (Licence ouverte Etalab 2.0). Véhicules 3D : Tank de Quaternius (CC0), M939 Truck de J-Toastie et Humvee de madtrollstudio (CC-BY 3.0, Poly Pizza). Chien 3D : German Shepherd de Quaternius (CC-BY 3.0, Poly Pizza). Fusil 3D : M4 de Kristian M (CC-BY 3.0, Poly Pizza). Ciel, ardoises, tuiles et enduits 3D : Poly Haven (CC0).</p>
+    <p class="credit">Réseau et plan : © les contributeurs OpenStreetMap (ODbL). Vue satellite : Esri World Imagery. Relief : IGN RGE ALTI 5 m. Hauteurs, toitures et matériaux des bâtiments : IGN BD TOPO (Licence ouverte Etalab 2.0). Personnages 3D : Microsoft Rocketbox (licence MIT). Véhicules 3D : Tank de Quaternius (CC0), M939 Truck de J-Toastie et Humvee de madtrollstudio (CC-BY 3.0, Poly Pizza). Chien 3D : German Shepherd de Quaternius (CC-BY 3.0, Poly Pizza). Fusil 3D : M4 de Kristian M (CC-BY 3.0, Poly Pizza). Ciel, ardoises, tuiles et enduits 3D : Poly Haven (CC0).</p>
     <div class="modale-actions"><button id="a-fermer">Fermer</button></div>
   </div>
 </div>
@@ -2245,7 +2245,7 @@ button.mini{
       <p>Bâtiments, voies et fonctions (mairie, églises, écoles, commerces, gymnases) viennent d'OpenStreetMap.
          Le béton, l'herbe, la terre et les arbres sont placés d'après la photo aérienne.
          Les portions parcourues deux fois sont écartées : chaque passage tient la droite de son sens de course.</p>
-      <p class="e3-credit">© contributeurs OpenStreetMap (ODbL) · Esri World Imagery · Relief IGN RGE ALTI 5 m · Hauteurs et toitures des bâtiments : IGN BD TOPO (Licence ouverte Etalab 2.0) · Véhicules : « Tank » de Quaternius (CC0), « M939 Truck » de J-Toastie et « Humvee » de madtrollstudio (CC-BY 3.0, via Poly Pizza) · Fusil : « M4 » de Kristian M (CC-BY 3.0, via Poly Pizza) · Chien : « German Shepherd » de Quaternius (CC-BY 3.0, via Poly Pizza), robe et harnais repris · Ciel HDRI, ardoises, tuiles et enduits : Poly Haven (CC0).
+      <p class="e3-credit">© contributeurs OpenStreetMap (ODbL) · Esri World Imagery · Relief IGN RGE ALTI 5 m · Hauteurs et toitures des bâtiments : IGN BD TOPO (Licence ouverte Etalab 2.0) · Personnages : Microsoft Rocketbox (licence MIT) · Véhicules : « Tank » de Quaternius (CC0), « M939 Truck » de J-Toastie et « Humvee » de madtrollstudio (CC-BY 3.0, via Poly Pizza) · Fusil : « M4 » de Kristian M (CC-BY 3.0, via Poly Pizza) · Chien : « German Shepherd » de Quaternius (CC-BY 3.0, via Poly Pizza), robe et harnais repris · Ciel HDRI, ardoises, tuiles et enduits : Poly Haven (CC0).
          Hauteurs de bâtiments estimées d'après l'emprise quand la donnée n'existe pas.</p>
       <button class="e3-fermer" id="e3-aide-fermer">Fermer</button>
     </div>
@@ -214007,7 +214007,7 @@ function ouvrirLienGoogle(){
 })();
 </script>
 <script>
-window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","a_chien.js","musique.js","code3d.js"],mobiles_sans:["a_perso3.js","a_perso4.js"],ios_sans:["a_ciel.js","a_tex2.js"]};
+window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree.js","a_perso1.js","a_perso2.js","a_perso3.js","a_perso4.js","a_tex.js","a_tex2.js","a_tex_hd.js","a_ciel.js","a_voit.js","a_mil.js","a_perso5.js","a_perso6.js","a_perso7.js","a_chien.js","musique.js","code3d.js"],mobiles_sans:["a_perso3.js","a_perso4.js","a_perso7.js","a_tex_hd.js"],ios_sans:["a_ciel.js","a_tex2.js","a_perso6.js"]};
 /* Chargement différé de la 3D : bibliothèque, modèles et code ne sont
    téléchargés qu'à l'ouverture de la vue 3D, la carte s'ouvre donc vite.
    Sur téléphone, les piétons (les modèles les plus lourds) sont laissés de côté. */
@@ -214035,8 +214035,13 @@ window.CHARGEMENT_3D={fichiers:["three.min.js","chargeurs.js","rgbe.js","ez-tree
          photographique et le second lot de textures y sont laissés de côté,
          le programme sait s’en passer. */
       var iOS=!!window.SUR_IOS;
+      /* Téléphone : écran tactile et petit. Pas « consultation » : la version
+         publique est en consultation pour tout le monde, ordinateurs compris,
+         et ceux-ci perdaient la moitié des piétons sans raison. */
+      var tel=false;
+      try{ tel=!!(window.matchMedia && matchMedia('(pointer: coarse)').matches) && Math.min(screen.width,screen.height)<=900; }catch(e){}
       var L=C.fichiers.filter(function(f){
-        if(window.CONSULTATION && (C.mobiles_sans||[]).indexOf(f)>=0) return false;
+        if((tel||iOS) && (C.mobiles_sans||[]).indexOf(f)>=0) return false;
         if(iOS && (C.ios_sans||[]).indexOf(f)>=0) return false;
         return true;
       }), n=0;

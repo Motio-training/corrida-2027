@@ -4942,7 +4942,7 @@ function libererActifs(){
     var v=A[k];
     if(typeof v!=='string' || v.length<4096) return;
     /* les photos et le ciel ne sont lus qu'à la construction */
-    var jeter=/^ph2?_/.test(k) || k==='ciel_jour.hdr';
+    var jeter=/^(ph2?|hd)_/.test(k) || k==='ciel_jour.hdr';
     /* sur iPhone on jette aussi les avatars déjà montés ; le policier,
        lui, se charge à la demande quand on en pose un */
     if(SUR_IOS_3D && /\.fbx$/i.test(k) && !/^Police_/i.test(k)) jeter=true;
@@ -15104,5 +15104,691 @@ majMorceaux=function(cx,cz){
     o.m.visible=d<R;
     o.m.castShadow=d<O;
   }
+};
+
+/* =================================================================
+   Les devantures des commerces.
+
+   OpenStreetMap donne le nom de 85 commerces et services de la ville,
+   et la marque de 28 d'entre eux ; aucune couleur. Chaque commerce reçoit
+   donc une vraie devanture sur le mur de son bâtiment qui donne sur la
+   rue : pilastres et soubassement peints, vitrine qui reflète le ciel,
+   porte vitrée, bandeau portant le nom réel, store rayé pour les cafés,
+   restaurants et boulangeries, croix verte des pharmacies, carotte du
+   tabac.
+
+   Les couleurs : celles de la marque pour les enseignes de chaîne, une
+   couleur d'usage pour les indépendants (vert de pharmacie, bordeaux de
+   restaurant…). Ces dernières sont provisoires : les photos de Nicolas
+   les remplaceront devanture par devanture (DEV_PHOTOS).
+
+   Tous les bandeaux partagent une seule toile de 2048 × 2048 : quatre-
+   vingts enseignes coûtent quatre appels de dessin, pas deux cent
+   quarante. Une enseigne relevée en photo (HUMAN, ORPI, PROMAN…) garde
+   la sienne.
+================================================================= */
+/* [latitude, longitude, nom, nature, marque] d'après OpenStreetMap (ODbL) */
+var COMMERCES=[
+  [46.4131267,-0.2064334,"Saint-Maixent l'École","post_office","La Poste"],
+  [46.4085227,-0.2240639,"Le Patio","restaurant",""],
+  [46.4089079,-0.2236759,"","hairdresser",""],
+  [46.4090469,-0.2236021,"","bar",""],
+  [46.4092551,-0.2234705,"","florist",""],
+  [46.4087667,-0.2237532,"","clothes",""],
+  [46.4064169,-0.2018992,"","pub",""],
+  [46.4167410,-0.1959349,"Pizza du Monde","restaurant",""],
+  [46.4093220,-0.2240061,"E. Leclerc","supermarket","E. Leclerc"],
+  [46.4133668,-0.2058820,"Les Pizzas de Mario","restaurant",""],
+  [46.4139943,-0.2000392,"Allô Mémé","restaurant",""],
+  [46.4175179,-0.1956678,"Revolution","laundry",""],
+  [46.4087617,-0.2240365,"Atoll","optician",""],
+  [46.4177988,-0.1946506,"Croix Rouge Française","charity",""],
+  [46.4074327,-0.2235822,"Groupama","insurance","Groupama"],
+  [46.4133228,-0.2059266,"C.Lunéville Immobilier","estate_agent",""],
+  [46.4140175,-0.2037231,"Proman","employment_agency","Proman"],
+  [46.4127052,-0.2055155,"Boutique solidaire du Secours Catholique","charity","Secours Catholique"],
+  [46.4129895,-0.2053561,"Caisse d'épargne","bank","Caisse d'Épargne"],
+  [46.4128553,-0.2055357,"Tendances","clothes",""],
+  [46.4145717,-0.2021477,"Le Bfor","bar",""],
+  [46.4114025,-0.2026899,"Miroptic","optician",""],
+  [46.4146708,-0.2018477,"Art et Fleurs","florist",""],
+  [46.4146022,-0.2020470,"Crédit Mutuel","bank","Crédit Mutuel"],
+  [46.4145139,-0.2022522,"Le Chiquito","tobacco",""],
+  [46.4144915,-0.2023237,"A l'Auberge des Fleurs","florist",""],
+  [46.4126921,-0.2069098,"Le Sulky","bar",""],
+  [46.4134483,-0.2058481,"So'Style","hairdresser",""],
+  [46.4103474,-0.2003334,"Fallourd","alcohol",""],
+  [46.4174204,-0.1960917,"Intermarché","supermarket","Intermarché"],
+  [46.4170284,-0.1968691,"Arepe","trade",""],
+  [46.4120923,-0.2090610,"AXA","bankinsurance","AXA"],
+  [46.4134327,-0.2059129,"Le Châlon","pub",""],
+  [46.4132574,-0.2103104,"Gendarmerie nationale","police",""],
+  [46.4134354,-0.2040997,"Société Générale","bank","Société Générale"],
+  [46.4067263,-0.2099037,"Le Logis Saint-Martin","restaurant",""],
+  [46.4079108,-0.2223758,"McDonald's","fast_food","McDonald's"],
+  [46.4127783,-0.2066112,"LCL","bank","LCL"],
+  [46.4117913,-0.2051902,"Le Chauray","bar",""],
+  [46.4144233,-0.1992931,"Espace Agapit","cinema",""],
+  [46.4161113,-0.1969557,"O Resto","restaurant",""],
+  [46.4105187,-0.2027796,"Aqua Libris - Médiathèque inter-communale","library",""],
+  [46.4112382,-0.2116642,"La Fournée","bakery",""],
+  [46.4167448,-0.1950244,"Le Fournil du Talmeunier","bakery",""],
+  [46.4138423,-0.2047988,"Le Nagdalena","restaurant",""],
+  [46.4113625,-0.2038799,"La Marmite","restaurant",""],
+  [46.4173387,-0.1944956,"Allianz","insurance","Allianz"],
+  [46.4142718,-0.2032023,"Mutuelle de Poitiers","insurance",""],
+  [46.4152984,-0.2015609,"Crédit Agricole","bank","Crédit Agricole"],
+  [46.4111140,-0.2030235,"Pharmacie du Marché","pharmacy",""],
+  [46.4072446,-0.2215410,"Burger King","fast_food","Burger King"],
+  [46.4113956,-0.2115334,"Le Cellier - Vins & Plaisirs","alcohol",""],
+  [46.4133919,-0.2059151,"Les Pizzas de Mario","fast_food",""],
+  [46.4163504,-0.1972205,"L'annexe","restaurant",""],
+  [46.4149224,-0.2019051,"Le Cheval Blanc","restaurant",""],
+  [46.4152424,-0.2033935,"Utile","convenience","Utile"],
+  [46.4189970,-0.1954287,"Bricomarché","doityourself","Bricomarché"],
+  [46.4072558,-0.2239298,"Pharmacie du Grand Chêne","pharmacy",""],
+  [46.4061208,-0.2237768,"Peugeot","car","Peugeot"],
+  [46.4056183,-0.2244813,"Chauss Expo","shoes",""],
+  [46.4040562,-0.2256462,"Quintard Motoculture","hardware",""],
+  [46.4046338,-0.2258106,"Le jardin loisir","garden_centre",""],
+  [46.4072695,-0.2264190,"L'Auto Leclerc","car_parts",""],
+  [46.4063274,-0.2263563,"Renault - Automobile du grand chêne","car","Renault"],
+  [46.4081013,-0.2254077,"Brico E. Leclerc","doityourself",""],
+  [46.4070946,-0.2244377,"Monnet Automobile","car_repair",""],
+  [46.4068903,-0.2249969,"Plaisirs Fermiers","farm",""],
+  [46.4175288,-0.2033401,"Pharmacie Chollet","pharmacy",""],
+  [46.4057291,-0.2242295,"Vet' Affaires","clothes",""],
+  [46.4084195,-0.2225371,"GiFi","variety_store","GiFi"],
+  [46.4115408,-0.2031480,"L'Atelier","restaurant","L'Atelier"],
+  [46.4062829,-0.2227666,"Lidl","supermarket","Lidl"],
+  [46.4135371,-0.2055244,"Pharmacie de la Porte Chalon","pharmacy",""],
+  [46.4113212,-0.2131231,"MMA","insurance","MMA"],
+  [46.4142513,-0.2030803,"ADI","estate_agent",""],
+  [46.4140305,-0.2037627,"Square Habitat Saint-Maixent-l'École","estate_agent","Square Habitat"],
+  [46.4148719,-0.2015816,"","bakery",""],
+  [46.4067111,-0.2255445,"Gémo","clothes","Gémo"],
+  [46.4065816,-0.2258896,"Action","variety_store","Action"],
+  [46.4069279,-0.2252385,"Plaisirs des Pains","bakery",""],
+  [46.4205697,-0.2054228,"","beauty",""]
+];
+/* Couleurs des enseignes de chaîne : leur charte, à confirmer sur photo. */
+var MARQUES_DEV={
+  'La Poste':          {t:'LA POSTE',         fond:'#ffcc00', encre:'#003da5', cadre:'#ffcc00'},
+  'Crédit Mutuel':     {t:'Crédit Mutuel',    fond:'#ffffff', encre:'#0b4f9c', cadre:'#0b4f9c', filet:'#e30613'},
+  "Caisse d'Épargne":  {t:"Caisse d'Epargne", fond:'#d6001c', encre:'#ffffff', cadre:'#d6001c'},
+  'Société Générale':  {t:'SOCIETE GENERALE', fond:'#1a1a1a', encre:'#ffffff', cadre:'#1a1a1a', filet:'#e60028'},
+  'LCL':               {t:'LCL',              fond:'#0b2a6f', encre:'#ffd200', cadre:'#0b2a6f'},
+  'Crédit Agricole':   {t:'Crédit Agricole',  fond:'#00836b', encre:'#ffffff', cadre:'#00836b'},
+  'AXA':               {t:'AXA',              fond:'#00008f', encre:'#ffffff', cadre:'#00008f', filet:'#ff1721'},
+  'Allianz':           {t:'Allianz',          fond:'#003781', encre:'#ffffff', cadre:'#003781'},
+  'Groupama':          {t:'Groupama',         fond:'#00965e', encre:'#ffffff', cadre:'#00965e'},
+  'Intermarché':       {t:'Intermarché',      fond:'#e2001a', encre:'#ffffff', cadre:'#e2001a', l:12},
+  'E. Leclerc':        {t:'E.LECLERC',        fond:'#0066b3', encre:'#ffffff', cadre:'#0066b3', filet:'#f39200', l:14},
+  'Lidl':              {t:'LIDL',             fond:'#0050aa', encre:'#fff000', cadre:'#0050aa', filet:'#e60a14', l:12},
+  "McDonald's":        {t:"McDonald's",       fond:'#da291c', encre:'#ffc72c', cadre:'#da291c', l:8},
+  'Burger King':       {t:'BURGER KING',      fond:'#f5ebdc', encre:'#d62300', cadre:'#502314', l:8},
+  'Peugeot':           {t:'PEUGEOT',          fond:'#111111', encre:'#ffffff', cadre:'#111111', l:10},
+  'Secours Catholique':{t:'Secours Catholique', fond:'#ffffff', encre:'#e2001a', cadre:'#e2001a'}
+};
+/* L'usage pour les indépendants : mot du bandeau quand OSM n'a pas de nom,
+   fond, encre, couleurs de menuiserie possibles, et ce qui s'y ajoute. */
+var TYPES_DEV={
+  pharmacy:     {t:'PHARMACIE',     fond:'#f4f6f3', encre:'#0f8a4a', cadres:['#0f8a4a','#dfe5e0'], croix:true, l:5.5},
+  bakery:       {t:'BOULANGERIE',   fond:'#f1e4c9', encre:'#6b3b12', cadres:['#6b3b12','#7a1f25','#2f3b2a'], store:true},
+  pastry:       {t:'PÂTISSERIE',    fond:'#f6ece2', encre:'#7a2f4a', cadres:['#7a2f4a','#3a2a24'], store:true},
+  butcher:      {t:'BOUCHERIE',     fond:'#f6f1ef', encre:'#a3172a', cadres:['#a3172a','#27313d'], store:true},
+  restaurant:   {t:'RESTAURANT',    fond:'#2b2118', encre:'#e9d9b8', cadres:['#6b2230','#2b2118','#29423a','#1f2d44'], store:true, l:6.5},
+  fast_food:    {t:'RESTAURATION',  fond:'#b8321f', encre:'#ffffff', cadres:['#b8321f','#2b2b2b'], store:true},
+  cafe:         {t:'CAFÉ',          fond:'#1e2a1e', encre:'#e8dfc0', cadres:['#1e3a2a','#5a1f2b','#1f2d44'], store:true},
+  bar:          {t:'BAR',           fond:'#1e2a1e', encre:'#e8dfc0', cadres:['#1e3a2a','#5a1f2b','#1f2d44'], store:true},
+  pub:          {t:'BAR',           fond:'#1e2a1e', encre:'#e8dfc0', cadres:['#1e3a2a','#5a1f2b','#2a2a2a'], store:true},
+  tobacco:      {t:'TABAC',         fond:'#c8102e', encre:'#ffffff', cadres:['#1f2d44','#2a2a2a'], carotte:true},
+  florist:      {t:'FLEURS',        fond:'#f6f3ee', encre:'#2f6b3a', cadres:['#2f6b3a','#6f8a5a'], store:true},
+  hairdresser:  {t:'COIFFURE',      fond:'#1f1f24', encre:'#efe7dd', cadres:['#1f1f24','#c9c2b8']},
+  beauty:       {t:'INSTITUT',      fond:'#f3e9e6', encre:'#8a4a5a', cadres:['#8a4a5a','#e6ddd8']},
+  clothes:      {t:'PRÊT-À-PORTER', fond:'#1c1c1e', encre:'#ffffff', cadres:['#1c1c1e','#e8e4dc','#3a4a5a']},
+  shoes:        {t:'CHAUSSURES',    fond:'#1c1c1e', encre:'#ffffff', cadres:['#1c1c1e','#e8e4dc']},
+  optician:     {t:'OPTICIEN',      fond:'#ffffff', encre:'#1b1b1b', cadres:['#1b1b1b','#c9ced3']},
+  bank:         {t:'BANQUE',        fond:'#ffffff', encre:'#0a4a8c', cadres:['#0a4a8c','#d9dde2']},
+  bankinsurance:{t:'ASSURANCES',    fond:'#ffffff', encre:'#123f88', cadres:['#123f88','#d9dde2']},
+  insurance:    {t:'ASSURANCES',    fond:'#ffffff', encre:'#123f88', cadres:['#123f88','#d9dde2']},
+  estate_agent: {t:'IMMOBILIER',    fond:'#1b7cb0', encre:'#ffffff', cadres:['#1b7cb0','#2a2a2a','#e8e4dc']},
+  employment_agency:{t:'EMPLOI',    fond:'#f4f4f2', encre:'#123f88', cadres:['#123f88']},
+  alcohol:      {t:'CAVE',          fond:'#5a1f2b', encre:'#efe2c4', cadres:['#5a1f2b','#2b2118']},
+  convenience:  {t:'ALIMENTATION',  fond:'#f4f4f2', encre:'#1b5e20', cadres:['#1b5e20','#c8102e']},
+  supermarket:  {t:'SUPERMARCHÉ',   fond:'#f4f4f2', encre:'#1b5e20', cadres:['#1b5e20'], l:12},
+  variety_store:{t:'BAZAR',         fond:'#1b5fa8', encre:'#ffffff', cadres:['#1b5fa8'], l:10},
+  doityourself: {t:'BRICOLAGE',     fond:'#e2001a', encre:'#ffffff', cadres:['#e2001a'], l:12},
+  hardware:     {t:'QUINCAILLERIE', fond:'#f2f2ef', encre:'#3a3a3a', cadres:['#3a3a3a']},
+  garden_centre:{t:'JARDINERIE',    fond:'#2f6b3a', encre:'#ffffff', cadres:['#2f6b3a'], l:10},
+  car:          {t:'AUTOMOBILES',   fond:'#20242a', encre:'#e8e8e8', cadres:['#20242a'], l:10},
+  car_repair:   {t:'GARAGE',        fond:'#20242a', encre:'#e8e8e8', cadres:['#20242a']},
+  car_parts:    {t:'PIÈCES AUTO',   fond:'#20242a', encre:'#e8e8e8', cadres:['#20242a']},
+  laundry:      {t:'LAVERIE',       fond:'#e9f2f7', encre:'#1b6fa8', cadres:['#1b6fa8']},
+  charity:      {t:'SOLIDARITÉ',    fond:'#ffffff', encre:'#c8102e', cadres:['#c8102e']},
+  farm:         {t:'PRODUCTEURS',   fond:'#f1e4c9', encre:'#2f6b3a', cadres:['#2f6b3a']},
+  police:       {t:'GENDARMERIE',   fond:'#1c3a78', encre:'#ffffff', cadres:['#1c3a78','#e8e4dc'], l:7},
+  post_office:  {t:'LA POSTE',      fond:'#ffcc00', encre:'#003da5', cadres:['#ffcc00']},
+  library:      {t:'MÉDIATHÈQUE',   fond:'#2f3e57', encre:'#ffffff', cadres:['#2f3e57']},
+  cinema:       {t:'CINÉMA',        fond:'#1c1c1e', encre:'#f2c14e', cadres:['#1c1c1e','#7a1f25'], l:7},
+  trade:        {t:'NÉGOCE',        fond:'#f2f2ef', encre:'#3a3a3a', cadres:['#3a3a3a']},
+  _:            {t:'',              fond:'#2e3440', encre:'#ffffff', cadres:['#2e3440','#e8e4dc']}
+};
+/* Ce que les photos de Nicolas auront relevé, devanture par devanture :
+   {nom:'Le Chiquito', fond:'#…', encre:'#…', cadre:'#…', texte:'…'}.
+   Le nom est celui d'OpenStreetMap ; ce qui est donné remplace l'usage. */
+var DEV_PHOTOS=[];
+var DEV={n:0, ecartes:[], mats:null, poses:[]};
+
+/* un bloc posé contre le mur : de p0 à p1 en profondeur, u0 à u1 le long
+   du mur, y0 à y1 en hauteur. Six faces : il peut flotter devant le mur. */
+function blocDev(tas,M,u0,u1,y0,y1,p0,p1,col){
+  var ux=M.ux, uz=M.uz, nx=M.nx, nz=M.nz;
+  function P(u,p){ return [M.ax+ux*u+nx*p, M.az+uz*u+nz*p]; }
+  var a0=P(u0,p0), b0=P(u1,p0), a1=P(u0,p1), b1=P(u1,p1);
+  function q(A,B,C,D,n){ quadN(tas,A,B,C,D,n,PANNEAU_UV,col); }
+  /* vu de face, u croît vers la gauche : chaque face est décrite dans le
+     sens direct pour celui qui la regarde */
+  q([b1[0],y0,b1[1]],[a1[0],y0,a1[1]],[a1[0],y1,a1[1]],[b1[0],y1,b1[1]],[nx,0,nz]);         /* face */
+  q([a0[0],y0,a0[1]],[b0[0],y0,b0[1]],[b0[0],y1,b0[1]],[a0[0],y1,a0[1]],[-nx,0,-nz]);       /* dos */
+  q([b1[0],y1,b1[1]],[a1[0],y1,a1[1]],[a0[0],y1,a0[1]],[b0[0],y1,b0[1]],[0,1,0]);           /* dessus */
+  q([a1[0],y0,a1[1]],[b1[0],y0,b1[1]],[b0[0],y0,b0[1]],[a0[0],y0,a0[1]],[0,-1,0]);          /* dessous */
+  q([a1[0],y0,a1[1]],[a0[0],y0,a0[1]],[a0[0],y1,a0[1]],[a1[0],y1,a1[1]],[-ux,0,-uz]);       /* joue u0 */
+  q([b0[0],y0,b0[1]],[b1[0],y0,b1[1]],[b1[0],y1,b1[1]],[b0[0],y1,b0[1]],[ux,0,uz]);         /* joue u1 */
+}
+/* un quadrilatère vu des deux côtés : la toile d'un store */
+function toileDouble(tas,A,B,C,D,col){
+  var n=nrm(A,B,C);
+  quadN(tas,A,B,C,D,n,PANNEAU_UV,col);
+  quadN(tas,A,D,C,B,[-n[0],-n[1],-n[2]],PANNEAU_UV,col);
+}
+function hashDev(s){ var h=0; for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))|0; return Math.abs(h); }
+function distSegDev(x,z,ax,az,bx,bz){
+  var dx=bx-ax, dz=bz-az, l2=dx*dx+dz*dz, t=l2>0?((x-ax)*dx+(z-az)*dz)/l2:0;
+  t=t<0?0:(t>1?1:t);
+  return Math.hypot(x-(ax+dx*t), z-(az+dz*t));
+}
+
+/* Le mur de la vitrine : le plus proche du commerce parmi ceux qui sortent
+   du bâtiment, ne touchent pas un voisin et donnent sur une chaussée. Le
+   bâtiment qui contient le point d'OSM passe devant ses voisins. */
+function murDevanture(x,z,I,sansRue){
+  var best=null, B=GEO.bats;
+  for(var i=0;i<B.length;i++){
+    var b=B[i], p=b.p, n=p.length/2;
+    if(x<b.x0-22 || x>b.x1+22 || z<b.z0-22 || z>b.z1+22) continue;
+    var dedans=dansPoly(p,x,z);
+    for(var j=0;j<n;j++){
+      var k=(j+1)%n, ax=p[j*2], az=p[j*2+1], bx=p[k*2], bz=p[k*2+1];
+      var dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz);
+      if(L<2.6) continue;
+      var mx=(ax+bx)/2, mz=(az+bz)/2;
+      for(var s=1;s>=-1;s-=2){
+        var nx=s*dz/L, nz=-s*dx/L;
+        if(dansPoly(p,mx+nx*0.6,mz+nz*0.6)) continue;
+        if(bloquer(mx+nx*1.6,mz+nz*1.6)) continue;
+        if(!sansRue && !routeProche(I,mx+nx*4,mz+nz*4,14)) continue;
+        var d=distSegDev(x,z,ax,az,bx,bz)+(dedans?0:4);
+        if(d>24 || (best && d>=best.d)) continue;
+        /* le mur est parcouru de façon que sa normale sortante soit (uz, -ux) */
+        best=(s===1)?{d:d, ax:ax, az:az, bx:bx, bz:bz, L:L}:{d:d, ax:bx, az:bz, bx:ax, bz:az, L:L};
+      }
+    }
+  }
+  if(best){
+    best.ux=(best.bx-best.ax)/best.L; best.uz=(best.bz-best.az)/best.L;
+    best.nx=best.uz; best.nz=-best.ux;
+  }
+  return best;
+}
+
+/* le bandeau, dessiné dans sa case de la toile commune. k : combien de
+   fois le bandeau réel est plus allongé que la case — on écrit serré dans
+   la case pour que les lettres sortent droites une fois étirées. */
+function peindreBandeau(g,x,y,w,h,o,k){
+  g.fillStyle=o.fond; g.fillRect(x,y,w,h);
+  if(o.filet){ g.fillStyle=o.filet; g.fillRect(x,y+h-6,w,6); }
+  g.strokeStyle='rgba(0,0,0,0.28)'; g.lineWidth=3; g.strokeRect(x+1.5,y+1.5,w-3,h-3);
+  g.save();
+  g.beginPath(); g.rect(x,y,w,h); g.clip();
+  g.translate(x+w/2,y+h/2); g.scale(1/k,1);
+  g.textAlign='center'; g.textBaseline='middle'; g.fillStyle=o.encre;
+  var fs=Math.round(h*(o.sous?0.5:0.64)), dispo=w*k*0.9;
+  g.font='600 '+fs+'px "Oswald","Arial Narrow",Impact,sans-serif';
+  var tw=g.measureText(o.texte).width;
+  if(tw>dispo){ fs=Math.max(10,Math.floor(fs*dispo/tw)); g.font='600 '+fs+'px "Oswald","Arial Narrow",Impact,sans-serif'; }
+  g.fillText(o.texte,0,o.sous?-h*0.13:h*0.02);
+  if(o.sous){
+    g.font='400 '+Math.round(h*0.24)+'px "Barlow",Arial,sans-serif';
+    g.fillText(o.sous,0,h*0.3);
+  }
+  g.restore();
+}
+
+function poserDevantures(){
+  if(!GEO || !GEO.bats || !Dvoies) return;
+  var I=indexerChaussees(Dvoies);
+  var coul=new Tas(16384), vitre=new Tas(4096), bandeau=new Tas(1024), lum=new Tas(1024);
+  var AT=2048, CW=512, CH=64, cv=toile(AT,AT), g=cv.getContext('2d'), cellule=0;
+  g.fillStyle='#808080'; g.fillRect(0,0,AT,AT);
+  var murs={}, blanc=teinte(0xf1ede4), verre=teinte(0x47555e), fer=teinte(0x2a2d30);
+  DEV.n=0; DEV.ecartes=[]; DEV.poses=[];
+  COMMERCES.forEach(function(c){
+    var la=c[0], lo=c[1], nom=c[2], genre=c[3], marque=c[4];
+    var x=pX(lo), z=pZ(la);
+    /* une enseigne relevée en photo garde la sienne */
+    for(var e=0;e<ENSEIGNES.length;e++){
+      var E=ENSEIGNES[e];
+      /* même commerce : même nom, ou même adresse à quelques mètres près */
+      var dE=Math.hypot(pX(E.lo)-x,pZ(E.la)-z), nE=E.texte?E.texte.toUpperCase():'', nC=(nom||'').toUpperCase();
+      if(nE && ((dE<30 && nC && (nC.indexOf(nE)>=0 || nE.indexOf(nC)>=0)) || dE<3)){ DEV.ecartes.push(nom+' (photo)'); return; }
+    }
+    var T=TYPES_DEV[genre]||TYPES_DEV._, Mq=MARQUES_DEV[marque]||null, Ph=null;
+    for(var f=0;f<DEV_PHOTOS.length;f++) if(DEV_PHOTOS[f].nom===nom){ Ph=DEV_PHOTOS[f]; break; }
+    /* une grande surface donne sur son parking, pas sur une rue */
+    var M=murDevanture(x,z,I)||murDevanture(x,z,I,true);
+    if(!M){ DEV.ecartes.push((nom||genre)+' (pas de mur sur rue)'); return; }
+    var h=hashDev(nom+genre+la);
+    var texte=(Ph&&Ph.texte)||(Mq?Mq.t:(nom||T.t)), sous='';
+    if(!Mq && !Ph && nom && T.t && nom.toUpperCase().indexOf(T.t.split(' ')[0])<0 && T.t.length<14) sous=T.t.toLowerCase();
+    if(!texte){ DEV.ecartes.push(genre+' (sans nom)'); return; }
+    var fond=(Ph&&Ph.fond)||(Mq?Mq.fond:T.fond), encre=(Ph&&Ph.encre)||(Mq?Mq.encre:T.encre);
+    var cadreHex=(Ph&&Ph.cadre)||(Mq?Mq.cadre:T.cadres[h%T.cadres.length]);
+    /* la place sur le mur : centrée sur le commerce, sans chevaucher un voisin */
+    var lv=Math.min((Mq&&Mq.l)||T.l||5, M.L-0.6);
+    if(lv<1.8){ DEV.ecartes.push(texte+' (mur trop court)'); return; }
+    var t0=((x-M.ax)*M.ux+(z-M.az)*M.uz);
+    var s0=Math.max(0.3,Math.min(M.L-0.3-lv,t0-lv/2)), s1=s0+lv;
+    var cle=M.ax.toFixed(1)+','+M.az.toFixed(1)+','+M.bx.toFixed(1)+','+M.bz.toFixed(1);
+    var deja=murs[cle]||(murs[cle]=[]);
+    for(var q=0;q<deja.length;q++){
+      var o=deja[q];
+      if(s0<o[1]+0.3 && s1>o[0]-0.3){
+        if(o[1]+0.3+lv<=M.L-0.3){ s0=o[1]+0.3; s1=s0+lv; }
+        else if(o[0]-0.3-lv>=0.3){ s1=o[0]-0.3; s0=s1-lv; }
+        else { DEV.ecartes.push(texte+' (mur déjà pris)'); return; }
+      }
+    }
+    deja.push([s0,s1]);
+    var cadre=teinte(parseInt(cadreHex.slice(1),16)), sombre=assombrir(cadre,0.72);
+    var mx=M.ax+M.ux*(s0+s1)/2+M.nx*0.6, mz=M.az+M.uz*(s0+s1)/2+M.nz*0.6;
+    var y0=hauteur(mx,mz);
+    var porte=lv>=3.2, up=s0+0.3, ud=up+1.0;
+    /* menuiserie : pilastres, soubassement, traverse, montant de porte */
+    blocDev(coul,M,s0,s0+0.3,y0-0.3,y0+2.55,0,0.12,cadre);
+    blocDev(coul,M,s1-0.3,s1,y0-0.3,y0+2.55,0,0.12,cadre);
+    blocDev(coul,M,porte?ud:up,s1-0.3,y0-0.3,y0+0.45,0,0.09,sombre);
+    blocDev(coul,M,up,s1-0.3,y0+2.42,y0+2.55,0,0.08,cadre);
+    if(porte){
+      blocDev(coul,M,ud,ud+0.08,y0,y0+2.42,0,0.08,cadre);
+      blocDev(vitre,M,up,ud,y0+0.02,y0+2.42,0,0.03,verre);
+      blocDev(vitre,M,ud+0.08,s1-0.3,y0+0.45,y0+2.42,0,0.03,verre);
+    } else blocDev(vitre,M,up,s1-0.3,y0+0.45,y0+2.42,0,0.03,verre);
+    /* bandeau : caisson peint, et sa face portant le nom */
+    blocDev(coul,M,s0-0.03,s1+0.03,y0+2.55,y0+3.2,0,0.13,cadre);
+    blocDev(coul,M,s0-0.08,s1+0.08,y0+3.2,y0+3.3,0,0.2,sombre);
+    if(cellule<(AT/CW)*(AT/CH)){
+      var cx=(cellule%(AT/CW))*CW, cy=Math.floor(cellule/(AT/CW))*CH;
+      cellule++;
+      var k=(lv/0.55)/(CW/CH);
+      peindreBandeau(g,cx,cy,CW,CH,{texte:texte, sous:sous, fond:fond, encre:encre, filet:Mq&&Mq.filet},k);
+      var u0=cx/AT, u1=(cx+CW)/AT, v0=1-(cy+CH)/AT, v1=1-cy/AT;
+      var Pt=function(u,y){ return [M.ax+M.ux*u+M.nx*0.132, y, M.az+M.uz*u+M.nz*0.132]; };
+      /* vu de la rue, u croît vers la gauche : le début du texte est en s1 */
+      quadN(bandeau,Pt(s1,y0+2.6),Pt(s0,y0+2.6),Pt(s0,y0+3.15),Pt(s1,y0+3.15),[M.nx,0,M.nz],
+        [u0,v0,u1,v0,u1,v1,u0,v1],teinte(0xffffff));
+    }
+    /* store rayé : de la traverse jusqu'à 1,35 m du mur, lambrequin devant */
+    if(T.store){
+      var ua=s0+0.15, ub=s1-0.15, nb=Math.max(4,Math.round((ub-ua)/0.42)), pas=(ub-ua)/nb;
+      var S=function(u,p,y){ return [M.ax+M.ux*u+M.nx*p, y, M.az+M.uz*u+M.nz*p]; };
+      for(var r=0;r<nb;r++){
+        var a=ua+r*pas, b2=a+pas, col=(r%2)?blanc:cadre;
+        toileDouble(coul,S(b2,0.14,y0+2.5),S(a,0.14,y0+2.5),S(a,1.35,y0+2.02),S(b2,1.35,y0+2.02),col);
+        toileDouble(coul,S(b2,1.35,y0+2.02),S(a,1.35,y0+2.02),S(a,1.35,y0+1.8),S(b2,1.35,y0+1.8),col);
+      }
+    }
+    /* croix de pharmacie et carotte de tabac, en drapeau au bout du bandeau */
+    if(T.croix || T.carotte){
+      var uc=(s1+0.5<=M.L-0.1)?s1+0.35:Math.max(0.2,s0-0.35), yc=y0+3.55;
+      blocDev(coul,M,uc-0.03,uc+0.03,yc-0.03,yc+0.03,0,0.5,fer);
+      if(T.croix){
+        var vert=teinte(0x19c05a);
+        blocDev(lum,M,uc-0.04,uc+0.04,yc-0.33,yc+0.33,0.62,0.84,vert);
+        blocDev(lum,M,uc-0.04,uc+0.04,yc-0.11,yc+0.11,0.40,1.06,vert);
+      } else {
+        var rouge=teinte(0xd01f2a);
+        blocDev(lum,M,uc-0.05,uc+0.05,yc-0.3,yc-0.1,0.66,0.86,rouge);
+        blocDev(lum,M,uc-0.05,uc+0.05,yc-0.1,yc+0.1,0.56,0.96,rouge);
+        blocDev(lum,M,uc-0.05,uc+0.05,yc+0.1,yc+0.3,0.66,0.86,rouge);
+      }
+    }
+    DEV.n++;
+    DEV.poses.push({texte:texte, nom:nom, genre:genre, la:+laDeZ(mz).toFixed(6), lo:+loDeX(mx).toFixed(6),
+      az:Math.round(((Math.atan2(M.nx,-M.nz)*180/PI)+360)%360), couleur:Ph?'photo':(Mq?'marque':'usage')});
+  });
+  if(!DEV.n) return;
+  var tx=new THREE.CanvasTexture(cv);
+  if(tx.colorSpace!==undefined) tx.colorSpace=THREE.SRGBColorSpace;
+  tx.anisotropy=8;
+  var mC=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.62, metalness:0.05});
+  var mV=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.05, metalness:0.62});
+  /* le bandeau s'allume la nuit, comme les fenêtres */
+  var mB=new THREE.MeshStandardMaterial({vertexColors:true, map:tx, roughness:0.5, metalness:0,
+    emissive:0xa8a8a8, emissiveMap:tx, emissiveIntensity:nuit?1:0});
+  var mL=new THREE.MeshBasicMaterial({vertexColors:true});
+  mC.name='devantures'; mV.name='vitrines'; mB.name='bandeaux des commerces'; mL.name='croix et carottes';
+  ajouter(coul,mC,true,true); ajouter(vitre,mV,false,true);
+  ajouter(bandeau,mB,false,true); ajouter(lum,mL,false,false);
+  if(MAT.fenetresNuit) MAT.fenetresNuit.push(mB);
+  DEV.mats=[mC,mV,mB,mL];
+}
+(function(){
+  for(var i=0;i<ETAPES.length;i++) if(ETAPES[i][0]==='Monuments et enseignes relevés en photo'){
+    ETAPES.splice(i+1,0,['Devantures des commerces',function(){
+      try{ poserDevantures(); }catch(e){ console.warn('devantures :',e); }
+    }]);
+    break;
+  }
+})();
+window.ESPACE3D.devantures=function(){ return {posees:DEV.n, poses:DEV.poses, ecartes:DEV.ecartes}; };
+/* Le rez-de-chaussée commercial générique portait un store rayé et un
+   bandeau à petits carrés blancs peints dans la texture : répétés sur
+   toute l'avenue, ils faisaient faux à côté des vraies devantures. Il ne
+   garde qu'un bandeau nu, une menuiserie sombre et une vitrine où l'on
+   devine l'intérieur. Mêmes rectangles de vitres qu'avant : les reflets
+   et l'éclairage de nuit restent calés. */
+faireVitrine=function(){
+  var W=256, H=205, c=toile(W,H), g=c.getContext('2d');
+  fondEnduit(g,W,H);
+  g.fillStyle='#343a42'; g.fillRect(8,20,W-16,26);
+  g.fillStyle='rgba(255,255,255,0.10)'; g.fillRect(8,20,W-16,2);
+  g.fillStyle='rgba(0,0,0,0.30)'; g.fillRect(8,46,W-16,3);
+  g.fillStyle='#3a3f47'; g.fillRect(10,82,W-20,110);
+  var vg=g.createLinearGradient(0,88,0,188);
+  vg.addColorStop(0,'#44566a'); vg.addColorStop(0.45,'#5d7286'); vg.addColorStop(1,'#2a3440');
+  g.fillStyle=vg; g.fillRect(16,88,150,98); g.fillRect(180,88,60,104);
+  /* l'intérieur deviné : étagères et présentoirs, flous et chauds */
+  for(var i=0;i<14;i++){
+    g.fillStyle='rgba('+(200+Math.random()*55|0)+','+(170+Math.random()*60|0)+','+(120+Math.random()*60|0)+',0.16)';
+    g.fillRect(20+Math.random()*135, 120+Math.random()*55, 8+Math.random()*22, 4+Math.random()*10);
+  }
+  g.fillStyle='rgba(255,255,255,0.10)';
+  g.beginPath(); g.moveTo(30,88); g.lineTo(70,88); g.lineTo(30,150); g.closePath(); g.fill();
+  g.strokeStyle='#2c3138'; g.lineWidth=4;
+  g.strokeRect(16,88,150,98); g.strokeRect(180,88,60,104);
+  g.beginPath(); g.moveTo(91,88); g.lineTo(91,186); g.stroke();
+  g.fillStyle='rgba(70,64,54,0.40)'; g.fillRect(0,H-14,W,14);
+  return c;
+};
+
+/* =================================================================
+   Textures fines, sur ordinateur.
+
+   a_tex_hd.js (chargé seulement hors téléphone) apporte la version 2K
+   des huit textures qu'on voit de près : bitume, dalles, herbe, enduits,
+   pierre, tuiles. Quand elle est là, elle remplace la 1K sans que rien
+   d'autre ne change. Les façades, elles, sont peintes dans une toile par
+   travée : sans agrandir cette toile, une photo plus fine n'y gagnait
+   rien. Elle passe donc de deux à trois fois sa taille de base sur
+   ordinateur. Enfin le filtrage anisotrope monte au maximum de la carte
+   graphique : c'est lui qui garde net un trottoir vu en enfilade.
+================================================================= */
+function texturesHD(){ return !!(window.ACTIFS && ACTIFS['hd_asphalt_04_diff.jpg']); }
+var _actifURLv1=actifURL;
+actifURL=function(nom){
+  var m=/^ph2?_(.+_(diff|nor_gl))\.jpg$/.exec(nom);
+  if(m && window.ACTIFS && ACTIFS['hd_'+m[1]+'.jpg']) return _actifURLv1('hd_'+m[1]+'.jpg');
+  return _actifURLv1(nom);
+};
+enHD=function(fn){
+  var k=texturesHD()?3:2, t0=toile;
+  toile=function(w,h){ var c=t0(w*k,h*k); c.getContext('2d').scale(k,k); c.__hd=k; return c; };
+  try{ return fn(); } finally { toile=t0; }
+};
+function anisoMax(){ return (renderer && renderer.capabilities.getMaxAnisotropy)?renderer.capabilities.getMaxAnisotropy():8; }
+var _phTexV1=phTex;
+phTex=function(id,m,rx,ry){
+  var t=_phTexV1(id,m,rx,ry);
+  if(t && texturesHD() && t.anisotropy<anisoMax()){ t.anisotropy=anisoMax(); t.needsUpdate=true; }
+  return t;
+};
+/* les toiles des façades aussi, une fois construites */
+etapeBatisRiche=envelopperEtape(etapeBatisRiche,function(){
+  if(!texturesHD()) return;
+  var a=anisoMax(), L=(MAT.murs||[]).concat(MAT.rdcs||[],[MAT.rdcC,MAT.mursS,MAT.toits,MAT.toits2,MAT.toitsA]);
+  L.forEach(function(m){
+    if(!m) return;
+    ['map','normalMap','roughnessMap'].forEach(function(k){ if(m[k]){ m[k].anisotropy=a; m[k].needsUpdate=true; } });
+  });
+});
+
+/* =================================================================
+   La foule : plus de piétons, des spectateurs le long du tracé, des
+   coureurs sur le parcours.
+
+   Neuf nouveaux avatars Microsoft Rocketbox (licence MIT) : trois en
+   tenue de sport pour les coureurs (Sports_Male_02 et 04,
+   Sports_Female_02), six civils de plus pour que les rues ne
+   montrent pas toujours les mêmes têtes. Les coureurs sont chargés
+   partout sauf sur iPhone ; les civils, comme les autres piétons, sur
+   ordinateur seulement.
+
+   Les coureurs suivent le tracé arrondi, chacun à son allure (9 à
+   15 km/h) et dans son couloir ; ils naissent devant et derrière le
+   joueur et s'effacent quand ils s'en éloignent, ce qui donne une course
+   continue avec quelques dizaines de personnages seulement. Les
+   spectateurs se tiennent sur les bas-côtés, tournés vers le tracé, et
+   ne vivent qu'autour de la caméra, comme les piétons.
+================================================================= */
+PIETONS_AV=PIETONS_AV.concat(['Male_Adult_02','Male_Adult_04','Male_Adult_11',
+  'Female_Adult_02','Female_Adult_04','Female_Adult_10']);
+NB_PIETONS=[8,18,30];
+var NB_COUREURS=[4,10,18], NB_SPECTATEURS=[6,12,22];
+var FOULE={pret:false, modeles:{}, run:null, coureurs:[], rigsC:[], spect:[], rigsS:[], plein:false};
+
+/* Les tenues des coureurs. Sports_Male_04 porte un débardeur de course,
+   Sports_Female_02 un débardeur gris, Sports_Male_02 un maillot de foot.
+   Les deux autres modèles « sport » de la bibliothèque (sous-vêtement,
+   bikini) ne conviennent pas à une course militaire et sont écartés. Pour
+   ne pas voir dix fois le même débardeur, on le reteint à la volée : la
+   teinte change, la lumière et les plis de la texture restent. */
+var COUREURS_AV=[
+  {nom:'Sports_Male_04', tex:'m026_body_color', teintes:[null,2,28,135,'noir']},
+  {nom:'Sports_Female_02', tex:'f013_body_color', teintes:[null,335,185,52], gris:true},
+  {nom:'Sports_Male_02', tex:null, teintes:[null]}
+];
+function tslVersRvb(h,s,l){
+  function f(p,q,t){ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6) return p+(q-p)*6*t; if(t<1/2) return q; if(t<2/3) return p+(q-p)*(2/3-t)*6; return p; }
+  if(s===0){ var v=Math.round(l*255); return [v,v,v]; }
+  var q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+  return [Math.round(f(p,q,h+1/3)*255), Math.round(f(p,q,h)*255), Math.round(f(p,q,h-1/3)*255)];
+}
+/* le débardeur bleu (ou le haut gris) repeint dans une autre teinte. Le bleu
+   d'origine est un marine très sombre : on remonte la clarté, sinon le vert
+   et le rouge sortaient presque noirs. */
+function teindreTexture(nomTex,teinte,gris){
+  return new Promise(function(ok){
+    var url=actifURL(nomTex+'.jpg');
+    if(!url) return ok(null);
+    var im=new Image();
+    im.onload=function(){
+      var c=document.createElement('canvas'); c.width=im.width; c.height=im.height;
+      var g=c.getContext('2d'); g.drawImage(im,0,0);
+      var d=g.getImageData(0,0,c.width,c.height), P=d.data;
+      for(var i=0;i<P.length;i+=4){
+        var r=P[i]/255, v=P[i+1]/255, b=P[i+2]/255, mx=Math.max(r,v,b), mn=Math.min(r,v,b);
+        var l=(mx+mn)/2, s=(mx===mn)?0:(l>0.5?(mx-mn)/(2-mx-mn):(mx-mn)/(mx+mn)), h=0;
+        if(mx!==mn){ h=(mx===r)?((v-b)/(mx-mn)+(v<b?6:0)):((mx===v)?(b-r)/(mx-mn)+2:(r-v)/(mx-mn)+4); h*=60; }
+        var cible=gris ? (s<0.13 && l>0.32 && l<0.92) : (s>0.25 && h>190 && h<260);
+        if(!cible) continue;
+        var rgb=(teinte==='noir') ? tslVersRvb(0,0.04,l*0.32)
+                                  : tslVersRvb(teinte/360, gris?0.62:0.72, gris?l*0.82:Math.min(0.72,Math.max(0.2,l*2.1)));
+        P[i]=rgb[0]; P[i+1]=rgb[1]; P[i+2]=rgb[2];
+      }
+      g.putImageData(d,0,0);
+      ok(c.toDataURL('image/jpeg',0.88).split(',')[1]);
+    };
+    im.onerror=function(){ ok(null); };
+    im.src=url;
+  });
+}
+function preparerFoule(){
+  if(!EXT.FBXLoader || !EXT.clone || !window.ACTIFS) return;
+  var p=Promise.resolve();
+  if(ACTIFS['m_run_neutral_01.fbx'])
+    p=chargerClip('m_run_neutral_01').then(function(c){ FOULE.run=c; }).catch(function(){});
+  COUREURS_AV.forEach(function(av){
+    if(!ACTIFS[av.nom+'.fbx']) return;
+    av.teintes.forEach(function(t,k){
+      p=p.then(function(){
+        if(t===null) return null;
+        var cle=av.tex+'_t'+k;
+        if(ACTIFS[cle+'.jpg']) return cle;
+        return teindreTexture(av.tex,t,av.gris).then(function(b64){ if(!b64) return null; ACTIFS[cle+'.jpg']=b64; return cle; });
+      }).then(function(cle){
+        var remp=null;
+        if(cle){ remp={}; remp[av.tex]=cle; }
+        return chargerAvatar(av.nom,remp).then(function(f){
+          var femme=av.nom.indexOf('Female')>=0;
+          var g=normaliserAvatar(f,femme?1.68:1.79);
+          FOULE.modeles[av.nom+'#'+k]={g:g, f:f, rest:reposOs(g), femme:femme};
+        });
+      }).catch(function(e){ console.error('Coureur '+av.nom,e); });
+    });
+  });
+  return p.then(function(){
+    var homme=null;
+    Object.keys(FOULE.modeles).forEach(function(n){ if(!homme && !FOULE.modeles[n].femme) homme=FOULE.modeles[n]; });
+    /* la course sur place : le bassin garde sa hauteur, pas son avancée */
+    if(FOULE.run && homme) fixerRacineClip(FOULE.run,homme);
+    FOULE.pret=!!(FOULE.run && Object.keys(FOULE.modeles).length);
+  });
+}
+ETAPES.forEach(function(e,i){ if(e[0]==='Piétons et gestes des jalonneurs') ETAPES.splice(i+1,0,['Coureurs et spectateurs',preparerFoule]); });
+
+function creerRigCoureur(nom){
+  var m=FOULE.modeles[nom];
+  if(!m) return null;
+  delete m.g.userData.os;
+  restaurerOs(m.rest);
+  m.g.updateMatrixWorld(true);
+  var g=EXT.clone(m.g), meshes=[];
+  g.traverse(function(o){ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; meshes.push(o); } });
+  g.visible=false;
+  monde.add(g);
+  return {g:g, f:g.children[0], mix:new THREE.AnimationMixer(g.children[0]), nom:nom, femme:m.femme, meshes:meshes, libre:true};
+}
+function prendreRig(pool,nom,fabrique,max){
+  var r=pool.filter(function(x){ return x.libre && x.nom===nom; })[0];
+  if(r) return r;
+  if(pool.length>=max) return pool.filter(function(x){ return x.libre; })[0]||null;
+  r=fabrique(nom);
+  if(r) pool.push(r);
+  return r;
+}
+function liberer2(o){ o.rig.g.visible=false; o.rig.libre=true; }
+
+/* ---------------- coureurs ---------------- */
+function nouveauCoureur(d0){
+  var noms=Object.keys(FOULE.modeles);
+  var rig=prendreRig(FOULE.rigsC,noms[Math.floor(Math.random()*noms.length)],creerRigCoureur,NB_COUREURS[2]+3);
+  if(!rig) return;
+  /* au premier remplissage on sème partout autour ; ensuite on fait
+     naître loin devant ou loin derrière, hors de la vue proche */
+  var d=FOULE.plein ? (Math.random()<0.5 ? d0-150-Math.random()*60 : d0+170+Math.random()*80)
+                    : d0-120+Math.random()*320;
+  if(Math.abs(d-d0)<14) d+=d>=d0?16:-16;
+  d=Math.max(1,Math.min(LONGUEUR-5,d));
+  rig.mix.stopAllAction();
+  var a=rig.mix.clipAction(FOULE.run);
+  a.reset().play(); a.time=Math.random()*FOULE.run.duration;
+  FOULE.coureurs.push({rig:rig, d:d, v:2.6+Math.random()*1.6, lat:(Math.random()-0.5)*3.0, cap:capArrondi(d), act:a});
+  rig.libre=false; rig.g.visible=true;
+}
+function majCoureurs(dt){
+  if(!FOULE.pret || !LONGUEUR || !camera) return;
+  var loin=(J.ecart!==undefined && J.ecart>250);
+  var N=loin?0:NB_COUREURS[PERF.qualite], d0=J.d||0;
+  FOULE.coureurs=FOULE.coureurs.filter(function(c){
+    var ok=c.d<LONGUEUR-3 && Math.abs(c.d-d0)<270;
+    if(!ok) liberer2(c);
+    return ok;
+  });
+  while(FOULE.coureurs.length>N) liberer2(FOULE.coureurs.pop());
+  for(var k=0;k<2 && FOULE.coureurs.length<N;k++) nouveauCoureur(d0);
+  if(FOULE.coureurs.length>=N) FOULE.plein=true;
+  var ombre=QUAL().ombre>0;
+  FOULE.coureurs.forEach(function(c){
+    c.d+=c.v*dt;
+    var p=pointArrondi(c.d), cap=capArrondi(c.d);
+    c.cap+=ecartAngle(cap-c.cap)*Math.min(1,dt*5);
+    var x=p[0]-Math.sin(c.cap)*c.lat, z=p[1]+Math.cos(c.cap)*c.lat;
+    var g=c.rig.g;
+    g.position.set(x,hauteurSol(x,z,0),z);
+    g.rotation.y=-c.cap;
+    c.act.timeScale=c.v/3.4;
+    c.rig.mix.update(dt);
+    c.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
+  });
+}
+
+/* ---------------- spectateurs ---------------- */
+function nouveauSpectateur(d0,cx,cz,R){
+  var noms=Object.keys(VIE.modeles);
+  if(!noms.length) return;
+  for(var essai=0;essai<10;essai++){
+    var d=d0+(Math.random()*2-1)*R;
+    if(d<0 || d>LONGUEUR) continue;
+    var p=pointArrondi(d), cap=capArrondi(d), cote=Math.random()<0.5?1:-1, off=4.2+Math.random()*2.4;
+    var x=p[0]-Math.sin(cap)*off*cote, z=p[1]+Math.cos(cap)*off*cote;
+    var dist=Math.hypot(x-cx,z-cz);
+    if(dist>R || dist<9) continue;
+    if(bloquer(x,z) || dansZoneMilitaire(x,z)) continue;
+    if(surLeParcours(x,z).ecart<3.5) continue;
+    if(FOULE.spect.some(function(s){ return Math.hypot(s.x-x,s.z-z)<0.9; })) continue;
+    var rig=prendreRig(FOULE.rigsS,noms[Math.floor(Math.random()*noms.length)],creerRig,NB_SPECTATEURS[2]+3);
+    if(!rig) return;
+    var clip=rig.femme?VIE.clips.fi:VIE.clips.mi;
+    if(!clip) return;
+    rig.mix.stopAllAction();
+    var a=rig.mix.clipAction(clip);
+    a.reset().play(); a.time=Math.random()*clip.duration; a.timeScale=0.8+Math.random()*0.4;
+    /* tourné vers le tracé, pas tout à fait de face : on regarde passer */
+    var face=Math.atan2(p[1]-z,p[0]-x)+(Math.random()-0.5)*0.7;
+    rig.g.position.set(x,hauteurSol(x,z),z);
+    rig.g.rotation.y=-face;
+    FOULE.spect.push({rig:rig, x:x, z:z});
+    rig.libre=false; rig.g.visible=true;
+    return;
+  }
+}
+function majSpectateurs(dt){
+  if(!VIE.pret || !LONGUEUR || !camera) return;
+  var loin=(J.ecart!==undefined && J.ecart>200);
+  var N=loin?0:NB_SPECTATEURS[PERF.qualite], R=Math.min(140,PERF.dist);
+  var cx=camera.position.x, cz=camera.position.z;
+  FOULE.spect=FOULE.spect.filter(function(s){
+    var ok=Math.hypot(s.x-cx,s.z-cz)<R+30;
+    if(!ok) liberer2(s);
+    return ok;
+  });
+  while(FOULE.spect.length>N) liberer2(FOULE.spect.pop());
+  for(var k=0;k<2 && FOULE.spect.length<N;k++) nouveauSpectateur(J.d||0,cx,cz,R);
+  var ombre=QUAL().ombre>0;
+  FOULE.spect.forEach(function(s){
+    s.rig.mix.update(dt);
+    s.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
+  });
+}
+var _decorFoule=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _decorFoule(dt,cx,cz);
+  var d=Math.min(dt,0.1);
+  try{ majCoureurs(d); majSpectateurs(d); }catch(e){ console.warn('foule :',e); }
+};
+window.ESPACE3D.foule=function(){
+  return {pret:FOULE.pret, modeles:Object.keys(FOULE.modeles), coureurs:FOULE.coureurs.length,
+          spectateurs:FOULE.spect.length, pietons:VIE.pietons.length, avatarsPietons:Object.keys(VIE.modeles)};
 };
 })();
