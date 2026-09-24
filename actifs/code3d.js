@@ -17765,6 +17765,59 @@ var TERRAINS={
 };
 REPRISES.push([-817.2,-445.3,3],[-728.4,-188.9,3]);
 function vueVersMonde(p){ var V=TERRAINS.vue; return [V.x0+(p[0]-V.px0)*V.k, V.z0+(p[1]-V.py0)*V.k]; }
+/* Le CRENSOA, d'après la vue aérienne (même calage que la cour) : deux
+   gymnases hauts aux extrémités, chacun flanqué au nord d'une annexe plus
+   basse, reliés par une aile de bureaux de plain-pied. Blocs en pixels
+   [x0,y0,x1,y1], hauteur à l'égout, faîtage éventuel. */
+var CRENSOA={
+  blocs:[
+    {r:[225,340,465,545], h:9.5, f:1.6, nom:'gymnase ouest'},
+    {r:[262,265,462,340], h:6.2, f:0,   nom:'annexe ouest'},
+    {r:[630,405,870,605], h:9.5, f:1.6, nom:'gymnase est'},
+    {r:[665,320,865,405], h:6.2, f:0,   nom:'annexe est'},
+    {r:[445,470,630,590], h:3.6, f:0,   nom:'bureaux'},
+    {r:[605,385,640,470], h:3.6, f:0,   nom:'liaison'}
+  ]
+};
+REPRISES.push([-835.9,-377,4]);
+function etapeCrensoa(){
+  var murs=new Tas(16384), toits=new Tas(4096), vitres=new Tas(4096);
+  var bard=teinte(0xd3cdc1), bardF=teinte(0xbdb6a8), toitC=teinte(0x5f6b7a), vitre=teinte(0x2d3a46), poly=teinte(0xc9d4d8);
+  CRENSOA.blocs.forEach(function(B){
+    var a=vueVersMonde([B.r[0],B.r[1]]), b=vueVersMonde([B.r[2],B.r[3]]);
+    var cx=(a[0]+b[0])/2, cz=(a[1]+b[1])/2, L=Math.abs(b[0]-a[0]), P=Math.abs(b[1]-a[1]);
+    var F=repere(cx,cz,0), hl=L/2, hp=P/2;
+    /* le sol le plus bas sous le bloc, pour qu'il ne flotte pas */
+    var y0=1e9; [[-hl,-hp],[hl,-hp],[hl,hp],[-hl,hp],[0,0]].forEach(function(c){ var w=Wp(F,c[0],c[1],0); y0=Math.min(y0,hauteur(w[0],w[2])); });
+    F.yo=y0;
+    pave(murs,F,-hl,hl,-hp,hp,-0.5,B.h,bard,1.4);
+    /* soubassement plus sombre */
+    pave(murs,F,-hl-0.03,hl+0.03,-hp-0.03,hp+0.03,-0.5,0.6,bardF,1.4);
+    if(B.f>0){
+      /* gymnase : toit à deux pans de bac acier, faîte est-ouest, pignons fermés */
+      pan2(toits,Wp(F,-hl-0.3,-hp-0.3,y0+B.h),Wp(F,hl+0.3,-hp-0.3,y0+B.h),Wp(F,hl+0.3,0,y0+B.h+B.f),Wp(F,-hl-0.3,0,y0+B.h+B.f),toitC,1);
+      pan2(toits,Wp(F,-hl-0.3,hp+0.3,y0+B.h),Wp(F,hl+0.3,hp+0.3,y0+B.h),Wp(F,hl+0.3,0,y0+B.h+B.f),Wp(F,-hl-0.3,0,y0+B.h+B.f),toitC,1);
+      [-hl,hl].forEach(function(s){ var n=Wn(F,s<0?-1:1,0,0); t3(murs,Wp(F,s,-hp,y0+B.h),Wp(F,s,hp,y0+B.h),Wp(F,s,0,y0+B.h+B.f),[n[0],0,n[2]],bard,1.4); });
+      /* bandeau de polycarbonate en haut des murs, qui éclaire la salle */
+      pave(vitres,F,-hl+0.6,hl-0.6,-hp-0.05,hp+0.05,B.h-2.4,B.h-0.6,poly,1);
+      /* portes de secours */
+      [-hl/2,hl/2].forEach(function(s){ pave(vitres,F,s-0.9,s+0.9,hp,hp+0.06,0,2.3,teinte(0x7d8791),1); });
+    } else {
+      /* toit plat, acrotère */
+      pave(toits,F,-hl,hl,-hp,hp,B.h,B.h+0.05,toitC,1);
+      pave(murs,F,-hl,hl,-hp,hp,B.h,B.h+0.5,bardF,1.4);
+      /* bureaux et annexes : une rangée de fenêtres sur les longs côtés */
+      for(var s=-hl+1.2;s<hl-1.2;s+=2.6) [-hp-0.05,hp].forEach(function(t){ pave(vitres,F,s-0.7,s+0.7,t,t+0.05,1.0,B.h-0.8,vitre,1); });
+    }
+    var c=[]; [[-hl,-hp],[hl,-hp],[hl,hp],[-hl,hp]].forEach(function(q){ var w=Wp(F,q[0],q[1],0); c.push(w[0],w[2]); });
+    marquerPoly(c);
+  });
+  var mm=new THREE.MeshStandardMaterial({vertexColors:true, map:textureDe(faireBeton(),1,1), roughness:0.8, metalness:0.05}); mm.name='CRENSOA murs';
+  var mt=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.5, metalness:0.45}); mt.name='CRENSOA toits';
+  var mv=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.15, metalness:0.5, emissive:0x5a4a2e, emissiveIntensity:nuit?1:0}); mv.name='CRENSOA vitrages';
+  if(MAT.fenetresNuit) MAT.fenetresNuit.push(mv);
+  ajouter(murs,mm,true,true); ajouter(toits,mt,true,true); ajouter(vitres,mv,true,true);
+}
 /* le parking à côté de l'abri à vélos, d'après une vue aérienne calée sur
    l'abri (9,1 m pour 115 pixels, soit 0,079 m par pixel) : trois bandes de
    stationnement séparées par deux terre-pleins plantés */
@@ -17923,6 +17976,7 @@ function etapeTerrains(){
   var mv=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.45, metalness:0.3, side:THREE.DoubleSide}); mv.name='abri vélos';
   ajouter(acier,MAT.zinc||MAT.deco,true,true); ajouter(toitV,mv,true,true);
   parkingVelo();
+  etapeCrensoa();
 }
 
 /* ===== le monument aux sous-officiers, au jalonneur 13 ===== */
@@ -18213,6 +18267,8 @@ ETAPES.forEach(function(e,i){ if(e[0]==='Porche') ETAPES.splice(i+1,0,
    aérienne récente et reportés dans le repère de la place. */
 var PLACES_ARMES={
   gsbdd:{c:[-257,-264], ang:6.5, W:52, H:80},
+  /* rectangle intérieur de la place du Chevron, en fractions de l'emprise (u ouest-est, v nord-sud) */
+  interieur:[0.214,0.868,0.118,0.793],
   /* repère de la vue aérienne de la place du Chevron : coins du stabilisé
      (haut-gauche, haut-droit, bas-droit, bas-gauche), en pixels */
   image:[[215,185],[612,230],[555,790],[165,745]],
@@ -18247,8 +18303,12 @@ function uvImage(p){
 function etapePlacesArmes(){
   var sol=new Tas(16384), marques=new Tas(8192);
   var brun=teinte(0x5a4033), blanc=teinte(0xf2f0ea);
-  /* la place du Chevron : l'emprise de la place d'armes déjà tracée */
-  var p=PLACES[PLACES.length-1], QC=[[p[0],p[1]],[p[2],p[3]],[p[4],p[5]],[p[6],p[7]]];
+  /* la place du Chevron : le stabilisé n'occupe que le rectangle intérieur ;
+     tout autour, la bande de béton gris où passe le parcours (15 m à
+     l'ouest, côté tribune, 7 m au nord). Fractions de l'emprise tracée. */
+  var p=PLACES[PLACES.length-1], QP=[[p[0],p[1]],[p[2],p[3]],[p[4],p[5]],[p[6],p[7]]];
+  function bil(u,v){ return [(1-u)*(1-v)*QP[0][0]+u*(1-v)*QP[1][0]+u*v*QP[2][0]+(1-u)*v*QP[3][0], (1-u)*(1-v)*QP[0][1]+u*(1-v)*QP[1][1]+u*v*QP[2][1]+(1-u)*v*QP[3][1]]; }
+  var I0=PLACES_ARMES.interieur, QC=[bil(I0[0],I0[2]),bil(I0[1],I0[2]),bil(I0[1],I0[3]),bil(I0[0],I0[3])];
   var PC=nappe(sol,QC,0.2,brun);
   nappe(sol,quadGSBdD(),0.2,brun);
   /* marquages : des plots blancs de 40 cm tous les 1,6 m */
