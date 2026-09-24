@@ -4489,7 +4489,13 @@ function boucle(){
   CAM.capPrec=J.cap;
   if(tauxBrut>6) tauxBrut=6; else if(tauxBrut<-6) tauxBrut=-6;
   CAM.capTaux+=(tauxBrut-CAM.capTaux)*Math.min(1,dt/CAM_TAUX);
-  var avance=CAM.capTaux*CAM_AXE*CAM_ANTI;
+  /* Anticipation en visite guidée seulement. En marche manuelle, le cap du
+     coureur suit la caméra (il court là où elle regarde) : anticiper sa
+     rotation relançait la caméra, que le coureur suivait encore, et les
+     deux tournaient ensemble sans fin alors qu'on appuyait seulement pour
+     avancer. Mesuré : 20° d'écart au départ devenaient 55° en trois
+     secondes, et ça continuait. */
+  var avance=auto ? CAM.capTaux*CAM_AXE*CAM_ANTI : 0;
   if(avance>CAM_ANTI_MAX) avance=CAM_ANTI_MAX; else if(avance<-CAM_ANTI_MAX) avance=-CAM_ANTI_MAX;
   var axeVise=J.cap+avance;
 
