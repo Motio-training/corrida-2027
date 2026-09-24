@@ -15837,6 +15837,10 @@ window.ESPACE3D.foule=function(){
    6. La tribune de la place d’armes, d’après photos.
    7. Marché couvert, monument aux morts, Denfert-Rochereau et abbatiale,
       d’après photos.
+   8. Eau sous les rues, porche du km 5,66, écran d'attente.
+   9. Le tracé en ligne peinte au sol.
+   10. Berges de la Sèvre : arbres, roseaux, herbes hautes.
+   11. L'horizon : brouillard léger, silhouette lointaine, panorama.
 ================================================================= */
 
 /* ---------------- 1. post-traitement ---------------- */
@@ -17248,4 +17252,428 @@ progression=function(t,f){
   if(window.VOILE && VOILE.progres) VOILE.progres(0.6+0.4*f, 0.6+0.4*Math.min(1,f+1/k));
   else { $e('e3-jauge').style.width=Math.round(f*100)+'%'; }
 };
+
+/* ---------------- 9. le tracé : une ligne peinte au sol ---------------- */
+/* Le ruban violet de 1,1 m dominait chaque image. Le parcours est
+   maintenant une ligne de peinture de 16 cm, de la couleur du parcours,
+   avec un petit chevron tous les 25 m pour le sens. Le bouton « Tracé
+   visible » le masque toujours. */
+var TRACE_FIN={larg:0.16, pas:25};
+function chevronsFins(){
+  var ch=new Tas(4096), col=COL.trace, d=6;
+  while(d<LONGUEUR-4){
+    var pt=pointSur(d), dir=capSur(d), cx=Math.cos(dir), sz=Math.sin(dir);
+    /* un « > » de deux traits de 10 cm, pointe vers l'avant */
+    [-1,1].forEach(function(s){
+      var tx=pt[0]+cx*0.30, tz=pt[1]+sz*0.30;                         /* pointe */
+      var bx=pt[0]-cx*0.20-sz*0.32*s, bz=pt[1]-sz*0.20+cx*0.32*s;     /* branche */
+      var dx=tx-bx, dz=tz-bz, l=Math.hypot(dx,dz), nx=-dz/l*0.05, nz=dx/l*0.05;
+      var P=[[bx+nx,bz+nz],[tx+nx,tz+nz],[tx-nx,tz-nz],[bx-nx,bz-nz]].map(function(q){ return [q[0],hauteur(q[0],q[1])+0.215,q[1]]; });
+      triHaut(ch,P[0],P[1],P[2],col,1); triHaut(ch,P[0],P[2],P[3],col,1);
+    });
+    d+=TRACE_FIN.pas;
+  }
+  return ch;
+}
+function affinerTrace(){
+  if(typeof groupeParcours==='undefined' || !groupeParcours || TRACE.length<2) return;
+  var plat=[]; TRACE.forEach(function(p){ plat.push(p[0],p[1]); });
+  var tas=new Tas(16384);
+  ruban(tas,plat,TRACE_FIN.larg,COL.trace,0.215,2,4);
+  var ch=chevronsFins();
+  groupeParcours.children.forEach(function(m){
+    if(!m.isMesh) return;
+    if(m.material===MAT.trace){ m.geometry.dispose(); m.geometry=tas.geo(); }
+    else if(m.material===MAT.chevron){ m.geometry.dispose(); m.geometry=ch.geo(); }
+  });
+  /* une peinture, pas un tapis lumineux */
+  if(MAT.trace){ MAT.trace.opacity=0.92; MAT.trace.roughness=0.8; }
+  if(MAT.chevron) MAT.chevron.opacity=0.9;
+}
+var _parcoursFin=reconstruireParcours;
+reconstruireParcours=function(){
+  var r=_parcoursFin.apply(this,arguments);
+  try{ affinerTrace(); }catch(e){ console.warn('tracé fin :',e); }
+  return r;
+};
+
+/* ---------------- 10. les berges de la Sèvre et les prés ---------------- */
+/* Le long de l'eau, là où la berge est basse et naturelle (pas un quai) :
+   une frange de roseaux au bord, des herbes hautes derrière, et des arbres
+   de rive un peu plus loin, avec des trouées. Les mares cartographiées
+   reçoivent la même frange. Le chemin de terre rouge passe au stabilisé
+   beige des chemins de halage. */
+var BERGES={roseaux:[], herbes:[], arbres:0};
+function eauEn(x,z){
+  if(dansRiviere(x,z)) return true;
+  var P=TOPO.plansRiv||[];
+  for(var i=0;i<P.length;i++) if(dansPoly(P[i],x,z)) return true;
+  return false;
+}
+function berges(){
+  if(!TOPO.lignes || !TOPO.lignes.length) return;
+  var I=IDX_SOL||(IDX_SOL=indexerChaussees(Dvoies)), grille={};
+  function cle(x,z){ return Math.floor(x/5)+','+Math.floor(z/5); }
+  Darbres.forEach(function(a){ grille[cle(a[0],a[1])]=1; });
+  function libre(x,z,marge){
+    if(bloquer(x,z) || dansPlace(x,z,1)) return false;
+    var rp=routeProche(I,x,z,12); if(rp && rp.d<rp.w/2+marge) return false;
+    if(TRACE.length && surLeParcours(x,z).ecart<marge+1.5) return false;
+    return true;
+  }
+  function h(x,z){ return alea(Math.round(x*13),Math.round(z*17)); }
+  TOPO.lignes.forEach(function(L){
+    var q=L.q, n=q.x.length, acc=0;
+    for(var i=1;i<n;i++){
+      var dx=q.x[i]-q.x[i-1], dz=q.z[i]-q.z[i-1], l=Math.hypot(dx,dz)||1;
+      acc+=l;
+      var nx=-dz/l, nz=dx/l;
+      [-1,1].forEach(function(s){
+        /* la rive : premier point hors de l'eau en partant de l'axe */
+        var b=null;
+        for(var t=Math.max(0.5,L.larg*0.4);t<70;t+=0.5){
+          var x=q.x[i]+nx*s*t, z=q.z[i]+nz*s*t;
+          if(!eauEn(x,z) && t>=L.larg/2){ b=t; break; }
+        }
+        if(b===null) return;
+        var bx=q.x[i]+nx*s*b, bz=q.z[i]+nz*s*b;
+        /* berge basse seulement : un quai d'un mètre et demi n'a pas de roseaux */
+        var hb=hauteur(bx,bz)-L.niv[i];
+        if(hb>1.6) return;
+        /* roseaux au ras de l'eau, par touffes, avec des trouées */
+        for(var k=0;k<3;k++){
+          var o=b-0.5+k*0.45+h(bx+k,bz)*0.3, x2=q.x[i]+nx*s*o+dx/l*(h(bz,bx+k)-0.5)*3, z2=q.z[i]+nz*s*o+dz/l*(h(bx,bz-k)-0.5)*3;
+          if(h(x2,z2)>0.3) continue;
+          if(!libre(x2,z2,0.8)) continue;
+          BERGES.roseaux.push([x2,z2,0.8+h(z2,x2)*0.7]);
+        }
+        /* herbes hautes derrière */
+        for(k=0;k<2;k++){
+          var o2=b+0.8+k*1.1+h(bz,bx+k)*0.8, x3=q.x[i]+nx*s*o2, z3=q.z[i]+nz*s*o2;
+          if(h(x3,z3)>0.6 || !libre(x3,z3,0.8)) continue;
+          BERGES.herbes.push([x3,z3,0.45+h(x3,z3)*0.4]);
+        }
+        /* arbres de rive, tous les dix mètres environ, avec des trouées */
+        if(acc>=9.5){
+          var o3=b+2.8+h(bx,bz)*3.5, x4=q.x[i]+nx*s*o3, z4=q.z[i]+nz*s*o3;
+          if(h(x4,z4)<0.62 && !grille[cle(x4,z4)] && libre(x4,z4,3) && !eauEn(x4,z4)){
+            Darbres.push([x4,z4,0]); grille[cle(x4,z4)]=1; BERGES.arbres++;
+          }
+        }
+      });
+      if(acc>=9.5) acc=0;
+    }
+  });
+  /* les mares : une frange tout autour */
+  (TOPO.plans||[]).forEach(function(Z){
+    if(Z.aire>6000) return;
+    var p=Z.p, m=p.length/2;
+    for(var j=0;j<m;j++){
+      var ax=p[j*2], az=p[j*2+1], cx=p[((j+1)%m)*2], cz=p[((j+1)%m)*2+1], L2=Math.hypot(cx-ax,cz-az);
+      for(var u=0;u<L2;u+=1.1){
+        var x=ax+(cx-ax)*u/L2, z=az+(cz-az)*u/L2;
+        if(h(x,z)>0.4 || !libre(x,z,0.8)) continue;
+        BERGES.roseaux.push([x,z,0.7+h(z,x)*0.6]);
+      }
+    }
+  });
+}
+/* une touffe : trois plans croisés, texture de tiges peinte à la main */
+function texRoseaux(herbe){
+  var W=128, H=256, c=document.createElement('canvas'); c.width=W; c.height=H;
+  var g=c.getContext('2d');
+  var verts=herbe?['#6f8a3c','#86a04a','#5b7431','#9aaa5a','#b3b06a']:['#5f7a34','#748f3e','#8a9a4a','#a39a58','#6b7f3a'];
+  for(var i=0;i<(herbe?70:46);i++){
+    var x0=8+Math.random()*(W-16), hh=H*(herbe?0.45+Math.random()*0.5:0.6+Math.random()*0.4), pen=(Math.random()-0.5)*(herbe?40:22);
+    g.strokeStyle=verts[Math.floor(Math.random()*verts.length)];
+    g.lineWidth=herbe?1.4+Math.random()*1.4:2+Math.random()*2.2;
+    g.beginPath(); g.moveTo(x0,H); g.quadraticCurveTo(x0+pen*0.3,H-hh*0.6,x0+pen,H-hh); g.stroke();
+    if(!herbe && Math.random()<0.45){
+      g.fillStyle=Math.random()<0.5?'#6b4a2a':'#8a6a3e';
+      g.beginPath(); g.ellipse(x0+pen,H-hh+10,3.2,11,0,0,7); g.fill();
+    }
+  }
+  var t=new THREE.CanvasTexture(c);
+  t.colorSpace=THREE.SRGBColorSpace;
+  return t;
+}
+function geoTouffe(){
+  var pos=[], nor=[], uv=[], idx=[], k;
+  for(k=0;k<3;k++){
+    var a=k*PI/3, cx=Math.cos(a)*0.5, cz=Math.sin(a)*0.5, b=pos.length/3;
+    pos.push(-cx,0,-cz, cx,0,cz, cx,1,cz, -cx,1,-cz);
+    for(var v=0;v<4;v++) nor.push(0,1,0);
+    uv.push(0,0, 1,0, 1,1, 0,1);
+    idx.push(b,b+1,b+2, b,b+2,b+3);
+  }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);
+  return g;
+}
+function poserTouffes(liste,herbe){
+  if(!liste.length) return;
+  var mat=new THREE.MeshStandardMaterial({map:texRoseaux(herbe), alphaTest:0.4, side:THREE.DoubleSide, roughness:0.92, metalness:0});
+  mat.name=herbe?'herbes hautes':'roseaux';
+  var im=new THREE.InstancedMesh(geoTouffe(),mat,liste.length), m=new THREE.Matrix4(), q=new THREE.Quaternion(), s=new THREE.Vector3(), p=new THREE.Vector3(), c=new THREE.Color();
+  liste.forEach(function(r,i){
+    var x=r[0], z=r[1], sc=r[2], hx=alea(Math.round(x*29),Math.round(z*31));
+    q.setFromAxisAngle(_ay,hx*6.283);
+    s.set(sc*(herbe?1.5:1.0), sc*(herbe?0.9:1.15), sc*(herbe?1.5:1.0));
+    p.set(x,hauteur(x,z)-0.05,z);
+    im.setMatrixAt(i,m.compose(p,q,s));
+    c.setRGB(0.85+hx*0.3,0.85+hx*0.25,0.8+hx*0.2); im.setColorAt(i,c);
+  });
+  im.instanceMatrix.needsUpdate=true; if(im.instanceColor) im.instanceColor.needsUpdate=true;
+  im.castShadow=false; im.receiveShadow=true;
+  monde.add(im);
+}
+function etapeTouffes(){
+  poserTouffes(BERGES.roseaux,false);
+  poserTouffes(BERGES.herbes,true);
+  /* le chemin de terre rouge devient un stabilisé beige */
+  if(MAT.chemin && !MAT.chemin.userData.beige){
+    MAT.chemin.userData.beige=true;
+    greffer(MAT.chemin,'beige',function(sh){
+      sh.fragmentShader=sh.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n'+
+        '{ float lu=dot(diffuseColor.rgb,vec3(0.299,0.587,0.114)); diffuseColor.rgb=mix(vec3(lu),diffuseColor.rgb,0.12)*vec3(1.06,0.99,0.83); }');
+    });
+  }
+}
+/* les berges se calculent juste avant les roseaux ; les arbres de rive
+   rejoignent la liste avant l'étape « Arbres réalistes », qui vient après */
+ETAPES.forEach(function(e,i){ if(e[0]==='Porche') ETAPES.splice(i+1,0,
+  ['Berges de la Sèvre',function(){ try{ berges(); }catch(e){ console.warn('berges :',e); } }],
+  ['Roseaux et herbes des berges',etapeTouffes]); });
+
+/* ---------------- 11. l'horizon ---------------- */
+/* Le brouillard, réglé pour masquer la limite d'affichage, noyait tout au
+   delà de 400 m : les coteaux devenaient un mur blanc. Il est maintenant
+   bien plus léger, et ce qui n'était plus dessiné au-delà de la distance
+   d'affichage l'est en silhouette : chaque bâtiment en volume simple, à sa
+   hauteur et dans ses couleurs, qui ne s'affiche que là où le bâtiment
+   détaillé ne l'est plus. Au fond, au-delà du relief connu, un panorama
+   peint de coteaux, de haies et de peupliers, fondu dans la brume. */
+var HORIZON={lod:null, pano:null, matLod:null, tex:null, nuitTex:null};
+function etapeSilhouette(){
+  if(!GEO.bats || !GEO.bats.length) return;
+  /* hauteur et couleurs de chaque emprise : la pose la plus proche */
+  var idx={};
+  BATIS_POSES.forEach(function(b){ var x=pX(b.lo), z=pZ(b.la), k=Math.floor(x/10)+','+Math.floor(z/10); (idx[k]||(idx[k]=[])).push([x,z,b]); });
+  function pose(x,z){
+    var gx=Math.floor(x/10), gz=Math.floor(z/10), best=null, bd=4;
+    for(var a=-1;a<=1;a++) for(var c=-1;c<=1;c++){ (idx[(gx+a)+','+(gz+c)]||[]).forEach(function(e){ var d=Math.hypot(e[0]-x,e[1]-z); if(d<bd){ bd=d; best=e[2]; } }); }
+    return best;
+  }
+  var tas=new Tas(65536), col=new THREE.Color(), n=0;
+  GEO.bats.forEach(function(B){
+    var p=B.p, m=p.length/2;
+    if(m<3) return;
+    var cx=0, cz=0, j;
+    for(j=0;j<m;j++){ cx+=p[j*2]; cz+=p[j*2+1]; }
+    cx/=m; cz/=m;
+    var P=pose(cx,cz);
+    if(!P) return;
+    var y0=P.sol-1, y1=P.murs-0.35, yf=Math.max(y1,P.faite-0.35);
+    /* La couleur d'une façade détaillée vient surtout de sa texture : on
+       reprend la teinte moyenne de sa famille (enduit clair, pierre, ocre,
+       caserne, moellons, pavillon), et pour le toit la tuile ou l'ardoise
+       selon la couleur relevée. */
+    var FAM=[0xcfc3ad,0xbfb198,0xc3a274,0xc4bba8,0xa89a82,0xd2c9b8,0xb7ac98];
+    var tc=col.fromArray(P.toit), tuile=tc.r>tc.b*1.15;
+    var cm=col.setHex(FAM[P.fam]||FAM[0]).multiplyScalar(0.82+alea(Math.round(cx*3),Math.round(cz*3))*0.22).toArray();
+    var ct=col.setHex(tuile?0x9c5a3e:0x5a6168).toArray();
+    /* emprise rentrée de 40 cm : la silhouette reste cachée dans le bâtiment détaillé */
+    var Q=[];
+    for(j=0;j<m;j++){ var dx=p[j*2]-cx, dz=p[j*2+1]-cz, L=Math.hypot(dx,dz)||1, k2=Math.max(0,L-0.4)/L; Q.push([cx+dx*k2, cz+dz*k2]); }
+    for(j=0;j<m;j++){
+      var a=Q[j], b=Q[(j+1)%m], ex=b[0]-a[0], ez=b[1]-a[1], el=Math.hypot(ex,ez);
+      if(el<0.05) continue;
+      var nx=ez/el, nz=-ex/el;
+      if(nx*((a[0]+b[0])/2-cx)+nz*((a[1]+b[1])/2-cz)<0){ nx=-nx; nz=-nz; }
+      /* une rangée de fenêtres par étage : la texture se répète tous les
+         3,2 m le long du mur et tous les 3 m en hauteur */
+      var u0=0, u1=el/3.2, v0=(y0-P.sol)/3.0, v1=(y1-P.sol)/3.0;
+      triFace(tas,[a[0],y0,a[1]],[b[0],y0,b[1]],[b[0],y1,b[1]],[nx,0,nz],[u0,v0,u1,v0,u1,v1],cm);
+      triFace(tas,[a[0],y0,a[1]],[b[0],y1,b[1]],[a[0],y1,a[1]],[nx,0,nz],[u0,v0,u1,v1,u0,v1],cm);
+      /* toit : un cône depuis le centre, à la hauteur du faîte (coin sans fenêtre de la texture) */
+      var nn=nrm([a[0],y1,a[1]],[b[0],y1,b[1]],[cx,yf,cz]); if(nn[1]<0) nn=[-nn[0],-nn[1],-nn[2]];
+      triFace(tas,[a[0],y1,a[1]],[b[0],y1,b[1]],[cx,yf,cz],nn,[0.02,0.02,0.03,0.02,0.02,0.03],ct);
+    }
+    n++;
+  });
+  var cf=document.createElement('canvas'); cf.width=cf.height=64;
+  var gf=cf.getContext('2d');
+  gf.fillStyle='#ffffff'; gf.fillRect(0,0,64,64);
+  gf.fillStyle='#e9e6df'; gf.fillRect(0,56,64,8);                /* bandeau d'étage */
+  gf.fillStyle='#3a3f47'; gf.fillRect(23,16,18,26);              /* la fenêtre */
+  gf.fillStyle='#8c8f94'; gf.fillRect(21,14,22,2); gf.fillRect(21,42,22,3);
+  var tf=new THREE.CanvasTexture(cf); tf.colorSpace=THREE.SRGBColorSpace; tf.wrapS=tf.wrapT=THREE.RepeatWrapping;
+  tf.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  var mat=new THREE.MeshStandardMaterial({vertexColors:true, map:tf, roughness:0.9, metalness:0});
+  mat.name='silhouette lointaine';
+  /* la nuit, les fenêtres lointaines s'allument : une ville au loin se lit
+     à ses lumières, pas à ses murs */
+  var ce=document.createElement('canvas'); ce.width=ce.height=64;
+  var ge=ce.getContext('2d'); ge.fillStyle='#000'; ge.fillRect(0,0,64,64);
+  ge.fillStyle='#fff'; ge.fillRect(24,17,16,24);
+  var te=new THREE.CanvasTexture(ce); te.wrapS=te.wrapT=THREE.RepeatWrapping;
+  mat.emissiveMap=te; mat.emissive=new THREE.Color(0x7a5a30); mat.emissiveIntensity=(typeof nuit!=='undefined' && nuit)?1:0;
+  if(MAT.fenetresNuit) MAT.fenetresNuit.push(mat);
+  mat.onBeforeCompile=function(sh){
+    sh.uniforms.uProche=HORIZON.uProche;
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vHorW;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvHorW=(modelMatrix*vec4(transformed,1.0)).xyz;');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vHorW;\nuniform float uProche;')
+      .replace('void main() {','void main() {\n  if(distance(vHorW.xz,cameraPosition.xz)<uProche) discard;');
+  };
+  mat.customProgramCacheKey=function(){ return 'silhouette'; };
+  HORIZON.matLod=mat;
+  /* hors du découpage en carrés : ceux-ci sont masqués au-delà de la
+     distance d'affichage, précisément là où la silhouette doit paraître */
+  var me=new THREE.Mesh(tas.geo(),mat); monde.add(me);
+  if(me){ me.frustumCulled=false; HORIZON.lod=me; }
+  HORIZON.nb=n;
+}
+HORIZON.uProche={value:300};
+/* le panorama : une bande peinte sur un cylindre, centré sur la caméra */
+function peindrePanorama(){
+  /* deux fois moins de mémoire sur téléphone */
+  var petit=matchMedia('(pointer:coarse)').matches && Math.min(screen.width,screen.height)<=900;
+  var W=petit?2048:4096, H=petit?512:1024, c=document.createElement('canvas'); c.width=W; c.height=H;
+  var g=c.getContext('2d');
+  var brume=scene.fog.color.clone(), n=(typeof nuit!=='undefined' && nuit);
+  function ton(hex,f){ var t=new THREE.Color(hex); return brume.clone().lerp(t,f).getStyle(); }
+  /* hauteurs données en mètres vus à 1 400 m ; le cylindre est à 2 800 m,
+     de 400 m sous le sol à 100 m au-dessus, soit 250 unités peintes */
+  function Y(m){ return H*(50-m)/250; }
+  function onde(x,f,ph){ return Math.sin(x/W*2*PI*f+ph); }
+  function crete(x,base,amp,fs){ var s=0; fs.forEach(function(f){ s+=onde(x,f[0],f[1])*f[2]; }); return base+amp*s; }
+  /* trois plans de coteaux, du plus lointain au plus proche */
+  var plans=[
+    {base:40, amp:13, fs:[[2,0.3,0.6],[5,1.7,0.3],[11,2.2,0.15]], col:n?0x0b1220:0x7890a0, f:n?0.5:0.62},
+    {base:24, amp:9,  fs:[[3,2.1,0.5],[7,0.4,0.3],[17,1.1,0.2]], col:n?0x080d18:0x5a7458, f:n?0.65:0.78},
+    {base:11, amp:5,  fs:[[4,1.2,0.5],[9,2.6,0.3],[23,0.7,0.2]], col:n?0x060a12:0x3e5537, f:n?0.8:0.9}
+  ];
+  g.clearRect(0,0,W,H);
+  plans.forEach(function(P,pi){
+    g.fillStyle=ton(P.col,P.f);
+    g.beginPath(); g.moveTo(0,H);
+    for(var x=0;x<=W;x+=4){
+      var y=crete(x,P.base,P.amp,P.fs);
+      /* le plan le plus proche est bordé de haies et de bosquets */
+      if(pi===2){ y+=Math.abs(Math.sin(x*0.09+Math.sin(x*0.013)*3))*2.2+Math.abs(Math.sin(x*0.031))*1.5; }
+      g.lineTo(x,Y(y));
+    }
+    g.lineTo(W,H); g.closePath(); g.fill();
+  });
+  /* peupliers et quelques fermes sur le plan proche */
+  var rnd=function(i){ var s=Math.sin(i*127.1)*43758.5453; return s-Math.floor(s); };
+  g.fillStyle=ton(n?0x05080f:0x3f5a38,n?0.85:0.6);
+  for(var i=0;i<70;i++){
+    var x=rnd(i)*W, y0=crete(x,11,5,plans[2].fs), hh=6+rnd(i+99)*7;
+    g.beginPath(); g.ellipse(x,Y(y0+hh/2),2.2+rnd(i+7)*1.5,hh*H/250/2,0,0,7); g.fill();
+  }
+  for(i=0;i<26;i++){
+    var xf=rnd(i+500)*W, yf=crete(xf,11,5,plans[2].fs)+0.5, lf=10+rnd(i+600)*14;
+    g.fillStyle=ton(n?0x1a1a22:0xd9d2c4,n?0.4:0.45); g.fillRect(xf,Y(yf+4),lf,4*H/250);
+    g.fillStyle=ton(n?0x14141a:0x9a6a52,n?0.4:0.5);
+    g.beginPath(); g.moveTo(xf-2,Y(yf+4)); g.lineTo(xf+lf/2,Y(yf+7)); g.lineTo(xf+lf+2,Y(yf+4)); g.fill();
+    if(n && rnd(i+700)<0.6){ g.fillStyle='rgba(255,200,120,0.9)'; g.fillRect(xf+lf*0.3,Y(yf+2.2),1.5,1.5); }
+  }
+  /* Sous les coteaux, la campagne : des parcelles en bandes et des haies,
+     comme on voit le bocage de loin, puis la brume par-dessus, plus épaisse
+     vers l'horizon. C'est ce qu'on aperçoit de haut entre la fin du relief
+     connu et les coteaux peints. */
+  var y0c=Y(3), champs=n?[0x070b12,0x090d16,0x06090f]:[0x6b7d45,0x7a8750,0x8a8a5a,0x55683c,0x9a9060,0x62753f];
+  var yc=y0c, rang=0;
+  while(yc<H){
+    var hr=2+rang*0.9+rnd(rang+900)*3, xc=0, k2=0;
+    while(xc<W){
+      var lc=30+rnd(rang*97+k2)*220;
+      g.fillStyle=ton(champs[Math.floor(rnd(rang*31+k2*7)*champs.length)],n?0.8:0.8);
+      g.fillRect(xc,yc,lc+1,hr+1);
+      g.fillStyle=ton(n?0x04060a:0x3a4a2e,n?0.85:0.62); g.fillRect(xc,yc,2,hr+1);
+      xc+=lc; k2++;
+    }
+    g.fillStyle=ton(n?0x04060a:0x3a4a2e,n?0.85:0.6); g.fillRect(0,yc+hr-1,W,1.5);
+    yc+=hr; rang++;
+  }
+  var dg=g.createLinearGradient(0,y0c,0,H), br=brume.getStyle().replace('rgb(','rgba(').replace(')',',');
+  dg.addColorStop(0,br+'0.38)'); dg.addColorStop(0.2,br+'0.2)'); dg.addColorStop(1,br+'0.08)');
+  g.fillStyle=dg; g.fillRect(0,y0c,W,H-y0c);
+  var t=new THREE.CanvasTexture(c);
+  t.colorSpace=THREE.SRGBColorSpace; t.wrapS=THREE.RepeatWrapping;
+  return t;
+}
+function majPanorama(){
+  if(!scene || !scene.fog) return;
+  if(!HORIZON.pano){
+    var geo=new THREE.CylinderGeometry(2800,2800,500,96,1,true);
+    geo.translate(0,-150,0);                /* de -400 m à +100 m autour du sol */
+    var mat=new THREE.MeshBasicMaterial({transparent:true, depthWrite:false, fog:false, side:THREE.BackSide});
+    mat.name='panorama';
+    HORIZON.pano=new THREE.Mesh(geo,mat);
+    HORIZON.pano.renderOrder=-2; HORIZON.pano.frustumCulled=false;
+    scene.add(HORIZON.pano);
+  }
+  var m=HORIZON.pano.material;
+  if(m.map) m.map.dispose();
+  m.map=peindrePanorama(); m.needsUpdate=true;
+}
+function etapeHorizon(){
+  /* le grand plan vert posé sous tout le relief bouchait la vue au-delà du
+     relief connu : vu d'en haut, noyé de brume, il faisait une bande pâle
+     entre la ville et les coteaux. Le panorama couvre désormais ce trou. */
+  monde.children.forEach(function(o){
+    if(o.isMesh && o.geometry && o.geometry.type==='PlaneGeometry' && o.geometry.parameters && o.geometry.parameters.width>=10000) o.visible=false;
+  });
+  try{ etapeSilhouette(); }catch(e){ console.warn('silhouette :',e); }
+  try{ majPanorama(); }catch(e){ console.warn('panorama :',e); }
+  reglerBrume();
+}
+/* brouillard léger : on voit loin, la brume ne fait que bleuir les lointains */
+function reglerBrume(){
+  if(!scene || !scene.fog) return;
+  var D=PERF.dist;
+  HORIZON.uProche.value=Math.max(60,D-25);
+  /* la caméra ne dessinait rien au-delà de 1,6 fois la distance d'affichage
+     (550 m) : ni le relief lointain, ni le panorama posé à 1 400 m */
+  if(camera && camera.far<3200){ camera.far=3200; camera.updateProjectionMatrix(); }
+  if(typeof nuit!=='undefined' && nuit) return;
+  scene.fog.near=Math.max(120,D*0.9);
+  scene.fog.far=Math.max(1700,D*5.5);
+  /* la brume des lointains : un peu plus sombre et plus bleue que le ciel à
+     l'horizon, sans quoi les coteaux tournaient au blanc */
+  if(CIELHDR.brumeFog){
+    var bf=CIELHDR.brumeFog;
+    scene.fog.color.setRGB(bf[0],bf[1],bf[2]).multiplyScalar(0.86).lerp(new THREE.Color(0.50,0.60,0.73),0.22);
+  }
+}
+var _cielHor=appliquerCiel;
+appliquerCiel=function(){
+  var r=_cielHor.apply(this,arguments);
+  try{ reglerBrume(); if(HORIZON.pano) majPanorama(); }catch(e){}
+  return r;
+};
+var _animHor=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _animHor(dt,cx,cz);
+  if(HORIZON.pano && camera){ HORIZON.pano.position.set(camera.position.x,hauteur(camera.position.x,camera.position.z)+1.7,camera.position.z); }
+  HORIZON.uProche.value=Math.max(60,PERF.dist-25);
+};
+/* le panorama se recale sur la caméra juste avant chaque image, vues de
+   référence comprises */
+var _rvHor=rendreVue;
+rendreVue=function(){
+  /* ancré au sol et non à l'œil : vu d'en haut, les coteaux lointains
+     passent sous l'horizon, comme en vrai */
+  if(HORIZON.pano && camera) HORIZON.pano.position.set(camera.position.x, hauteur(camera.position.x,camera.position.z)+1.7, camera.position.z);
+  return _rvHor.apply(this,arguments);
+};
+ETAPES.forEach(function(e,i){ if(e[0]==='Roseaux et herbes des berges') ETAPES.splice(i+1,0,['Horizon',etapeHorizon]); });
+var _ajusterHor=ajusterVue;
+ajusterVue=function(){ var r=_ajusterHor.apply(this,arguments); try{ reglerBrume(); }catch(e){} return r; };
 })();
