@@ -16551,7 +16551,7 @@ function dirMur(F,cote){
 var REPRISES=[];
 var _repriseM2=repriseParMonument;
 repriseParMonument=function(cx,cz){
-  for(var i=0;i<REPRISES.length;i++) if(Math.hypot(cx-REPRISES[i][0],cz-REPRISES[i][1])<4) return true;
+  for(var i=0;i<REPRISES.length;i++) if(Math.hypot(cx-REPRISES[i][0],cz-REPRISES[i][1])<(REPRISES[i][2]||4)) return true;
   return _repriseM2(cx,cz);
 };
 function matStatue(){
@@ -17054,4 +17054,192 @@ ETAPES.forEach(function(e,i){
     ETAPES.splice(i+1,0,['Marché couvert',etapeHalle],['Monument aux morts',etapeMorts],['Abbatiale Saint-Maixent',etapeAbbatiale]);
   }
 });
+
+/* ---------------- 8. l'eau sous les rues, le porche, l'attente ---------------- */
+/* Une rue qui franchit un bief sans pont cartographié (buse, dalot, petit
+   ouvrage que OpenStreetMap ne décrit pas) était creusée avec le lit : la
+   chaussée plongeait de deux mètres et l'eau passait par-dessus, vers le
+   km 7. On rend au terrain sa hauteur d'origine sous les rues et sous le
+   tracé partout où l'eau les coupe sans tablier. Les vrais ponts gardent
+   leur lit creusé dessous. */
+var _creuserV3=creuserLits;
+creuserLits=function(){
+  TOPO.eleAvant=ELE.slice();
+  return _creuserV3.apply(this,arguments);
+};
+var _pontsV3=preparerPonts;
+preparerPonts=function(){
+  var r=_pontsV3.apply(this,arguments);
+  try{ combler(); }catch(e){ console.warn('buses :',e); }
+  return r;
+};
+function combler(){
+  var M=TOPO.masque, A=TOPO.eleAvant, n=0, C=new Set();
+  TOPO.corridor=C;
+  if(!M || !A) return;
+  function marquer(x,z,r){
+    var j0=Math.floor((x-r-XMIN)/PASX), j1=Math.ceil((x+r-XMIN)/PASX);
+    var i0=Math.floor((ZMAX-(z+r))/PASZ), i1=Math.ceil((ZMAX-(z-r))/PASZ);
+    for(var i=i0;i<=i1;i++) for(var j=j0;j<=j1;j++){
+      if(i<0||j<0||i>=GROWS||j>=GCOLS) continue;
+      var o=i*GCOLS+j;
+      var cx=XMIN+j*PASX, cz=ZMAX-i*PASZ;
+      if(Math.hypot(cx-x,cz-z)>r+PASX*0.5) continue;
+      C.add(o);
+      if(M[o]!==2) continue;
+      if(tablierEn(cx,cz)!==null) continue;
+      ELE[o]=Math.max(ELE[o],A[o]); M[o]=0; n++;
+    }
+  }
+  (GEO.voies||[]).forEach(function(v){
+    var q=densifier(v.p,2);
+    for(var k=0;k<q.x.length;k++) marquer(q.x[k],q.z[k],v.w/2+1.5);
+  });
+  TRACE.forEach(function(p){ marquer(p[0],p[1],2.5); });
+  TOPO.buses=n;
+}
+
+/* les ruisseaux passent sous les rues en buse : leur bande d'eau s'arrête
+   de part et d'autre de la chaussée au lieu de la traverser en surface */
+function sousRue(x,z){
+  if(!TOPO.corridor) return false;
+  var jc=Math.round((x-XMIN)/PASX), ic=Math.round((ZMAX-z)/PASZ);
+  return TOPO.corridor.has(ic*GCOLS+jc) && tablierEn(x,z)===null;
+}
+/* copie de construireEau, les bandes de ruisseau coupées sous les rues */
+construireEau=function(tas){
+  var coul=teinte(0x3f6258), i;
+  /* la Sèvre : contour extérieur et îles */
+  function v2(p){ var r=[], n=p.length/2; if(p[0]===p[n*2-2] && p[1]===p[n*2-1]) n--; for(var k=0;k<n;k++) r.push(new THREE.Vector2(p[k*2],p[k*2+1])); return r; }
+  var ext=anneaux(TOPO.eau.filter(function(m){ return m.role!=='inner'; })).map(v2);
+  var iles=anneaux(TOPO.eau.filter(function(m){ return m.role==='inner'; })).map(v2);
+  ext.forEach(function(e){
+    if(THREE.ShapeUtils.isClockWise(e)) e.reverse();
+    var trous=iles.filter(function(h){ return h.length && dansPoly(e.reduce(function(a,q){ a.push(q.x,q.y); return a; },[]),h[0].x,h[0].y); });
+    trous.forEach(function(h){ if(!THREE.ShapeUtils.isClockWise(h)) h.reverse(); });
+    var tris;
+    try{ tris=THREE.ShapeUtils.triangulateShape(e,trous); }catch(er){ return; }
+    var tous=e.concat.apply(e,trous), Y=tous.map(function(q){ return niveauOu(q.x,q.y)+0.02; });
+    tris.forEach(function(t){
+      var p=t.map(function(k){ return [tous[k].x,Y[k],tous[k].y]; });
+      if(p.every(function(q){ return q[0]<XMIN||q[0]>XMAX||q[2]<ZMIN||q[2]>ZMAX; })) return;
+      triHaut(tas,p[0],p[1],p[2],coul,7);
+    });
+  });
+  /* ruisseaux et biefs hors de la surface cartographiée */
+  TOPO.lignes.forEach(function(L){
+    var q=L.q, n=q.x.length, h=L.larg/2, prev=null;
+    for(i=0;i<n;i++){
+      var ax=i?q.x[i]-q.x[i-1]:q.x[1]-q.x[0], az=i?q.z[i]-q.z[i-1]:q.z[1]-q.z[0], l=Math.hypot(ax,az)||1;
+      var nx=az/l*h, nz=-ax/l*h, y=L.niv[i]+0.02;
+      var dedans=dansRiviere(q.x[i],q.z[i]);
+      if(!dedans) for(var pr=0;pr<(TOPO.plansRiv||[]).length;pr++) if(dansPoly(TOPO.plansRiv[pr],q.x[i],q.z[i])){ dedans=true; break; }
+      var cur={l:[q.x[i]+nx,y,q.z[i]+nz], r:[q.x[i]-nx,y,q.z[i]-nz], dedans:dedans, buse:sousRue(q.x[i],q.z[i])};
+      if(prev && !(cur.dedans && prev.dedans) && !cur.buse && !prev.buse){
+        triHaut(tas,prev.l,prev.r,cur.r,coul,7);
+        triHaut(tas,prev.l,cur.r,cur.l,coul,7);
+      }
+      prev=cur;
+    }
+  });
+  /* bassins, lavoirs, piscines */
+  (TOPO.plans||[]).forEach(function(Z){
+    var p=Z.p, n=p.length/2, cx=0, cz=0, k;
+    for(k=0;k<n;k++){ cx+=p[k*2]; cz+=p[k*2+1]; }
+    cx/=n; cz/=n;
+    if(dansRiviere(cx,cz)) return;
+    var ctr=[]; for(k=0;k<n;k++) ctr.push(new THREE.Vector2(p[k*2],p[k*2+1]));
+    var tris; try{ tris=THREE.ShapeUtils.triangulateShape(ctr,[]); }catch(er){ return; }
+    /* bief ou bras de rivière : creusé au niveau de la rivière voisine */
+    if(Z.aire>=400 && niveauEau(cx,cz)!==null){
+      var Yr=ctr.map(function(v){ return niveauOu(v.x,v.y)+0.02; });
+      tris.forEach(function(t){ triHaut(tas,[ctr[t[0]].x,Yr[t[0]],ctr[t[0]].y],[ctr[t[1]].x,Yr[t[1]],ctr[t[1]].y],[ctr[t[2]].x,Yr[t[2]],ctr[t[2]].y],coul,7); });
+      return;
+    }
+    var y=-1e9, ymin=1e9;
+    for(k=0;k<n;k++){ var hh=hauteurGrille(p[k*2],p[k*2+1]); if(hh>y) y=hh; if(hh<ymin) ymin=hh; }
+    y=(Z.aire<400 || y-ymin<0.6) ? y+0.08 : ymin+0.05;
+    var c=Z.aire<400 ? teinte(0x3b8fb0) : coul;
+    tris.forEach(function(t){ triHaut(tas,[ctr[t[0]].x,y,ctr[t[0]].y],[ctr[t[1]].x,y,ctr[t[1]].y],[ctr[t[2]].x,y,ctr[t[2]].y],c,6); });
+  });
+}
+
+;
+/* Le porche du km 5,66 : OSM décrit la partie bâtie au-dessus du passage
+   (un volume étroit posé en travers des deux maisons) et la 3D le montait
+   jusqu'au sol, en mur plein sur le tracé. On le pose sur un arc : le
+   passage reste libre, 3 m sous clé, et l'étage passe au-dessus. */
+var PORCHE={c:[112.1,424.4], p:[113.7,426.9, 113,427, 112.3,427.2, 110.6,422.2, 111.5,421.8, 112.2,421.5], h:6.9,
+  /* les deux faces du passage, là où le tracé entre et sort */
+  bouts:[[113.7,426.9, 112.3,427.2],[110.6,422.2, 112.2,421.5]]};
+REPRISES.push([112.1,424.4,1.5]);
+function etapePorche(){
+  var p=PORCHE.p, n=p.length/2, i, y0=1e9;
+  for(i=0;i<n;i++) y0=Math.min(y0,hauteur(p[i*2],p[i*2+1]));
+  var yA=y0+3.0, yT=y0+PORCHE.h;
+  var mur=new Tas(2048), toit=new Tas(512);
+  var enduit=teinte(0xe4dccb), pierre=teinte(0xd3c9b4), tuile=teinte(0xd9a88a);
+  /* l'étage : un prisme sur l'emprise, du dessus de l'arc au toit */
+  var ctr=[]; for(i=0;i<n;i++) ctr.push(new THREE.Vector2(p[i*2],p[i*2+1]));
+  if(THREE.ShapeUtils.isClockWise(ctr)) ctr.reverse();
+  var tris=THREE.ShapeUtils.triangulateShape(ctr,[]);
+  tris.forEach(function(t){
+    var a=ctr[t[0]], b=ctr[t[1]], c=ctr[t[2]];
+    t3(mur,[a.x,yA,a.y],[b.x,yA,b.y],[c.x,yA,c.y],[0,-1,0],pierre,1.2);
+    t3(toit,[a.x,yT,a.y],[b.x,yT,b.y],[c.x,yT,c.y],[0,1,0],tuile,1.28);
+  });
+  for(i=0;i<ctr.length;i++){
+    var a2=ctr[i], b2=ctr[(i+1)%ctr.length], dx=b2.x-a2.x, dz=b2.y-a2.y, L=Math.hypot(dx,dz);
+    if(L<0.05) continue;
+    var nx=dz/L, nz=-dx/L;
+    /* normale sortante : du centre vers le mur */
+    var mx=(a2.x+b2.x)/2-PORCHE.c[0], mz=(a2.y+b2.y)/2-PORCHE.c[1];
+    if(nx*mx+nz*mz<0){ nx=-nx; nz=-nz; }
+    q4(mur,[a2.x,yA,a2.y],[b2.x,yA,b2.y],[b2.x,yT,b2.y],[a2.x,yT,a2.y],[nx,0,nz],enduit,1.6);
+  }
+  /* sur les deux faces du passage, l'arc : écoinçons de pierre sous le linteau */
+  PORCHE.bouts.forEach(function(e){
+    var ax=e[0], az=e[1], bx=e[2], bz=e[3], dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz);
+    var nx=dz/L, nz=-dx/L, mx=(ax+bx)/2-PORCHE.c[0], mz=(az+bz)/2-PORCHE.c[1];
+    if(nx*mx+nz*mz<0){ nx=-nx; nz=-nz; }
+    {
+      var N=10, ys=y0+2.3, r=L/2, ux=dx/L, uz=dz/L, cx=(ax+bx)/2, cz=(az+bz)/2;
+      for(var k=0;k<N;k++){
+        var t0=k/N*PI, t1=(k+1)/N*PI;
+        var P0=[cx-ux*r*Math.cos(t0)+nx*0.02, ys+(yA-ys)*Math.sin(t0), cz-uz*r*Math.cos(t0)+nz*0.02];
+        var P1=[cx-ux*r*Math.cos(t1)+nx*0.02, ys+(yA-ys)*Math.sin(t1), cz-uz*r*Math.cos(t1)+nz*0.02];
+        var H0=[P0[0],yA,P0[2]], H1=[P1[0],yA,P1[2]];
+        q4(mur,P0,P1,H1,H0,[nx,0,nz],pierre,1.2);
+        q4(mur,P0,P1,H1,H0,[-nx,0,-nz],pierre,1.2);
+      }
+      /* les piédroits, contre les maisons voisines */
+      [-1,1].forEach(function(s){
+        var bx=cx+ux*r*s, bz=cz+uz*r*s;
+        tube(mur,bx,y0-0.2,bz,bx,ys,bz,0.18,0.18,6,pierre,false,true);
+      });
+    }
+  });
+  ajouter(mur,MAT.taille||matStatue(),true,true);
+  ajouter(toit,MAT.toits||MAT.deco,true,true);
+  /* on passe dessous à pied */
+  if(typeof grilleCol!=='undefined' && grilleCol){
+    var pts=[]; for(i=0;i<n;i++) pts.push(p[i*2],p[i*2+1]);
+    for(var z=Math.min.apply(null,pts.filter(function(v,ix){return ix%2;}))-1; z<=Math.max.apply(null,pts.filter(function(v,ix){return ix%2;}))+1; z+=GC_PAS*0.5)
+      for(var x=Math.min.apply(null,pts.filter(function(v,ix){return !(ix%2);}))-1; x<=Math.max.apply(null,pts.filter(function(v,ix){return !(ix%2);}))+1; x+=GC_PAS*0.5){
+        if(!dansPoly(p,x,z)) continue;
+        var ci=Math.floor((x-XMIN)/GC_PAS), cj=Math.floor((z-ZMIN)/GC_PAS);
+        if(ci>=0 && cj>=0 && ci<GC_NX && cj<GC_NZ) grilleCol[cj*GC_NX+ci]=0;
+      }
+  }
+}
+ETAPES.forEach(function(e,i){ if(e[0]==='Abbatiale Saint-Maixent') ETAPES.splice(i+1,0,['Porche',etapePorche]); });
+
+/* L'écran d'attente : ce qui se charge n'intéresse personne. Une seule
+   jauge du téléchargement à la construction (60 % puis 40 %), le parcours
+   qui se dessine, des conseils. Voir window.VOILE dans index.html. */
+progression=function(t,f){
+  var k=ETAPES.length||1;
+  if(window.VOILE && VOILE.progres) VOILE.progres(0.6+0.4*f, 0.6+0.4*Math.min(1,f+1/k));
+  else { $e('e3-jauge').style.width=Math.round(f*100)+'%'; }
+};
 })();
