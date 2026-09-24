@@ -17742,16 +17742,18 @@ function matSol(nom,tex,decal){
 
 /* ===== les terrains d'entraînement du km 2,1 à 2,7 ===== */
 /* La piste en tartan (relevée sur la photo aérienne), l'ovale en graviers
-   blancs, les bois et les alignements, un abri à vélos au bord d'un
-   parking à la place du petit bâtiment isolé près du CRENSOA. */
+   blancs, les bois et les alignements, et près du CRENSOA le hangar à
+   vélos au toit bleu, au bord du parking. Le petit bâtiment qu'OSM plaçait
+   au milieu du terrain n'existe pas : il est retiré, le terrain reste en
+   herbe. */
 var TERRAINS={
   gravier:{c:[-912.9,-114.9], ang:-71.8, a:90.15, b:41.5, p:2.4, larg:4.6},
   tartan:{c:[-976.4,23.4], ang:25.1, a:78, b:47.6, p:3.2},
   tartanLarg:7.3,
-  abri:{c:[-817.2,-445.3], ang:35, L:8.5, P:3.6},
+  /* emprise du toit bleu lu sur la photo aérienne : 19,5 m sur 17 m */
+  abri:{c:[-788.6,-420.8], ang:3.8, L:19.5, P:17},
   parkings:[
-    [-813.5,-455, -774,-455, -774,-411, -813.5,-411],
-    [-850.4,-422.6, -800.9,-422.6, -773.9,-410.1, -772.5,-392.3, -821.4,-391, -850.4,-396.3]
+    [-850.4,-410.8, -800.4,-410.8, -772.5,-410.8, -772.5,-392.3, -821.4,-391, -850.4,-396.3]
   ],
   arbres:0
 };
@@ -17785,48 +17787,62 @@ function etapeTerrains(){
   ruban(pist,fermer(ov),G.larg,teinte(0xd2ccbf),0.17,1.5,3);
   var mp=matSol('pistes',textureDe(faireBeton(),1,1),-3), ml=matSol('lignes des pistes',null,-5);
   ajouter(pist,mp,false,true); ajouter(lig,ml,false,true);
-  /* --- les parkings, et leurs places --- */
+  /* --- le parking, et ses places le long du hangar --- */
   var park=new Tas(8192), traits=new Tas(2048), blanc=teinte(0xe9e7e1);
   TERRAINS.parkings.forEach(function(p){ construirePlace(park,p,COL.parking); });
-  var P0=TERRAINS.parkings[0];
-  [[P0[1]+0.3,P0[1]+5.3],[P0[5]-5.3,P0[5]-0.3]].forEach(function(r){
-    for(var x=P0[0]+1;x<=P0[2]-1;x+=2.5){
+  [[-410.5,-405.5,-849,-801],[-396,-391.2,-848,-824]].forEach(function(r){
+    for(var x=r[2];x<=r[3];x+=2.5){
       var a=[x-0.06,hauteur(x,r[0])+0.17,r[0]], b=[x+0.06,hauteur(x,r[0])+0.17,r[0]], c=[x+0.06,hauteur(x,r[1])+0.17,r[1]], d=[x-0.06,hauteur(x,r[1])+0.17,r[1]];
       triHaut(traits,a,b,c,blanc,1); triHaut(traits,a,c,d,blanc,1);
     }
   });
   var mk=matSol('parkings',textureDe(faireBitume(),1,1),-3);
   ajouter(park,mk,false,true); ajouter(traits,matSol('marquage des parkings',null,-5),false,false);
-  /* --- l'abri à vélos : poteaux d'acier, toit monopente translucide, arceaux --- */
+  /* --- le hangar à vélos : charpente d'acier, toit monopente bleu,
+     bardage au nord et sur les côtés, ouvert sur le parking au sud,
+     rangées d'arceaux --- */
   var A=TERRAINS.abri, F=repere(A.c[0],A.c[1],A.ang), y0=hauteur(A.c[0],A.c[1]); F.yo=y0;
-  var acier=new Tas(4096), toit=new Tas(512), gris=teinte(0x6c737a), argent=teinte(0xb9bec4);
-  var hl=A.L/2, hp=A.P/2, hAv=2.45, hAr=2.1;
-  pave(acier,F,-hl-0.3,hl+0.3,-hp-0.3,hp+0.3,-0.3,0.08,teinte(0x9d9d98),1.2);           /* dalle */
-  for(var s=-hl;s<=hl+0.01;s+=A.L/3){
-    [[-hp,hAr],[hp,hAv]].forEach(function(c){
-      var p=Wp(F,s,c[0],y0); tube(acier,p[0],y0+0.08,p[2],p[0],y0+c[1],p[2],0.05,0.05,6,gris,false,true);
-    });
-    var r0=Wp(F,s,-hp,y0+hAr), r1=Wp(F,s,hp,y0+hAv);
-    tube(acier,r0[0],r0[1],r0[2],r1[0],r1[1],r1[2],0.045,0.045,5,gris,true,true);        /* chevrons */
+  var acier=new Tas(8192), toit=new Tas(1024), bard=new Tas(2048);
+  var gris=teinte(0x6c737a), argent=teinte(0xb9bec4), bleu=teinte(0x2f56a6), bardage=teinte(0xc9ccd0);
+  var hl=A.L/2, hp=A.P/2, hAv=3.6, hAr=3.0;
+  function hT(t){ return hAr+(hAv-hAr)*(t+hp)/(2*hp); }
+  pave(acier,F,-hl-0.2,hl+0.2,-hp-0.2,hp+0.2,-0.3,0.08,teinte(0x9d9d98),1.2);           /* dalle */
+  var s, t;
+  for(s=-hl;s<=hl+0.01;s+=A.L/4){
+    for(t=-hp;t<=hp+0.01;t+=A.P/3){
+      var p=Wp(F,s,t,y0); tube(acier,p[0],y0+0.08,p[2],p[0],y0+hT(t),p[2],0.07,0.07,6,gris,false,true);
+    }
+    var r0=Wp(F,s,-hp,y0+hT(-hp)), r1=Wp(F,s,hp,y0+hT(hp));
+    tube(acier,r0[0],r0[1],r0[2],r1[0],r1[1],r1[2],0.07,0.07,5,gris,true,true);         /* fermes */
   }
-  [[-hp,hAr],[hp,hAv]].forEach(function(c){
-    var a=Wp(F,-hl,c[0],y0+c[1]), b=Wp(F,hl,c[0],y0+c[1]);
-    tube(acier,a[0],a[1],a[2],b[0],b[1],b[2],0.05,0.05,6,gris,true,true);                  /* pannes */
+  for(t=-hp;t<=hp+0.01;t+=A.P/3){
+    var a=Wp(F,-hl,t,y0+hT(t)), b=Wp(F,hl,t,y0+hT(t));
+    tube(acier,a[0],a[1],a[2],b[0],b[1],b[2],0.06,0.06,6,gris,true,true);                  /* pannes */
+  }
+  pan2(toit,Wp(F,-hl-0.3,-hp-0.3,y0+hT(-hp)+0.12),Wp(F,hl+0.3,-hp-0.3,y0+hT(-hp)+0.12),
+            Wp(F,hl+0.3,hp+0.5,y0+hT(hp)+0.14),Wp(F,-hl-0.3,hp+0.5,y0+hT(hp)+0.14),bleu,1);
+  /* bardage : le mur nord plein, les pignons fermés sur les deux tiers arrière */
+  pave(bard,F,-hl,hl,-hp-0.05,-hp+0.05,0.08,hAr,bardage,1.2);
+  [-hl,hl].forEach(function(ss){
+    var q=[Wp(F,ss,-hp,y0+0.08),Wp(F,ss,hp/3,y0+0.08),Wp(F,ss,hp/3,y0+hT(hp/3)),Wp(F,ss,-hp,y0+hAr)];
+    var n=Wn(F,ss<0?-1:1,0,0);
+    q4(bard,q[0],q[1],q[2],q[3],n,bardage,1.2); q4(bard,q[0],q[1],q[2],q[3],[-n[0],0,-n[2]],bardage,1.2);
   });
-  pan2(toit,Wp(F,-hl-0.25,-hp-0.3,y0+hAr+0.08),Wp(F,hl+0.25,-hp-0.3,y0+hAr+0.08),
-            Wp(F,hl+0.25,hp+0.4,y0+hAv+0.1),Wp(F,-hl-0.25,hp+0.4,y0+hAv+0.1),teinte(0xffffff),1);
-  /* grillage du fond */
-  for(s=-hl+0.2;s<hl;s+=0.25){ var g0=Wp(F,s,-hp,y0+0.1), g1=Wp(F,s,-hp,y0+hAr-0.1); tube(acier,g0[0],g0[1],g0[2],g1[0],g1[1],g1[2],0.008,0.008,3,gris,false,false); }
-  /* arceaux : un U renversé tous les 80 cm */
-  for(s=-hl+0.5;s<hl-0.3;s+=0.8){
-    var b0=Wp(F,s,-0.35,y0), b1=Wp(F,s,0.35,y0);
-    tube(acier,b0[0],y0+0.08,b0[2],b0[0],y0+0.8,b0[2],0.025,0.025,5,argent,false,false);
-    tube(acier,b1[0],y0+0.08,b1[2],b1[0],y0+0.8,b1[2],0.025,0.025,5,argent,false,false);
-    tube(acier,b0[0],y0+0.8,b0[2],b1[0],y0+0.8,b1[2],0.025,0.025,5,argent,true,true);
-  }
-  var mTo=new THREE.MeshStandardMaterial({color:0x6f9cc4, roughness:0.35, metalness:0.1, transparent:true, opacity:0.85, side:THREE.DoubleSide});
-  mTo.name='abri vélos toit';
-  ajouter(acier,MAT.zinc||MAT.deco,true,true); ajouter(toit,mTo,true,false);
+  /* arceaux : quatre rangées, un U renversé tous les 80 cm */
+  [-5.5,-1.8,1.9,5.6].forEach(function(tr){
+    for(s=-hl+0.8;s<hl-0.6;s+=0.8){
+      var b0=Wp(F,s,tr-0.35,y0), b1=Wp(F,s,tr+0.35,y0);
+      tube(acier,b0[0],y0+0.08,b0[2],b0[0],y0+0.8,b0[2],0.025,0.025,5,argent,false,false);
+      tube(acier,b1[0],y0+0.08,b1[2],b1[0],y0+0.8,b1[2],0.025,0.025,5,argent,false,false);
+      tube(acier,b0[0],y0+0.8,b0[2],b1[0],y0+0.8,b1[2],0.025,0.025,5,argent,true,true);
+    }
+  });
+  var mTo=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.45, metalness:0.3, side:THREE.DoubleSide});
+  mTo.name='hangar vélos toit';
+  ajouter(acier,MAT.zinc||MAT.deco,true,true); ajouter(toit,mTo,true,true);
+  ajouter(bard,MAT.mursI||MAT.zinc||MAT.deco,true,true);
+  var cont=[]; [[-hl,-hp],[hl,-hp],[hl,-hp+0.5],[-hl,-hp+0.5]].forEach(function(c){ var w=Wp(F,c[0],c[1],0); cont.push(w[0],w[2]); });
+  marquerPoly(cont);
 }
 
 /* ===== le monument aux sous-officiers, au jalonneur 13 ===== */
@@ -17836,7 +17852,11 @@ function etapeTerrains(){
    de la route, l'inscription AUX SOUS OFFICIERS en grandes lettres
    blanches sur un socle ; derrière, trois mâts. Proportions lues sur les
    photos (lettres de 1,3 m, glaive à 6 m au-dessus de la butte). */
-var MSO={route:[-582.7,-200.6,-661.3,-184], recul:4.6, avance:-9, prof:11, h:1.3, texte:'AUX SOUS OFFICIERS'};
+/* Placé dans l'angle du carrefour, face au jalonneur : le sommet de
+   l'angle est le croisement des deux routes, l'axe du monument la
+   bissectrice de l'angle. L'inscription est reculée juste assez pour que
+   ses 16 m tiennent entre les deux trottoirs. */
+var MSO={coin:[-562.9,-206.8], voieA:[-582.7,-200.6], voieB:[-558.7,-276.3], recul:12.5, prof:8.5, h:1.3, texte:'AUX SOUS OFFICIERS'};
 /* un trait de lettre : boîte épaisse dans le plan vertical de l'inscription */
 function traitLettre(tas,O,R,N,u0,y0,u1,y1,sw,dep,ext,col){
   var du=u1-u0, dy=y1-y0, L=Math.hypot(du,dy)||1; du/=L; dy/=L;
@@ -17890,13 +17910,13 @@ function ecrireMSO(tas,O,R,N,texte,H,dep,col){
   }
 }
 function etapeMonumentSO(){
-  var r=MSO.route, dx=r[2]-r[0], dz=r[3]-r[1], L=Math.hypot(dx,dz);
-  var ux=dx/L, uz=dz/L;
-  /* nord de la route : vers la place d'armes */
-  var nx=-uz, nz=ux; if(nz>0){ nx=-nx; nz=-nz; }
-  /* le passant regarde vers le nord : sa droite est l'est ; la face des lettres regarde la route */
+  var c0=MSO.coin;
+  function dir(p){ var dx=p[0]-c0[0], dz=p[1]-c0[1], l=Math.hypot(dx,dz); return [dx/l,dz/l]; }
+  var a=dir(MSO.voieA), b=dir(MSO.voieB), nx=a[0]+b[0], nz=a[1]+b[1], ln=Math.hypot(nx,nz);
+  /* n : de l'angle vers l'intérieur du terrain ; la face regarde le carrefour */
+  nx/=ln; nz/=ln;
   var R=[-nz,0,nx], N=[-nx,0,-nz];
-  var bx=r[0]+ux*(-MSO.avance)+nx*MSO.recul, bz=r[1]+uz*(-MSO.avance)+nz*MSO.recul;
+  var bx=c0[0]+nx*MSO.recul, bz=c0[1]+nz*MSO.recul;
   var sol=hauteur(bx,bz);
   var pierre=new Tas(32768), herbe=new Tas(4096), mats=new Tas(1024), drap=new Tas(512);
   var blanc=teinte(0xf1efe9), blancO=teinte(0xdedbd2);
