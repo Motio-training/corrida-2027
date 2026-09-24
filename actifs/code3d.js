@@ -18300,7 +18300,58 @@ function uvImage(p){
   var px=p[0]-I[0][0], py=p[1]-I[0][1], det=ax*by-ay*bx;
   return [(px*by-py*bx)/det, (ax*py-ay*px)/det];
 }
+/* Les abords de la tribune, d'après une vue aérienne calée sur sa façade
+   (28,3 m pour 211 pixels, soit 0,134 m par pixel ; le coin nord de la
+   façade au pixel 830,165) : de l'enrobé tout autour du bâtiment, et au
+   sud un parvis de grandes dalles de béton clair, avec un îlot planté. */
+var ABORDS={
+  ref:{px:830, py:165, x:-649.2, z:-317.6, k:0.134},
+  enrobe:[[385,25],[810,25],[835,160],[815,385],[670,380],[500,380],[420,570],[385,672],[345,672],[360,420],[385,300]],
+  dalles:[[505,352],[672,352],[652,672],[385,672],[420,570]],
+  ilot:[[495,495],[625,495],[625,600],[495,600]],
+  arbresIlot:[[525,520],[590,515],[560,560],[600,585]]
+};
+function abordVersMonde(p){ var R=ABORDS.ref; return [R.x+(p[0]-R.px)*R.k, R.z+(p[1]-R.py)*R.k]; }
+function polyMonde(L){ var r=[]; L.map(abordVersMonde).forEach(function(q){ r.push(q[0],q[1]); }); return r; }
+/* aucun arbre de la photo aérienne sur l'enrobé ni sur les dalles */
+var _canopAbords=semerArbresCanopee;
+semerArbresCanopee=function(arbres,voies,max){
+  var n0=arbres.length;
+  _canopAbords(arbres,voies,max);
+  var E=polyMonde(ABORDS.enrobe), D=polyMonde(ABORDS.dalles);
+  for(var i=arbres.length-1;i>=n0;i--) if(dansPoly(E,arbres[i][0],arbres[i][1])||dansPoly(D,arbres[i][0],arbres[i][1])) arbres.splice(i,1);
+};
+function etapeAbordsTribune(){
+  function forme(L){ var v=L.map(abordVersMonde).map(function(p){ return new THREE.Vector2(p[0],p[1]); }); if(THREE.ShapeUtils.isClockWise(v)) v.reverse(); return v; }
+  var enr=new Tas(8192), dal=new Tas(8192), joints=new Tas(4096);
+  var E=forme(ABORDS.enrobe);
+  THREE.ShapeUtils.triangulateShape(E,[]).forEach(function(t){ triPlace(enr,[E[t[0]].x,E[t[0]].y],[E[t[1]].x,E[t[1]].y],[E[t[2]].x,E[t[2]].y],teinte(0x8e8d88)); });
+  ajouter(enr,matSol('enrobé de la tribune',textureDe(faireBitume(),1,1),-3),false,true);
+  var D=forme(ABORDS.dalles), H=forme(ABORDS.ilot); if(!THREE.ShapeUtils.isClockWise(H)) H.reverse();
+  var tous=D.concat(H);
+  THREE.ShapeUtils.triangulateShape(D,[H]).forEach(function(t){ triPlace(dal,[tous[t[0]].x,tous[t[0]].y],[tous[t[1]].x,tous[t[1]].y],[tous[t[2]].x,tous[t[2]].y],teinte(0xd9d4c8)); });
+  var md=matSol('parvis en dalles',textureDe(faireBeton(),1,1),-5);
+  ajouter(dal,md,false,true);
+  /* les joints des dalles, un quadrillage de 3 m */
+  var Dp=polyMonde(ABORDS.dalles), Hp=polyMonde(ABORDS.ilot), x0=1e9,x1=-1e9,z0=1e9,z1=-1e9, gris=teinte(0x9d998f);
+  for(var i=0;i<Dp.length;i+=2){ x0=Math.min(x0,Dp[i]); x1=Math.max(x1,Dp[i]); z0=Math.min(z0,Dp[i+1]); z1=Math.max(z1,Dp[i+1]); }
+  function joint(ax,az,bx,bz){
+    var n=Math.ceil(Math.hypot(bx-ax,bz-az)/0.5);
+    for(var k=0;k<n;k++){
+      var xa=ax+(bx-ax)*k/n, za=az+(bz-az)*k/n, xb=ax+(bx-ax)*(k+1)/n, zb=az+(bz-az)*(k+1)/n, xm=(xa+xb)/2, zm=(za+zb)/2;
+      if(!dansPoly(Dp,xm,zm) || dansPoly(Hp,xm,zm)) continue;
+      var dx=xb-xa, dz=zb-za, l=Math.hypot(dx,dz)||1, nx=-dz/l*0.04, nz=dx/l*0.04, ya=hauteur(xa,za)+0.21, yb=hauteur(xb,zb)+0.21;
+      triHaut(joints,[xa+nx,ya,za+nz],[xb+nx,yb,zb+nz],[xb-nx,yb,zb-nz],gris,1);
+      triHaut(joints,[xa+nx,ya,za+nz],[xb-nx,yb,zb-nz],[xa-nx,ya,za-nz],gris,1);
+    }
+  }
+  for(var x=Math.ceil(x0/3)*3;x<x1;x+=3) joint(x,z0,x,z1);
+  for(var z=Math.ceil(z0/3)*3;z<z1;z+=3) joint(x0,z,x1,z);
+  ajouter(joints,matSol('joints des dalles',null,-6),false,false);
+}
+function abordsArbres(){ ABORDS.arbresIlot.forEach(function(p){ var q=abordVersMonde(p); Darbres.push([q[0],q[1],0]); }); }
 function etapePlacesArmes(){
+  try{ abordsArbres(); etapeAbordsTribune(); }catch(e){ console.warn('abords tribune :',e); }
   var sol=new Tas(16384), marques=new Tas(8192);
   var brun=teinte(0x5a4033), blanc=teinte(0xf2f0ea);
   /* la place du Chevron : le stabilisé n'occupe que le rectangle intérieur ;
