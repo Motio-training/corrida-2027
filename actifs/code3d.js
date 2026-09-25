@@ -16157,7 +16157,7 @@ function placeLibre(moi,proche){
   return best||[moi?moi.o:4,moi?moi.l:1.5];
 }
 function formerPeloton(){
-  libererPeloton();
+  libererPeloton(); PELOTON.premier=null;
   var noms=Object.keys(FOULE.modeles);
   if(!noms.length || !FOULE.run) return;
   /* des tenues différentes d'abord, on ne repioche qu'une fois toutes vues */
@@ -16248,8 +16248,9 @@ function majPeloton(dt){
     g.rotation.y=-(c.cap+Math.atan2(c.vl*c.fl,Math.max(1.5,c.v)));
     c.act.timeScale=Math.max(0,c.v)/3.4*c.cad;
     c.rig.mix.update(dt);
-    /* la ligne franchie : les bras se lèvent peu à peu */
-    if(c.d>LONGUEUR-1.5){ var kb=Math.min(1,(c.d-LONGUEUR+1.5)/3); leverBras(c.rig.g,kb*kb*(3-2*kb)); }
+    /* le premier à franchir la ligne lève les bras, les suivants non */
+    if(c.d>LONGUEUR && !PELOTON.premier) PELOTON.premier=c;
+    if(c===PELOTON.premier){ var kb=Math.min(1,(c.d-LONGUEUR)/2.2); leverBras(c.rig.g,kb*kb*(3-2*kb)); }
     return true;
   });
   /* ombres : les quatre plus proches de la caméra seulement */
@@ -18871,6 +18872,7 @@ nouveauSpectateur=function(d0,cx,cz,R){
     var sp=surLeParcours(x,z);
     if(sp.ecart<3.4 || sp.ecart>12) continue;
     if(bloquer(x,z) || dansZoneMilitaire(x,z)) continue;
+    if(!spectateurPermis(x,z,sp)) continue;
     if(Math.hypot(x-cx,z-cz)<6) continue;
     if(FOULE.spect.some(function(s){ return Math.hypot(s.x-x,s.z-z)<0.75; })) continue;
     var rig=prendreRig(FOULE.rigsS,noms[Math.floor(Math.random()*noms.length)],creerRig,NB_SPECTATEURS[2]+3);
@@ -21532,15 +21534,66 @@ function leverBras(g,k){
   g.updateMatrixWorld(true);
   G.getWorldPosition(_vBG); D.getWorldPosition(_vBD);
   var cote=_vBG.sub(_vBD); cote.y=0; cote.normalize();
+  var ca=-g.rotation.y, av=new THREE.Vector3(Math.cos(ca),0,Math.sin(ca));
   ['L','R'].forEach(function(S){
     var up=B['Bip01_'+S+'_UpperArm'], fo=B['Bip01_'+S+'_Forearm'], ha=B['Bip01_'+S+'_Hand'], s=S==='L'?1:-1;
     if(!up || !fo || !ha) return;
     _qB0.copy(up.quaternion);
-    orienterOs(up,fo,new THREE.Vector3(0,1,0).addScaledVector(cote,0.45*s));
+    orienterOs(up,fo,new THREE.Vector3(0,1,0).addScaledVector(cote,0.72*s).addScaledVector(av,0.22));
     _qBr.copy(up.quaternion); up.quaternion.copy(_qB0).slerp(_qBr,k); up.updateMatrixWorld(true);
     _qB0.copy(fo.quaternion);
-    orienterOs(fo,ha,new THREE.Vector3(0,1,0).addScaledVector(cote,0.15*s));
+    orienterOs(fo,ha,new THREE.Vector3(0,1,0).addScaledVector(cote,0.28*s).addScaledVector(av,0.3));
     _qBr.copy(fo.quaternion); fo.quaternion.copy(_qB0).slerp(_qBr,k); fo.updateMatrixWorld(true);
+    if(k>0.2) try{ fermerMain(B,S,Math.min(1,k)); }catch(e){}
   });
 }
+/* près de l'arrivée, les spectateurs restent derrière la rubalise ou les
+   barrières : entre eux et le parcours (ou son prolongement après la
+   ligne), il doit y avoir une rubalise ou une barrière */
+function coupeSegments(ax,az,bx,bz,cx,cz,dx,dz){
+  function o(px,pz,qx,qz,rx,rz){ return (qx-px)*(rz-pz)-(qz-pz)*(rx-px); }
+  var d1=o(ax,az,bx,bz,cx,cz), d2=o(ax,az,bx,bz,dx,dz), d3=o(cx,cz,dx,dz,ax,az), d4=o(cx,cz,dx,dz,bx,bz);
+  return (d1>0)!==(d2>0) && (d3>0)!==(d4>0);
+}
+function spectateurPermis(x,z,sp){
+  var f=pointArrondi(LONGUEUR);
+  if(Math.hypot(x-f[0],z-f[1])>45) return true;
+  var q=pointArrondi(sp.d), c=capArrondi(LONGUEUR), t=(x-f[0])*Math.cos(c)+(z-f[1])*Math.sin(c);
+  if(t>0 && t<30){ var e=[f[0]+Math.cos(c)*t, f[1]+Math.sin(c)*t]; if(Math.hypot(x-e[0],z-e[1])<Math.hypot(x-q[0],z-q[1])) q=e; }
+  try{
+    var E=CARTE.equip(), ok=false;
+    E.rubalises.forEach(function(r){
+      var N=r._noeuds||noeudsRubalise(r);
+      for(var i=1;i<N.length && !ok;i++) if(coupeSegments(q[0],q[1],x,z,N[i-1][0],N[i-1][1],N[i][0],N[i][1])) ok=true;
+    });
+    if(!ok) E.barrieres.concat(EQ.ancrages||[]).forEach(function(b){
+      if(ok || b._x===undefined) return;
+      var a=b.ang*PI/180, ux=Math.cos(a)*1.0, uz=Math.sin(a)*1.0;
+      if(coupeSegments(q[0],q[1],x,z,b._x-ux,b._z-uz,b._x+ux,b._z+uz)) ok=true;
+    });
+    return ok;
+  }catch(e){ return true; }
+}
+/* les piétons ne traversent plus la zone d'arrivée : leurs trottoirs sont
+   coupés là où ils seraient du côté des coureurs */
+function interditArrivee(x,z){
+  var f=pointArrondi(LONGUEUR);
+  return Math.hypot(x-f[0],z-f[1])<45 && !spectateurPermis(x,z,surLeParcours(x,z));
+}
+var _chemArr=construireChemins;
+construireChemins=function(){
+  _chemArr();
+  try{
+    var out=[];
+    VIE.chemins.forEach(function(c){
+      var run=[];
+      function vider(){ if(run.length>=20) out.push(finirChemin(run)); run=[]; }
+      for(var k=0;k<c.p.length;k+=2){ if(interditArrivee(c.p[k],c.p[k+1])) vider(); else run.push(c.p[k],c.p[k+1]); }
+      vider();
+    });
+    VIE.chemins=out; VIE.proches=null; VIE.procheT=null;
+  }catch(e){ console.warn('chemins arrivée :',e); }
+};
+var _equipArr=reconstruireEquip;
+reconstruireEquip=function(){ var r=_equipArr.apply(this,arguments); if(VIE.chemins) VIE.chemins=null; return r; };
 })();
