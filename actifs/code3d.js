@@ -20456,4 +20456,918 @@ animerDecor=function(dt,cx,cz){
   _decorVR(dt,cx,cz);
   try{ majMenuVR(Math.min(dt,0.1)); }catch(e){ console.warn('menu VR :',e); }
 };
+
+/* ---------------- 18. le détail qui ne coûte rien ---------------- */
+/* Six ajouts pensés pour ne pas ralentir :
+   1. ombres de contact au pied des bâtiments, calculées une fois ;
+   2. une ombre douce sous chaque personnage (et chaque voiture garée) ;
+   3. les ombres des nuages qui glissent sur le sol et les toits ;
+   4. la chaussée : plaques d'égout, grilles, rustines, fissures, passages
+      piétons aux carrefours proches du parcours ;
+   5. du mobilier : potelets aux passages, bancs et poubelles le long des
+      chemins ;
+   6. des touffes d'herbe et de fleurs au bord des chemins, seulement
+      autour de la caméra. */
+var DETAIL={ombres:null, perso:null, voitures:null, herbe:null, fleurs:null, cand:null, grille:null, cx:1e9, cz:1e9, t:0,
+            nuages:{value:0.35}};
+function texTache(dur){
+  var c=toile(64,64), g=c.getContext('2d'), r=g.createRadialGradient(32,32,0,32,32,32);
+  r.addColorStop(0,'rgba(0,0,0,1)'); r.addColorStop(dur||0.35,'rgba(0,0,0,0.75)'); r.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=r; g.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+function aleaD(i){ var s=Math.sin(i*127.1+311.7)*43758.5453; return s-Math.floor(s); }
+
+/* ----- 1. ombres de contact au pied des murs ----- */
+/* une bande de 1,1 m autour de chaque bâtiment, sombre contre le mur et
+   transparente au bout ; découpée en carrés de 160 m, masqués au loin
+   comme le reste de la ville */
+function etapeOmbresContact(){
+  var parts={}, L=1.3, A=0.55;
+  function carre(x,z){ var k=Math.floor(x/160)+','+Math.floor(z/160); return parts[k]||(parts[k]={p:[],c:[]}); }
+  /* au-dessus de la plus haute des couches du sol : place (+15 cm), route
+     (+16 cm) ou trottoir (+29 cm) ; sous une bande plus basse, elle disparaît */
+  var proches=zoneTrace(450);
+  var offE=0.21; function sol(x,z){ return hauteur(x,z)+offE; }
+  GEO.bats.forEach(function(b){
+    var p=b.p, n=p.length/2;
+    if(n<3) return;
+    if(p[0]===p[n*2-2] && p[1]===p[n*2-1]) n--;
+    var aire=0, i;
+    for(i=0;i<n;i++){ var j=(i+1)%n; aire+=p[i*2]*p[j*2+1]-p[j*2]*p[i*2+1]; }
+    var s=aire>0?1:-1, cx=0, cz=0;
+    for(i=0;i<n;i++){ cx+=p[i*2]; cz+=p[i*2+1]; }
+    if(!proches(cx/n,cz/n)) return;
+    var T=carre(cx/n,cz/n);
+    for(i=0;i<n;i++){
+      var j2=(i+1)%n, ax=p[i*2], az=p[i*2+1], bx=p[j2*2], bz=p[j2*2+1], dx=bx-ax, dz=bz-az, le=Math.hypot(dx,dz);
+      if(le<0.3) continue;
+      /* normale vers l'extérieur */
+      var nx=dz/le*s, nz=-dx/le*s, k=Math.max(1,Math.ceil(le/4));
+      /* le type de sol une fois par côté, pris à 60 cm du mur */
+      var mxp=(ax+bx)/2+nx*0.6, mzp=(az+bz)/2+nz*0.6; offE=Math.max(0.18,hauteurSol(mxp,mzp,99)-hauteur(mxp,mzp))+0.03;
+      for(var q=0;q<k;q++){
+        var t0=q/k, t1=(q+1)/k;
+        var x0=ax+dx*t0, z0=az+dz*t0, x1=ax+dx*t1, z1=az+dz*t1;
+        var P=[[x0,z0],[x1,z1],[x1+nx*L,z1+nz*L],[x0+nx*L,z0+nz*L]], al=[A,A,0,0];
+        var Y=P.map(function(q2){ return sol(q2[0],q2[1]); });
+        [[0,1,2],[0,2,3]].forEach(function(tr){ tr.forEach(function(v){ T.p.push(P[v][0],Y[v],P[v][1]); T.c.push(0,0,0,al[v]); }); });
+      }
+      /* le coin : un éventail entre les deux bandes */
+      var k3=(i+n-1)%n, px=p[k3*2], pz=p[k3*2+1], ex=ax-px, ez=az-pz, le2=Math.hypot(ex,ez);
+      if(le2>0.3){
+        var mx=ez/le2*s, mz=-ex/le2*s;
+        T.p.push(ax,sol(ax,az),az, ax+mx*L,sol(ax+mx*L,az+mz*L),az+mz*L, ax+nx*L,sol(ax+nx*L,az+nz*L),az+nz*L);
+        T.c.push(0,0,0,A, 0,0,0,0, 0,0,0,0);
+      }
+    }
+  });
+  var mat=new THREE.MeshBasicMaterial({vertexColors:true, transparent:true, depthWrite:false, side:THREE.DoubleSide,
+    polygonOffset:true, polygonOffsetFactor:-9, polygonOffsetUnits:-9});
+  mat.name='ombres de contact';
+  DETAIL.ombres=mat;
+  Object.keys(parts).forEach(function(k){
+    var T=parts[k]; if(!T.p.length) return;
+    var g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(T.p,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(T.c,4));
+    g.computeBoundingSphere();
+    var m=new THREE.Mesh(g,mat); m.renderOrder=7;
+    monde.add(m);
+    var bs=g.boundingSphere;
+    PERF.morceaux.push({m:m, x:bs.center.x, z:bs.center.z, r:bs.radius, porte:false});
+  });
+}
+
+/* ----- 2. une ombre douce sous les personnages et les voitures ----- */
+var _mD=new THREE.Matrix4(), _pD=new THREE.Vector3(), _qD=new THREE.Quaternion(), _sD=new THREE.Vector3(), _eD=new THREE.Euler();
+function etapeOmbresPerso(){
+  var g=new THREE.PlaneGeometry(1,1); g.rotateX(-PI/2);
+  var m=new THREE.MeshBasicMaterial({map:texTache(0.3), transparent:true, depthWrite:false, opacity:0.45,
+    polygonOffset:true, polygonOffsetFactor:-10, polygonOffsetUnits:-10});
+  m.name='ombres sous les personnages';
+  DETAIL.perso=new THREE.InstancedMesh(g,m,220);
+  DETAIL.perso.count=0; DETAIL.perso.frustumCulled=false; DETAIL.perso.renderOrder=8;
+  monde.add(DETAIL.perso);
+  var mv=new THREE.MeshBasicMaterial({map:texTache(0.55), transparent:true, depthWrite:false, opacity:0.55,
+    polygonOffset:true, polygonOffsetFactor:-10, polygonOffsetUnits:-10});
+  mv.name='ombres sous les voitures';
+  DETAIL.voitures=new THREE.InstancedMesh(g,mv,4000);
+  DETAIL.voitures.count=0; DETAIL.voitures.frustumCulled=false; DETAIL.voitures.renderOrder=8;
+  monde.add(DETAIL.voitures);
+}
+function majOmbresPerso(){
+  var I=DETAIL.perso; if(!I || !camera) return;
+  var ombreVraie=!!(ombres && lumDir && lumDir.castShadow && QUAL().ombre>0);
+  I.material.opacity=ombreVraie?0.22:0.45;
+  var cx=camera.position.x, cz=camera.position.z, n=0, R2=75*75;
+  function poser(x,y,z,t){
+    if(n>=220) return;
+    var dx=x-cx, dz=z-cz; if(dx*dx+dz*dz>R2) return;
+    _pD.set(x,y+0.03,z); _sD.set(t,1,t); _qD.identity(); _mD.compose(_pD,_qD,_sD);
+    I.setMatrixAt(n++,_mD);
+  }
+  function rig(o,t){ var g=o && (o.rig ? o.rig.g : o.g); if(g && g.visible) poser(g.position.x,g.position.y,g.position.z,t||0.9); }
+  if(joueur && joueur.visible) poser(joueur.position.x,joueur.position.y,joueur.position.z,0.95);
+  try{ PELOTON.gens.forEach(function(c){ rig(c); }); }catch(e){}
+  try{ FOULE.coureurs.forEach(function(c){ rig(c); }); FOULE.spect.forEach(function(c){ rig(c); }); }catch(e){}
+  try{ VIE.pietons.forEach(function(c){ rig(c); }); VIE.jal.forEach(function(c){ rig(c); }); }catch(e){}
+  try{ JOBJ.forEach(function(o){ if(o.lod && o.lod.visible && !o.anime) poser(o.lod.position.x,o.lod.position.y,o.lod.position.z,0.9); }); }catch(e){}
+  try{ if(CHIEN && CHIEN.visible) poser(CHIEN.position.x,CHIEN.position.y,CHIEN.position.z,0.7); }catch(e){}
+  try{ if(OUVREUR.g && OUVREUR.g.visible) poser(OUVREUR.g.position.x,OUVREUR.g.position.y,OUVREUR.g.position.z,1.5); }catch(e){}
+  I.count=n; I.instanceMatrix.needsUpdate=true;
+}
+/* les voitures garées : l'ombre suit ce que majVoitures affiche */
+var _majVoitOmbre=majVoitures;
+majVoitures=function(cx,cz){
+  var avant=VOIT.cx, r=_majVoitOmbre.apply(this,arguments);
+  var I=DETAIL.voitures;
+  if(!I || VOIT.cx===avant) return r;
+  var n=0;
+  VOIT.ims.forEach(function(im){
+    var A=im.instanceMatrix.array;
+    for(var i=0;i<im.count && n<4000;i++){
+      _mD.fromArray(A,i*16); _mD.decompose(_pD,_qD,_sD);
+      _eD.setFromQuaternion(_qD,'YXZ');
+      _qD.setFromAxisAngle(_vY||new THREE.Vector3(0,1,0),_eD.y);
+      _pD.y=hauteur(_pD.x,_pD.z)+0.2; _sD.set(2.3,1,5.0);
+      _mD.compose(_pD,_qD,_sD); I.setMatrixAt(n++,_mD);
+    }
+  });
+  I.count=n; I.instanceMatrix.needsUpdate=true;
+  return r;
+};
+
+/* ----- 3. les ombres des nuages ----- */
+/* un bruit qui défile, qui n'éteint que le soleil (pas la lumière du ciel)
+   sur le sol, les routes, les façades et les toits ; nul la nuit et au
+   coucher, léger le matin */
+var GLSL_NUAGES=[
+  '{',
+  '  float n1=texture2D(tPat, vPatW.xz*0.0016+uVentN*vec2(0.0035,0.0018)).r;',
+  '  float n2=texture2D(tPat, vPatW.xz*0.0043+uVentN*vec2(0.0055,0.0031)+0.37).r;',
+  '  float nu=smoothstep(0.50,0.70,n1*0.68+n2*0.42);',
+  '  float fN=1.0-uNuages*nu;',
+  '  reflectedLight.directDiffuse*=fN; reflectedLight.directSpecular*=fN;',
+  '}'].join('\n');
+function ombrerNuages(m){
+  if(!m || !m.isMeshStandardMaterial || m.userData.nuages) return;
+  m.userData.nuages=true;
+  greffer(m,'nuages',function(sh){
+    sh.uniforms.uNuages=DETAIL.nuages; sh.uniforms.uVentN=AMB.vent;
+    sh.fragmentShader=sh.fragmentShader
+      .replace('#include <common>','#include <common>\nuniform float uNuages;\nuniform float uVentN;')
+      .replace('#include <lights_fragment_end>','#include <lights_fragment_end>\n'+GLSL_NUAGES);
+  });
+}
+function etapeNuages(){
+  if(!TEX_MACRO) TEX_MACRO=faireMacro();
+  if(!SOL_TEX) faireCarteSol();
+  [MAT.terrain,MAT.sol,MAT.dur,MAT.bit,MAT.chemin,MAT.trot].forEach(ombrerNuages);
+}
+/* les façades et les toits reçoivent la patine juste avant la première
+   image : les nuages passent avec elle */
+var _patinerNuages=patiner;
+patiner=function(){
+  var r=_patinerNuages.apply(this,arguments);
+  try{
+    scene.traverse(function(o){
+      if(!o.isMesh || !o.material) return;
+      var m=o.material;
+      if(m.isMeshStandardMaterial && /^(mur f|rdc f|rdc commerce|annexe|corniche|mur ecole|pierre de taille|toit tuiles|toit ardoise)/.test(m.name||'')) ombrerNuages(m);
+    });
+  }catch(e){ console.warn('nuages :',e); }
+  return r;
+};
+function majNuages(){
+  var k=nuit?0:({midi:0.38, matin:0.26, soir:0.32, coucher:0.06}[MOMENT.cle]||0.3);
+  DETAIL.nuages.value+=(k-DETAIL.nuages.value)*0.05;
+}
+
+/* ----- 4. la chaussée ----- */
+DRAPE.noms['rustines']=1; DRAPE.noms['passages piétons ajoutés']=1;
+function etapeChaussee(){
+  var det=new Tas(16384), rus=new Tas(16384), zeb=new Tas(8192), pot=new Tas(8192);
+  var fonte=teinte(0x3a3b3d), rebord=teinte(0x74757a), grille=teinte(0x26272a), blanc=teinte(0xf2f2ee), acier=teinte(0x8f969d);
+  var sombre=teinte(0x55565a), clair=teinte(0xc9c6bf), fente=teinte(0x2a2b2d);
+  var n=0, prochesR=zoneTrace(420), prochesJ=zoneTrace(300);
+  function disque(t,x,y,z,r,col,seg){
+    for(var i=0;i<seg;i++){ var a0=i/seg*2*PI, a1=(i+1)/seg*2*PI;
+      t.tri(x,y,z, x+Math.cos(a1)*r,y,z+Math.sin(a1)*r, x+Math.cos(a0)*r,y,z+Math.sin(a0)*r, 0,1,0,[0.5,0.5,1,0,0,0],col); }
+  }
+  function rect(t,x,y,z,ux,uz,l,w,col){
+    var vx=-uz, vz=ux, A=[x-ux*l/2-vx*w/2,z-uz*l/2-vz*w/2], B=[x+ux*l/2-vx*w/2,z+uz*l/2-vz*w/2], C=[x+ux*l/2+vx*w/2,z+uz*l/2+vz*w/2], D=[x-ux*l/2+vx*w/2,z-uz*l/2+vz*w/2];
+    t.tri(A[0],y,A[1], C[0],y,C[1], B[0],y,B[1], 0,1,0,[0,0,1,1,1,0],col);
+    t.tri(A[0],y,A[1], D[0],y,D[1], C[0],y,C[1], 0,1,0,[0,0,0,1,1,1],col);
+  }
+  (GEO.voies||[]).forEach(function(v,iv){
+    if(v.k!=='r' || v.w<3.5) return;
+    if(!prochesR(v.p[0],v.p[1]) && !prochesR(v.p[v.p.length-2],v.p[v.p.length-1])) return;
+    var q=densifier(v.p,2), acc=0, prochain=18+aleaD(iv)*20, prochainR=25+aleaD(iv+7)*40, prochainF=8+aleaD(iv+3)*15;
+    for(var i=1;i<q.x.length;i++){
+      var dx=q.x[i]-q.x[i-1], dz=q.z[i]-q.z[i-1], l=Math.hypot(dx,dz)||1, ux=dx/l, uz=dz/l, x=q.x[i], z=q.z[i];
+      acc+=l;
+      if(!prochesR(x,z)) continue;
+      var y=hauteur(x,z)+0.2, al=aleaD(iv*131+i);
+      if(acc>=prochain){
+        prochain=acc+28+al*22;
+        /* plaque d'égout au milieu d'une voie, grille au bord du trottoir */
+        var o=(al<0.5?-1:1)*v.w*0.22, mx=x-uz*o, mz=z+ux*o;
+        disque(det,mx,y,mz,0.36,rebord,12); disque(det,mx,y+0.003,mz,0.31,fonte,12);
+        for(var r2=0.08;r2<0.3;r2+=0.07) disque(det,mx,y+0.005,mz,r2,al>0.3?fonte:rebord,10);
+        var g2=v.w/2-0.25, gx=x+uz*g2*(al<0.5?1:-1), gz=z-ux*g2*(al<0.5?1:-1);
+        rect(det,gx,y+0.004,gz,ux,uz,0.6,0.32,grille);
+        for(var b=-0.24;b<=0.24;b+=0.08) rect(det,gx+ux*b,y+0.007,gz+uz*b,ux,uz,0.03,0.28,rebord);
+        n++;
+      }
+      if(acc>=prochainR){
+        prochainR=acc+35+al*60;
+        /* rustine d'enrobé, plus sombre ou plus claire que la chaussée */
+        var lo=1.2+aleaD(i*7+iv)*2.4, la=0.8+aleaD(i*3+iv)*1.6, oo=(aleaD(i+iv*3)-0.5)*v.w*0.5;
+        rect(rus,x-uz*oo,y-0.01,z+ux*oo,ux,uz,lo,la,aleaD(i*11)<0.6?sombre:clair);
+      }
+      if(acc>=prochainF){
+        prochainF=acc+14+al*25;
+        /* une fissure qui serpente */
+        var fx=x+(aleaD(i*5)-0.5)*v.w*0.6*-uz, fz=z+(aleaD(i*5)-0.5)*v.w*0.6*ux, a=Math.atan2(uz,ux)+(aleaD(i*9)-0.5)*1.4;
+        for(var s=0;s<6;s++){
+          var a2=a+(aleaD(i*13+s)-0.5)*1.1, cxs=Math.cos(a2), czs=Math.sin(a2), ls=0.35+aleaD(i+s)*0.4;
+          rect(det,fx+cxs*ls/2,y+0.002,fz+czs*ls/2,cxs,czs,ls,0.035,fente);
+          fx+=cxs*ls; fz+=czs*ls;
+        }
+      }
+    }
+  });
+  /* passages piétons aux carrefours proches du parcours, là où la carte
+     n'en a pas déjà un ; deux potelets de chaque côté */
+  var noeuds={}, C=[];
+  mobilierLignes().forEach(function(l){ var c=l.split('\t'); if(c[0]==='C') C.push(pX(+c[2]),pZ(+c[1])); });
+  function cle(x,z){ return Math.round(x*2)+','+Math.round(z*2); }
+  GEO.voies.forEach(function(v,iv){
+    if(v.k!=='r') return;
+    var p=v.p, m=p.length/2;
+    for(var i=0;i<m;i++){ var k=cle(p[i*2],p[i*2+1]); (noeuds[k]||(noeuds[k]=[])).push([iv,i]); }
+  });
+  var faits=0;
+  Object.keys(noeuds).forEach(function(k){
+    var N=noeuds[k]; if(N.length<2) return;
+    var bras=[], wmax=0;
+    N.forEach(function(e){ var v=GEO.voies[e[0]], m=v.p.length/2; wmax=Math.max(wmax,v.w); if(e[1]>0) bras.push([e[0],e[1],-1]); if(e[1]<m-1) bras.push([e[0],e[1],1]); });
+    if(bras.length<3) return;
+    var v0=GEO.voies[N[0][0]], ox=v0.p[N[0][1]*2], oz=v0.p[N[0][1]*2+1];
+    if(!prochesJ(ox,oz)) return;
+    for(var ci=0;ci<C.length;ci+=2) if(Math.hypot(C[ci]-ox,C[ci+1]-oz)<16) return;
+    bras.forEach(function(br){
+      var v=GEO.voies[br[0]]; if(v.w<5) return;
+      var j=br[1]+br[2], ax=v.p[j*2]-ox, az=v.p[j*2+1]-oz, L=Math.hypot(ax,az);
+      var dcent=wmax/2+2.2; if(L<dcent+2) return;
+      var ux=ax/L, uz=az/L, cx=ox+ux*dcent, cz=oz+uz*dcent, y=hauteur(cx,cz)+0.2, vx=-uz, vz=ux;
+      if(bloquer(cx,cz)) return;
+      for(var o=-v.w/2+0.4;o<=v.w/2-0.4;o+=1.0) rect(zeb,cx+vx*o,y,cz+vz*o,ux,uz,2.6,0.5,blanc);
+      [-1,1].forEach(function(sg){
+        [-1.6,1.6].forEach(function(t){
+          var px=cx+vx*sg*(v.w/2+0.45)+ux*t, pz=cz+vz*sg*(v.w/2+0.45)+uz*t;
+          if(bloquer(px,pz)) return;
+          var py=hauteurSol(px,pz,99);
+          tube(pot,px,py-0.05,pz,px,py+0.9,pz,0.05,0.045,8,acier,false,true);
+          tube(pot,px,py+0.72,pz,px,py+0.8,pz,0.052,0.052,8,blanc,false,false);
+        });
+      });
+      faits++;
+    });
+  });
+  var md=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.55, metalness:0.35, polygonOffset:true, polygonOffsetFactor:-7, polygonOffsetUnits:-7});
+  md.name='détails de chaussée';
+  var mr=new THREE.MeshStandardMaterial({vertexColors:true, map:MAT.bit?MAT.bit.map:null, roughness:0.9, metalness:0, polygonOffset:true, polygonOffsetFactor:-5, polygonOffsetUnits:-5});
+  mr.name='rustines';
+  var mz=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.6, metalness:0, polygonOffset:true, polygonOffsetFactor:-7, polygonOffsetUnits:-7});
+  mz.name='passages piétons ajoutés';
+  superposer(ajouter(rus,mr,false,true),4.5);
+  superposer(ajouter(det,md,false,true),6);
+  superposer(ajouter(zeb,mz,false,true),6);
+  ajouter(pot,MAT.mob||MAT.deco,true,true);
+  DETAIL.chaussee={plaques:n, passages:faits};
+}
+/* une grille de 25 m marquée à l'avance : « à moins de R m du tracé » */
+function zoneTrace(R){
+  /* la distance au tracé, calculée une fois sur une grille de 25 m (jusqu'à
+     800 m) ; chaque rayon demandé n'est ensuite qu'une comparaison */
+  if(!DETAIL.dist){
+    var C=25, nx=Math.ceil((XMAX-XMIN)/C)+1, nz=Math.ceil((ZMAX-ZMIN)/C)+1, D=new Float32Array(nx*nz).fill(1e9), r=Math.ceil(800/C);
+    var q=densifier(TRACE.reduce(function(a,p){ a.push(p[0],p[1]); return a; },[]),C);
+    for(var i=0;i<q.x.length;i++){
+      var ci=Math.floor((q.x[i]-XMIN)/C), cj=Math.floor((q.z[i]-ZMIN)/C);
+      for(var b2=Math.max(0,cj-r);b2<=Math.min(nz-1,cj+r);b2++) for(var a2=Math.max(0,ci-r);a2<=Math.min(nx-1,ci+r);a2++){
+        var dx=(a2-ci)*C, dz=(b2-cj)*C, d=Math.sqrt(dx*dx+dz*dz), o=b2*nx+a2;
+        if(d<D[o]) D[o]=d;
+      }
+    }
+    DETAIL.dist={D:D, nx:nx, nz:nz, C:C};
+  }
+  var G=DETAIL.dist;
+  return function(x,z){ var ii=Math.floor((x-XMIN)/G.C), jj=Math.floor((z-ZMIN)/G.C); return ii>=0 && jj>=0 && ii<G.nx && jj<G.nz && G.D[jj*G.nx+ii]<=R; };
+}
+/* le tracé en seaux de 20 m, pour savoir vite si un point en est proche */
+function grilleTrace(){
+  if(DETAIL.grilleT) return DETAIL.grilleT;
+  var G={}, q=densifier(TRACE.reduce(function(a,p){ a.push(p[0],p[1]); return a; },[]),10);
+  for(var i=0;i<q.x.length;i++){ var k=Math.floor(q.x[i]/20)+','+Math.floor(q.z[i]/20); (G[k]||(G[k]=[])).push(q.x[i],q.z[i]); }
+  return (DETAIL.grilleT=G);
+}
+
+/* ----- 5. bancs et poubelles le long des chemins ----- */
+function etapeMobilierChemins(){
+  var mob=new Tas(16384), fonte=teinte(0x2b3a30), bois=teinte(0x8a5a36), vert=teinte(0x2f4a38), gris=teinte(0x5a6068);
+  var proches=zoneTrace(600), n=0;
+  (GEO.voies||[]).forEach(function(v,iv){
+    if(v.k!=='s' && v.k!=='t') return;
+    var q=densifier(v.p,2), acc=0, prochain=20+aleaD(iv)*40;
+    for(var i=1;i<q.x.length;i++){
+      var dx=q.x[i]-q.x[i-1], dz=q.z[i]-q.z[i-1], l=Math.hypot(dx,dz)||1, ux=dx/l, uz=dz/l;
+      acc+=l;
+      if(acc<prochain) continue;
+      prochain=acc+55+aleaD(iv*17+i)*50;
+      var x=q.x[i], z=q.z[i];
+      if(!proches(x,z)) continue;
+      var cote=aleaD(iv+i)<0.5?1:-1, off=v.w/2+1.0, bx=x-uz*off*cote, bz=z+ux*off*cote;
+      if(bloquer(bx,bz) || surChaussee(bx,bz,0.5) || surLeParcours(bx,bz).ecart<2) continue;
+      var y=hauteur(bx,bz), fa=Math.atan2(uz,ux)+(cote>0?PI:0), ca=Math.cos(fa), sa=Math.sin(fa);
+      function Q(u,w){ return [bx+u*ca-w*sa, bz+u*sa+w*ca]; }
+      /* le banc, dossier du côté opposé au chemin */
+      [-0.75,0.75].forEach(function(u){ var p=Q(u,0); boiteOr(mob,p[0],y,p[1],0.07,0.44,0.5,fa,fonte); var pb=Q(u,0.24); boiteOr(mob,pb[0],y+0.44,pb[1],0.06,0.42,0.06,fa,fonte); });
+      [-0.16,0,0.16].forEach(function(w){ var p=Q(0,w); boiteOr(mob,p[0],y+0.44,p[1],1.72,0.035,0.11,fa,bois); });
+      [0.62,0.76].forEach(function(hh){ var p=Q(0,0.25); boiteOr(mob,p[0],y+hh,p[1],1.72,0.1,0.03,fa,bois); });
+      /* la poubelle, un peu plus loin */
+      var wx=bx+ux*1.8, wz=bz+uz*1.8, wy=hauteur(wx,wz);
+      if(!bloquer(wx,wz)){ tube(mob,wx,wy,wz,wx,wy+0.95,wz,0.04,0.04,6,gris,false,false); tube(mob,wx+0.05,wy+0.45,wz,wx+0.05,wy+0.95,wz,0.2,0.2,10,vert,true,false); }
+      n++;
+    }
+  });
+  if(!mob.vide()) ajouter(mob,MAT.mob||MAT.deco,true,true);
+  DETAIL.bancs=n;
+}
+
+/* ----- 6. herbe et fleurs au bord des chemins, près de la caméra ----- */
+function texTouffes(){
+  var W=256, H=128, c=toile(W,H), g=c.getContext('2d');
+  function touffe(x0,fleurs){
+    for(var i=0;i<46;i++){
+      var bx=x0+10+Math.random()*108, h=45+Math.random()*75, cb=Math.random()*18-9;
+      var v=90+Math.random()*70|0;
+      g.strokeStyle='rgb('+(v*0.55|0)+','+v+','+(v*0.32|0)+')'; g.lineWidth=2+Math.random()*2.2; g.lineCap='round';
+      g.beginPath(); g.moveTo(bx,H); g.quadraticCurveTo(bx+cb*0.5,H-h*0.6,bx+cb,H-h); g.stroke();
+    }
+    if(fleurs){
+      var cols=['#ffffff','#f6e05e','#b794f4','#fbd38d','#ffffff'];
+      for(var k=0;k<11;k++){
+        var fx=x0+14+Math.random()*100, fy=H-40-Math.random()*70;
+        g.strokeStyle='rgb(70,120,50)'; g.lineWidth=1.6; g.beginPath(); g.moveTo(fx,H); g.lineTo(fx,fy); g.stroke();
+        g.fillStyle=cols[k%cols.length]; for(var p=0;p<5;p++){ var a=p/5*2*PI; g.beginPath(); g.arc(fx+Math.cos(a)*3.2,fy+Math.sin(a)*3.2,2.6,0,7); g.fill(); }
+        g.fillStyle='#e0a800'; g.beginPath(); g.arc(fx,fy,2,0,7); g.fill();
+      }
+    }
+  }
+  touffe(0,false); touffe(128,true);
+  var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  return t;
+}
+function geoTouffeChemin(u0,u1){
+  var pos=[], nor=[], uv=[], idx=[];
+  for(var k=0;k<3;k++){
+    var a=k/3*PI, cx=Math.cos(a)*0.28, cz=Math.sin(a)*0.28, b=pos.length/3;
+    pos.push(-cx,0,-cz, cx,0,cz, cx,0.42,cz, -cx,0.42,-cz);
+    for(var i=0;i<4;i++) nor.push(0,1,0);
+    uv.push(u0,0, u1,0, u1,1, u0,1);
+    idx.push(b,b+1,b+2, b,b+2,b+3);
+  }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);
+  return g;
+}
+function etapeHerbeChemins(){
+  /* au chargement, seulement l'index des bords de chemin par cases de
+     20 m ; les touffes de chaque case sont tirées quand la caméra
+     approche, quelques cases par image */
+  var pres=zoneTrace(450), I={};
+  (GEO.voies||[]).forEach(function(v,iv){
+    if(!pres(v.p[0],v.p[1]) && !pres(v.p[v.p.length-2],v.p[v.p.length-1])) return;
+    var trott=(v.k==='r' && v.w>=5)?2.0:0, q=densifier(v.p,1.3);
+    for(var i=1;i<q.x.length;i++){
+      var x=q.x[i], z=q.z[i];
+      if(!pres(x,z)) continue;
+      var dx=x-q.x[i-1], dz=z-q.z[i-1], l=Math.hypot(dx,dz)||1, k=Math.floor(x/20)+','+Math.floor(z/20);
+      (I[k]||(I[k]=[])).push(x,z,dx/l,dz/l,v.w/2+trott,iv*977+i*13);
+    }
+  });
+  DETAIL.idx=I; DETAIL.cellules={};
+  var dur={k:1,i:1,M:1};
+  DETAIL.zonesDures=(GEO.zones||[]).filter(function(z){ return dur[z.k]; }).map(function(z){
+    var x0=1e9,x1=-1e9,z0=1e9,z1=-1e9; for(var i=0;i<z.p.length;i+=2){ x0=Math.min(x0,z.p[i]); x1=Math.max(x1,z.p[i]); z0=Math.min(z0,z.p[i+1]); z1=Math.max(z1,z.p[i+1]); }
+    return {p:z.p, b:[x0,x1,z0,z1]};
+  });
+  var tex=texTouffes();
+  function mat(nom){ var m=new THREE.MeshStandardMaterial({map:tex, color:0xbfcaa8, alphaTest:0.45, side:THREE.DoubleSide, roughness:0.95, metalness:0}); m.name=nom; venter(m,true); return m; }
+  DETAIL.herbe=new THREE.InstancedMesh(geoTouffeChemin(0.02,0.48),mat('touffes d’herbe'),3200);
+  DETAIL.fleurs=new THREE.InstancedMesh(geoTouffeChemin(0.52,0.98),mat('touffes fleuries'),900);
+  [DETAIL.herbe,DETAIL.fleurs].forEach(function(I2){ I2.count=0; I2.frustumCulled=false; I2.receiveShadow=true; monde.add(I2); });
+}
+/* les touffes d'une case, tirées une fois pour toutes */
+function celluleHerbe(k){
+  var E=DETAIL.idx[k], C=[];
+  if(E){
+    var trace=grilleTrace();
+    var durEn=function(x,z){ return DETAIL.zonesDures.some(function(Z){ return x>=Z.b[0]&&x<=Z.b[1]&&z>=Z.b[2]&&z<=Z.b[3]&&dansPoly(Z.p,x,z); }); };
+    var eauEn=function(x,z){ var jc=Math.round((x-XMIN)/PASX), ic=Math.round((ZMAX-z)/PASZ); return !!(TOPO.masque && ic>=0 && jc>=0 && ic<GROWS && jc<GCOLS && TOPO.masque[ic*GCOLS+jc]===2); };
+    var surTrace=function(x,z){ var L=trace[Math.floor(x/20)+','+Math.floor(z/20)]; if(L) for(var i=0;i<L.length;i+=2) if(Math.hypot(L[i]-x,L[i+1]-z)<6) return true; return false; };
+    for(var e=0;e<E.length;e+=6){
+      var px=E[e], pz=E[e+1], ux=E[e+2], uz=E[e+3], dem=E[e+4], g=E[e+5];
+      for(var s=-1;s<=1;s+=2){
+        var r=aleaD(g+s*7);
+        if(r<0.25) continue;
+        var off=dem+0.25+r*1.3, x=px-uz*off*s+(aleaD(g*3+s)-0.5)*0.8, z=pz+ux*off*s+(aleaD(g*5+s)-0.5)*0.8;
+        if(bloquer(x,z) || surChaussee(x,z,0.2) || eauEn(x,z) || surTrace(x,z) || durEn(x,z)) continue;
+        C.push(x,hauteur(x,z)-0.02,z,aleaD(g*7)*6.283,0.7+aleaD(g*11)*0.7,aleaD(g*17)<0.22?1:0);
+      }
+    }
+  }
+  return (DETAIL.cellules[k]=new Float32Array(C));
+}
+function majTouffes(){
+  if(!DETAIL.idx || !camera) return;
+  var cx=camera.position.x, cz=camera.position.z;
+  var R=(PERF.qualite>=1?42:28)*(XR3D.actif?0.8:1), R2=R*R, nh=0, nf=0, nouvelles=0, manque=false;
+  if(Math.hypot(cx-DETAIL.cx,cz-DETAIL.cz)<3 && !DETAIL.manque) return;
+  DETAIL.cx=cx; DETAIL.cz=cz;
+  var g0=Math.floor((cx-R)/20), g1=Math.floor((cx+R)/20), h0=Math.floor((cz-R)/20), h1=Math.floor((cz+R)/20);
+  for(var a=g0;a<=g1;a++) for(var b=h0;b<=h1;b++){
+    var k=a+','+b, C=DETAIL.cellules[k];
+    if(C===undefined){
+      if(!DETAIL.idx[k]){ DETAIL.cellules[k]=null; continue; }
+      if(nouvelles>=4){ manque=true; continue; }
+      C=celluleHerbe(k); nouvelles++;
+    }
+    if(!C) continue;
+    for(var i=0;i<C.length;i+=6){
+      var dx=C[i]-cx, dz=C[i+2]-cz, d2=dx*dx+dz*dz;
+      if(d2>R2) continue;
+      var f=1-Math.max(0,(Math.sqrt(d2)-R*0.75)/(R*0.25)), s=C[i+4]*f;
+      _pD.set(C[i],C[i+1],C[i+2]); _qD.setFromAxisAngle(_vHautD,C[i+3]); _sD.set(s,s,s); _mD.compose(_pD,_qD,_sD);
+      if(C[i+5]>0.5){ if(nf<900) DETAIL.fleurs.setMatrixAt(nf++,_mD); }
+      else if(nh<3200) DETAIL.herbe.setMatrixAt(nh++,_mD);
+    }
+  }
+  DETAIL.manque=manque;
+  DETAIL.herbe.count=nh; DETAIL.fleurs.count=nf;
+  DETAIL.herbe.instanceMatrix.needsUpdate=true; DETAIL.fleurs.instanceMatrix.needsUpdate=true;
+}
+var _vHautD=new THREE.Vector3(0,1,0);
+
+/* ----- branchements ----- */
+function etapeDetails(){
+  try{ etapeOmbresContact(); }catch(e){ console.warn('ombres de contact :',e); }
+  try{ etapeOmbresPerso(); }catch(e){ console.warn('ombres des personnages :',e); }
+  try{ etapeNuages(); }catch(e){ console.warn('nuages :',e); }
+  try{ etapeChaussee(); }catch(e){ console.warn('chaussée :',e); }
+  try{ etapeMobilierChemins(); }catch(e){ console.warn('bancs :',e); }
+  try{ etapeHerbeChemins(); }catch(e){ console.warn('herbe des chemins :',e); }
+  VOIT.cx=1e9;
+}
+ETAPES.push(['Détails : ombres, chaussée, mobilier, herbe',etapeDetails]);
+var _decorDetails=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _decorDetails(dt,cx,cz);
+  try{
+    majOmbresPerso(); majNuages();
+    DETAIL.t-=dt; if(DETAIL.t<=0){ DETAIL.t=0.3; majTouffes(); }
+  }catch(e){ console.warn('détails :',e); }
+};
+
+/* ---------------- 19. l'ouvreur, les menus, la carte, l'accueil, la photo, le confort VR ---------------- */
+
+/* ===== l'ouvreur à vélo ===== */
+/* Un cycliste en gilet jaune « OUVREUR » roule 5,5 m devant le premier
+   coureur du peloton. Modèle fait main : vélo (cadre, roues à rayons,
+   guidon), cycliste casqué dont les jambes pédalent vraiment (genou
+   calculé pour que le pied reste sur la pédale). */
+var OUVREUR={g:null, roues:[], pedalier:null, jambes:[], ang:0, d:null};
+function construireOuvreur(){
+  var g=new THREE.Group(), M=function(c,r,m){ return new THREE.MeshStandardMaterial({color:c, roughness:r===undefined?0.6:r, metalness:m||0}); };
+  var cadre=M(0xc8102e,0.35,0.4), noir=M(0x1a1c20,0.7), acier=M(0xb7bcc2,0.3,0.8), peau=M(0xd9a47e,0.7), gilet=M(0xd9ff2e,0.55), casque=M(0xf4f4f4,0.35), short=M(0x15171b,0.8);
+  function barre(a,b,r,mat){
+    var A=new THREE.Vector3().fromArray(a), B=new THREE.Vector3().fromArray(b), L=A.distanceTo(B);
+    var m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,L,8),mat);
+    m.position.copy(A).add(B).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),B.clone().sub(A).normalize());
+    m.castShadow=true; g.add(m); return m;
+  }
+  /* repère : x vers l'avant, y en haut, z à droite */
+  var RR=0.34, AR=[-0.52,RR,0], AV=[0.52,RR,0], PED=[0,0.3,0], SELLE=[-0.12,0.86,0], DOUILLE=[0.4,0.84,0];
+  [AR,AV].forEach(function(p){
+    var r=new THREE.Group(); r.position.fromArray(p);
+    var pneu=new THREE.Mesh(new THREE.TorusGeometry(RR,0.022,8,28),noir); r.add(pneu);
+    var jante=new THREE.Mesh(new THREE.TorusGeometry(RR-0.03,0.008,6,28),acier); r.add(jante);
+    for(var k=0;k<12;k++){ var s=new THREE.Mesh(new THREE.CylinderGeometry(0.0025,0.0025,RR-0.03,4),acier); s.position.set(Math.cos(k/12*2*PI)*(RR-0.03)/2,Math.sin(k/12*2*PI)*(RR-0.03)/2,0); s.rotation.z=k/12*2*PI-PI/2; r.add(s); }
+    r.traverse(function(o){ if(o.isMesh) o.castShadow=true; });
+    g.add(r); OUVREUR.roues.push(r);
+  });
+  barre(PED,SELLE,0.022,cadre); barre(PED,DOUILLE,0.025,cadre); barre(SELLE,DOUILLE,0.02,cadre);
+  barre(AR,PED,0.015,cadre); barre(AR,SELLE,0.013,cadre); barre(DOUILLE,AV,0.02,cadre);
+  barre([0.4,0.84,0],[0.42,1.0,0],0.02,cadre); barre([0.42,1.0,-0.22],[0.42,1.0,0.22],0.014,noir);
+  barre([-0.12,0.86,0],[-0.14,0.93,0],0.015,acier);
+  var selle=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.04,0.12),noir); selle.position.set(-0.13,0.95,0); g.add(selle);
+  /* le cycliste */
+  var bassin=[-0.1,1.0,0], epaules=[0.2,1.42,0];
+  var tronc=new THREE.Mesh(new THREE.CapsuleGeometry(0.15,0.36,4,10),gilet);
+  tronc.position.set(0.05,1.21,0); tronc.rotation.z=-1.0; tronc.castShadow=true; g.add(tronc);
+  /* « OUVREUR » dans le dos */
+  var c=toile(256,64), cg=c.getContext('2d'); cg.fillStyle='#d9ff2e'; cg.fillRect(0,0,256,64); cg.fillStyle='#111'; cg.font='900 44px system-ui, sans-serif'; cg.textAlign='center'; cg.textBaseline='middle'; cg.fillText('OUVREUR',128,34);
+  var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  var dos=new THREE.Mesh(new THREE.PlaneGeometry(0.34,0.085),new THREE.MeshStandardMaterial({map:t, roughness:0.6}));
+  dos.position.set(-0.03,1.34,0); dos.rotation.set(0,-PI/2,0); dos.rotateX(-0.57); g.add(dos);
+  var tete=new THREE.Mesh(new THREE.SphereGeometry(0.105,14,12),peau); tete.position.set(0.3,1.56,0); tete.castShadow=true; g.add(tete);
+  var cq=new THREE.Mesh(new THREE.SphereGeometry(0.125,14,10,0,2*PI,0,PI*0.55),casque); cq.position.set(0.29,1.6,0); cq.rotation.z=-0.35; cq.castShadow=true; g.add(cq);
+  var lun=new THREE.Mesh(new THREE.BoxGeometry(0.03,0.035,0.19),noir); lun.position.set(0.39,1.57,0); g.add(lun);
+  /* bras vers le guidon */
+  [-1,1].forEach(function(s){ barre([0.2,1.4,s*0.17],[0.33,1.18,s*0.21],0.04,gilet); barre([0.33,1.18,s*0.21],[0.42,1.01,s*0.2],0.034,peau); });
+  /* jambes : cuisse et mollet, recalculées à chaque image */
+  [-1,1].forEach(function(s){
+    var cu=new THREE.Mesh(new THREE.CapsuleGeometry(0.06,0.3,4,8),short), mo=new THREE.Mesh(new THREE.CapsuleGeometry(0.045,0.32,4,8),peau);
+    var pied=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.06,0.08),noir);
+    [cu,mo,pied].forEach(function(m){ m.castShadow=true; g.add(m); });
+    OUVREUR.jambes.push({s:s, cu:cu, mo:mo, pied:pied});
+  });
+  OUVREUR.bassin=new THREE.Vector3().fromArray(bassin); OUVREUR.ped=new THREE.Vector3().fromArray(PED);
+  g.visible=false;
+  monde.add(g);
+  OUVREUR.g=g;
+}
+var _vA=new THREE.Vector3(), _vB=new THREE.Vector3(), _vK=new THREE.Vector3(), _vU=new THREE.Vector3(0,1,0);
+function segment(m,A,B){ m.position.copy(A).add(B).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(_vU,_vK.copy(B).sub(A).normalize()); }
+function majOuvreur(dt){
+  var O=OUVREUR; if(!O.g) return;
+  var actif=!!(typeof PELOTON!=='undefined' && PELOTON.actif && PELOTON.gens.length && auto);
+  O.g.visible=actif;
+  if(!actif){ O.d=null; return; }
+  /* 5,5 m devant le coureur de tête */
+  var tete=dAuto;
+  PELOTON.gens.forEach(function(c){ if(c.d!==undefined && c.d>tete) tete=c.d; });
+  var cible=Math.min(LONGUEUR-1,tete+5.5);
+  O.d=(O.d===null)?cible:O.d+(cible-O.d)*Math.min(1,dt*2);
+  var p=pointArrondi(O.d), cap=capArrondi(O.d);
+  O.g.position.set(p[0],hauteurSol(p[0],p[1],0)-0.02,p[1]);
+  O.g.rotation.y=-cap;
+  var v=VITESSE;
+  O.roues.forEach(function(r){ r.rotation.z-=v*dt/0.34; });
+  O.ang+=v*dt/0.34/2.6;
+  /* le pédalier : manivelle de 17 cm, genou trouvé par les deux segments */
+  O.jambes.forEach(function(J2){
+    var a=O.ang+(J2.s>0?PI:0), s=J2.s*0.11;
+    var P=_vA.set(O.ped.x+Math.cos(a)*0.17, O.ped.y+Math.sin(a)*0.17, s);
+    var H=_vB.set(O.bassin.x, O.bassin.y, s);
+    var L1=0.44, L2=0.46, d=Math.min(L1+L2-0.001,H.distanceTo(P));
+    var ax=P.x-H.x, ay=P.y-H.y, ad=Math.hypot(ax,ay)||1;
+    var cosA=(L1*L1+d*d-L2*L2)/(2*L1*d), ang=Math.atan2(ay,ax)+Math.acos(Math.max(-1,Math.min(1,cosA)));
+    var K=new THREE.Vector3(H.x+Math.cos(ang)*L1, H.y+Math.sin(ang)*L1, s);
+    segment(J2.cu,H,K); segment(J2.mo,K,P);
+    J2.pied.position.set(P.x+0.04,P.y-0.02,s);
+  });
+}
+
+/* ===== les menus : les vues ensemble, les options ensemble ===== */
+/* « Vue » regroupe le point de vue (1re, 3e personne, drone, spectateur,
+   vue haute), le moment de la course et la visite ; « Afficher » les
+   options (peloton, chien, gyroscope, tracé, jalonneurs…). */
+var MENUS={pret:false, sel:null, vues:{}, moments:{}};
+function trouverPop(re){
+  var r=null;
+  document.querySelectorAll('#e3 .e3-menu').forEach(function(m){ var b=m.querySelector('.e3-menu-b'); if(b && re.test((b.dataset.lib||'')+' '+b.textContent)) r=m.querySelector('.e3-pop'); });
+  return r;
+}
+function vueActive(){
+  if(VUE==='jal') return null;
+  if(CAMV.mode==='drone') return 'drone';
+  if(CAMV.mode==='spectateur') return 'spect';
+  if(VUE==='fp') return 'fp';
+  return CAM.dist>40 ? 'haute' : 'tp';
+}
+function choisirPointDeVue(m){
+  if(VUE==='jal') sortirVueJal();
+  if(m==='fp'){ CAMV.mode='suivi'; if(VUE!=='fp') basculerVue(); }
+  else {
+    if(VUE==='fp') basculerVue();
+    if(m==='tp'){ CAMV.mode='suivi'; if(CAM.dist>40){ CAM.dist=9; CAM.pitch=0.3; } }
+    else if(m==='haute'){ CAMV.mode='suivi'; CAM.dist=95; CAM.pitch=0.9; }
+    else { CAMV.mode=(m==='drone')?'drone':'spectateur'; CAMV.init=false; CAMV.spot=null; }
+  }
+  if(camera){ camera.fov=CAMV.mode==='spectateur'?40:(CAMV.mode==='drone'?50:(VUE==='fp'?80:56)); camera.updateProjectionMatrix(); }
+  try{ majBoutonCamera(); majBoutonsVue(); }catch(e){}
+  majMenus();
+}
+function reorganiserMenus(){
+  if(MENUS.pret) return;
+  var pv=trouverPop(/Vue|🎥/), pa=trouverPop(/Afficher|☰|👁/);
+  if(!pv || !pa) return;
+  MENUS.pret=true;
+  var cache=document.createElement('div'); cache.hidden=true; cache.id='e3-menus-caches'; $e('e3').appendChild(cache);
+  function titre(pop,t){ var d=document.createElement('div'); d.className='e3-pop-titre'; d.textContent=t; pop.appendChild(d); return d; }
+  function radio(pop,id,txt,fn){ var b=document.createElement('button'); b.type='button'; b.id=id; b.className='e3-radio'; b.textContent=txt; b.addEventListener('click',fn); pop.appendChild(b); return b; }
+  var vr=$e('e3-vr'), vrDansVue=vr && vr.parentNode===pv;
+  /* on vide « Vue » : les anciens boutons restent, cachés, pour les raccourcis clavier */
+  ['e3-vuep','e3-camera','e3-haute','e3-nuit','e3-moment'].forEach(function(id){ var e=$e(id); if(e) cache.appendChild(e); });
+  var garder=['e3-auto','e3-depart','e3-peloton','e3-gyro','e3-chien'].map(function(id){ return $e(id); });
+  while(pv.firstChild) pv.removeChild(pv.firstChild);
+  titre(pv,'Point de vue');
+  [['tp','👤 3e personne'],['fp','👁 1re personne'],['drone','🚁 Drone'],['spect','🧍 Spectateur'],['haute','⤢ Vue haute']].forEach(function(v){
+    MENUS.vues[v[0]]=radio(pv,'e3-v-'+v[0],v[1],function(){ choisirPointDeVue(v[0]); });
+  });
+  titre(pv,'Moment de la course');
+  [['midi','☀ Midi'],['matin','🌅 Matin'],['soir','🌇 Fin d’après-midi'],['coucher','🌆 Coucher de soleil'],['nuit','🌙 Nuit']].forEach(function(v){
+    MENUS.moments[v[0]]=radio(pv,'e3-h-'+v[0],v[1],function(){ choisirMoment(v[0]); majMenus(); });
+  });
+  titre(pv,'Parcours');
+  if(garder[0]) pv.appendChild(garder[0]);
+  if(garder[1]) pv.appendChild(garder[1]);
+  var bp=document.createElement('button'); bp.type='button'; bp.id='e3-photo-b'; bp.textContent='📷 Mode photo'; bp.title='Masquer l’interface et prendre une photo (I)';
+  bp.addEventListener('click',function(){ entrerPhoto(); }); pv.appendChild(bp);
+  if(vrDansVue) pv.appendChild(vr);
+  /* « Afficher » : les options en tête */
+  var t=titre(pa,'Options'); pa.insertBefore(t,pa.firstChild);
+  var apres=t;
+  [garder[2],garder[3],garder[4]].forEach(function(e){ if(!e) return; pa.insertBefore(e,apres.nextSibling); apres=e; });
+  var t2=document.createElement('div'); t2.className='e3-pop-titre'; t2.textContent='Affichage'; pa.insertBefore(t2,apres.nextSibling);
+  var s=document.createElement('style');
+  s.textContent=[
+    '#e3 .e3-pop .e3-radio{position:relative;padding-left:30px}',
+    '#e3 .e3-pop .e3-radio::before{content:"";position:absolute;left:11px;top:50%;width:10px;height:10px;margin-top:-6px;border-radius:50%;border:2px solid rgba(255,255,255,.5)}',
+    '#e3 .e3-pop .e3-radio.on{border-color:#F2B33D;color:#F2B33D}',
+    '#e3 .e3-pop .e3-radio.on::before{border-color:#F2B33D;background:#F2B33D}',
+    '#e3 .e3-pop{max-height:calc(100vh - 80px);overflow-y:auto}'
+  ].join('\n');
+  document.head.appendChild(s);
+  majMenus();
+}
+function majMenus(){
+  if(!MENUS.pret) return;
+  var v=vueActive(), m=nuit?'nuit':MOMENT.cle;
+  Object.keys(MENUS.vues).forEach(function(k){ MENUS.vues[k].classList.toggle('on',k===v); });
+  Object.keys(MENUS.moments).forEach(function(k){ MENUS.moments[k].classList.toggle('on',k===m); });
+}
+
+/* ===== la carte globale : zoom à deux doigts, boutons +/−, double tape ===== */
+/* Sur téléphone, la carte ne se zoomait qu'à la molette : impossible de
+   viser précisément avant le double-clic. On remplace ses gestes : un
+   doigt fait glisser, deux doigts zooment autour de leur milieu, un
+   double tape (ou double-clic) téléporte ; + et − zooment au centre. */
+function gestesCarte(){
+  var cv0=$e('e3-gmc'); if(!cv0 || cv0.__gestes) return;
+  var cv=cv0.cloneNode(false); cv.__gestes=true;
+  cv0.parentNode.replaceChild(cv,cv0);
+  cv.style.touchAction='none';
+  function pos(ev){ var r=cv.getBoundingClientRect(), k=cv.width/r.width; return {x:(ev.clientX-r.left)*k, y:(ev.clientY-r.top)*k}; }
+  function zoomer(px,py,f){ var ne=Math.max(0.15,Math.min(24,GM.e*f)); f=ne/GM.e; GM.ox=px-(px-GM.ox)*f; GM.oy=py-(py-GM.oy)*f; GM.e=ne; dessinerGM(); }
+  cv.addEventListener('wheel',function(ev){ ev.preventDefault(); var p=pos(ev); zoomer(p.x,p.y,ev.deltaY<0?1.2:1/1.2); },{passive:false});
+  var doigts=new Map(), glisse=null, pince=null, tape=null, dernier=null;
+  function aller(p){
+    var x=(p.x-GM.ox)/GM.e, z=(p.y-GM.oy)/GM.e;
+    fermerCarteGlobale(); teleporter(x,z);
+  }
+  cv.addEventListener('pointerdown',function(ev){
+    var p=pos(ev); doigts.set(ev.pointerId,p);
+    try{ cv.setPointerCapture(ev.pointerId); }catch(e){}
+    if(doigts.size===1){ glisse={x:p.x,y:p.y,ox:GM.ox,oy:GM.oy}; tape={x:p.x,y:p.y,t:performance.now()}; pince=null; }
+    else if(doigts.size===2){
+      var P=Array.from(doigts.values());
+      pince={d:Math.hypot(P[0].x-P[1].x,P[0].y-P[1].y)||1, mx:(P[0].x+P[1].x)/2, my:(P[0].y+P[1].y)/2};
+      glisse=null; tape=null;
+    }
+  });
+  cv.addEventListener('pointermove',function(ev){
+    if(!doigts.has(ev.pointerId)) return;
+    var p=pos(ev); doigts.set(ev.pointerId,p);
+    if(pince && doigts.size>=2){
+      var P=Array.from(doigts.values()), d=Math.hypot(P[0].x-P[1].x,P[0].y-P[1].y)||1, mx=(P[0].x+P[1].x)/2, my=(P[0].y+P[1].y)/2;
+      GM.ox+=mx-pince.mx; GM.oy+=my-pince.my;
+      zoomer(mx,my,d/pince.d);
+      pince.d=d; pince.mx=mx; pince.my=my;
+    } else if(glisse){
+      GM.ox=glisse.ox+(p.x-glisse.x); GM.oy=glisse.oy+(p.y-glisse.y); dessinerGM();
+      if(tape && Math.hypot(p.x-tape.x,p.y-tape.y)>12*(cv.width/cv.getBoundingClientRect().width)) tape=null;
+    }
+  });
+  function fin(ev){
+    doigts.delete(ev.pointerId);
+    if(doigts.size<2) pince=null;
+    if(doigts.size===1){ var P=Array.from(doigts.values())[0]; glisse={x:P.x,y:P.y,ox:GM.ox,oy:GM.oy}; tape=null; return; }
+    glisse=null;
+    /* un tape court ; deux tapes rapprochés et proches = on y va */
+    if(tape && ev.type==='pointerup' && performance.now()-tape.t<300){
+      var now=performance.now();
+      if(dernier && now-dernier.t<380 && Math.hypot(tape.x-dernier.x,tape.y-dernier.y)<30*(cv.width/cv.getBoundingClientRect().width)){ dernier=null; aller(tape); }
+      else dernier={x:tape.x,y:tape.y,t:now};
+    }
+    tape=null;
+  }
+  cv.addEventListener('pointerup',fin); cv.addEventListener('pointercancel',fin);
+  /* les boutons + et − */
+  var gm=$e('e3-gm');
+  if(gm && !$e('e3-gm-zoom')){
+    var z=document.createElement('div'); z.id='e3-gm-zoom';
+    z.innerHTML='<button type="button" aria-label="Zoomer">+</button><button type="button" aria-label="Dézoomer">−</button>';
+    gm.appendChild(z);
+    var bs=z.querySelectorAll('button');
+    bs[0].onclick=function(){ zoomer(cv.width/2,cv.height/2,1.5); };
+    bs[1].onclick=function(){ zoomer(cv.width/2,cv.height/2,1/1.5); };
+    var st=document.createElement('style');
+    st.textContent='#e3-gm-zoom{position:absolute;right:14px;bottom:64px;display:flex;flex-direction:column;gap:8px;z-index:3}'+
+      '#e3-gm-zoom button{width:46px;height:46px;border-radius:12px;border:1px solid #3a4a63;background:rgba(14,20,31,.92);color:#fff;font-size:26px;font-weight:700;line-height:1}';
+    document.head.appendChild(st);
+  }
+  var aide=document.querySelector('#e3-gm .e3-gm-barre span');
+  if(aide) aide.textContent='Double-tape ou double-clic pour t’y rendre · deux doigts ou molette pour zoomer · glisser pour déplacer';
+}
+
+/* ===== l'accueil, à la première visite ===== */
+var ACCUEIL={etape:0};
+function montrerAccueil(forcer){
+  try{ if(!forcer && localStorage.getItem('corrida3d-accueil')==='1') return; }catch(e){}
+  if($e('e3-accueil')) return;
+  var tactile=matchMedia('(pointer:coarse)').matches;
+  var E=[
+    ['Se déplacer', tactile ? 'Pose le pouce en bas à gauche pour courir, glisse un doigt ailleurs pour regarder autour de toi.'
+                            : 'Flèches ou Z Q S D pour courir, Maj pour accélérer. Clic glissé pour regarder autour, molette pour t’éloigner.'],
+    ['La visite guidée', 'Le bouton ▶ déroule tout le parcours à l’allure choisie (touche l’allure en haut à gauche pour la changer), avec le peloton autour de toi et le chrono jusqu’à l’arche.'],
+    ['Les menus', '🎥 Vue : 1re ou 3e personne, drone, spectateur, moment de la course, mode photo. 👁 Afficher : peloton, chien, tracé, jalonneurs. ♪ : musique et ambiance. ◧ Carte pour revenir au plan.']
+  ];
+  var d=document.createElement('div'); d.id='e3-accueil';
+  d.innerHTML='<div class="acc-boite"><div class="acc-etape"></div><h3></h3><p></p><div class="acc-pts"></div><div class="acc-b"><button type="button" class="acc-passer">Passer</button><button type="button" class="acc-suite">Suivant</button></div></div>';
+  $e('e3').appendChild(d);
+  var st=document.createElement('style');
+  st.textContent=['#e3-accueil{position:absolute;inset:0;z-index:60;background:rgba(6,10,18,.55);display:flex;align-items:center;justify-content:center;padding:16px}',
+    '#e3-accueil .acc-boite{max-width:420px;width:100%;background:rgba(14,20,31,.97);border:1px solid #F2B33D;border-radius:18px;padding:20px 22px;color:#fff;box-shadow:0 18px 50px rgba(0,0,0,.6)}',
+    '#e3-accueil .acc-etape{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:#F2B33D;font-weight:700}',
+    '#e3-accueil h3{margin:6px 0 8px;font-size:22px}',
+    '#e3-accueil p{margin:0;font-size:15px;line-height:1.5;color:#dbe2ec}',
+    '#e3-accueil .acc-pts{display:flex;gap:6px;margin:16px 0}',
+    '#e3-accueil .acc-pts i{width:8px;height:8px;border-radius:50%;background:#3a4a63}',
+    '#e3-accueil .acc-pts i.on{background:#F2B33D}',
+    '#e3-accueil .acc-b{display:flex;justify-content:space-between;gap:10px}',
+    '#e3-accueil button{padding:10px 16px;border-radius:10px;border:1px solid #3a4a63;background:transparent;color:#c8d0dc;font-size:15px}',
+    '#e3-accueil .acc-suite{background:#F2B33D;border-color:#F2B33D;color:#14213d;font-weight:700}'].join('\n');
+  document.head.appendChild(st);
+  function montrer(){
+    var e=E[ACCUEIL.etape];
+    d.querySelector('.acc-etape').textContent='Bienvenue · '+(ACCUEIL.etape+1)+' sur '+E.length;
+    d.querySelector('h3').textContent=e[0]; d.querySelector('p').textContent=e[1];
+    d.querySelector('.acc-pts').innerHTML=E.map(function(x,i){ return '<i class="'+(i===ACCUEIL.etape?'on':'')+'"></i>'; }).join('');
+    d.querySelector('.acc-suite').textContent=ACCUEIL.etape===E.length-1?'C’est parti':'Suivant';
+  }
+  function finir(){ d.remove(); try{ localStorage.setItem('corrida3d-accueil','1'); }catch(e){} }
+  d.querySelector('.acc-passer').onclick=finir;
+  d.querySelector('.acc-suite').onclick=function(){ if(ACCUEIL.etape<E.length-1){ ACCUEIL.etape++; montrer(); } else finir(); };
+  ACCUEIL.etape=0; montrer();
+}
+
+/* ===== le mode photo ===== */
+/* toute l'interface disparaît sauf une petite barre ; la caméra reste
+   libre (glisser pour tourner, molette ou deux doigts pour s'éloigner) ;
+   « Prendre la photo » enregistre l'image à la taille de l'écran */
+var PHOTO={actif:false, coureur:true};
+function entrerPhoto(){
+  if(PHOTO.actif) return;
+  PHOTO.actif=true;
+  if(auto) basculerAuto();
+  if(VUE==='jal') sortirVueJal();
+  var e3=$e('e3'); e3.classList.add('e3-photo');
+  var b=$e('e3-photo-barre');
+  if(!b){
+    b=document.createElement('div'); b.id='e3-photo-barre';
+    b.innerHTML='<button type="button" data-a="clic">📸 Prendre la photo</button><button type="button" data-a="coureur">👤 Coureur : visible</button><button type="button" data-a="trace">〰 Tracé</button><button type="button" data-a="sortir">✕ Quitter</button>';
+    e3.appendChild(b);
+    b.addEventListener('click',function(ev){
+      var a=ev.target.closest && ev.target.closest('button'); if(!a) return;
+      var k=a.dataset.a;
+      if(k==='clic') prendrePhoto();
+      else if(k==='coureur'){ PHOTO.coureur=!PHOTO.coureur; a.textContent='👤 Coureur : '+(PHOTO.coureur?'visible':'masqué'); }
+      else if(k==='trace'){ var bt=$e('e3-b-trace'); if(bt) bt.click(); }
+      else if(k==='sortir') sortirPhoto();
+    });
+    var st=document.createElement('style');
+    st.textContent=['#e3.e3-photo>*:not(#e3-vue):not(#e3-photo-barre):not(#e3-flash){display:none!important}',
+      '#e3-photo-barre{display:none;position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:40;gap:8px;flex-wrap:wrap;justify-content:center;max-width:94vw}',
+      '#e3.e3-photo #e3-photo-barre{display:flex}',
+      '#e3-photo-barre button{padding:10px 14px;border-radius:12px;border:1px solid #3a4a63;background:rgba(14,20,31,.88);color:#fff;font-size:14px;font-weight:600}',
+      '#e3-photo-barre button[data-a=clic]{background:#F2B33D;border-color:#F2B33D;color:#14213d}',
+      '#e3-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .35s;z-index:45}'].join('\n');
+    document.head.appendChild(st);
+  }
+  dire('Mode photo : cadre la vue puis « Prendre la photo ». I ou Échap pour quitter.');
+}
+function sortirPhoto(){
+  if(!PHOTO.actif) return;
+  PHOTO.actif=false; PHOTO.coureur=true;
+  $e('e3').classList.remove('e3-photo');
+  var b=document.querySelector('#e3-photo-barre [data-a=coureur]'); if(b) b.textContent='👤 Coureur : visible';
+  if(joueur) majVisibilite();
+}
+function prendrePhoto(){
+  try{
+    rendreVue();
+    var url=renderer.domElement.toDataURL('image/jpeg',0.92);
+    var a=document.createElement('a'), d=new Date();
+    a.href=url; a.download='corrida2027-'+d.getFullYear()+('0'+(d.getMonth()+1)).slice(-2)+('0'+d.getDate()).slice(-2)+'-'+('0'+d.getHours()).slice(-2)+('0'+d.getMinutes()).slice(-2)+('0'+d.getSeconds()).slice(-2)+'.jpg';
+    document.body.appendChild(a); a.click(); a.remove();
+    var f=$e('e3-flash'); if(!f){ f=document.createElement('div'); f.id='e3-flash'; $e('e3').appendChild(f); }
+    f.style.opacity='0.8'; setTimeout(function(){ f.style.opacity='0'; },60);
+  }catch(e){ dire('La photo n’a pas pu être prise.'); }
+}
+
+/* ===== le confort dans le casque ===== */
+/* Vignette : les bords de la vue s'assombrissent quand on avance ou tourne
+   (c'est le mouvement vu en périphérie qui donne le mal des transports) ;
+   rotation au choix fluide ou par crans de 30°. Réglables dans le menu B. */
+var CONFORT={vignette:true, crans:false, arme:false, masque:null, op:0, yawPrec:null};
+try{ var _cf=JSON.parse(localStorage.getItem('corrida3d-vr-confort')||'{}'); if(_cf.vignette===false) CONFORT.vignette=false; if(_cf.crans) CONFORT.crans=true; }catch(e){}
+function sauverConfort(){ try{ localStorage.setItem('corrida3d-vr-confort',JSON.stringify({vignette:CONFORT.vignette, crans:CONFORT.crans})); }catch(e){} }
+function preparerVignette(){
+  if(CONFORT.masque || !camera) return;
+  var c=toile(256,256), g=c.getContext('2d'), r=g.createRadialGradient(128,128,40,128,128,128);
+  r.addColorStop(0,'rgba(0,0,0,0)'); r.addColorStop(0.55,'rgba(0,0,0,0.15)'); r.addColorStop(1,'rgba(0,0,0,1)');
+  g.fillStyle=r; g.fillRect(0,0,256,256);
+  var t=new THREE.CanvasTexture(c);
+  var m=new THREE.Mesh(new THREE.PlaneGeometry(1.1,1.1),new THREE.MeshBasicMaterial({map:t, transparent:true, opacity:0, depthTest:false, depthWrite:false, fog:false, toneMapped:false}));
+  m.position.set(0,0,-0.3); m.renderOrder=990; m.frustumCulled=false; m.visible=false;
+  camera.add(m); CONFORT.masque=m;
+}
+function majConfort(dt){
+  if(!XR3D.actif){ if(CONFORT.masque) CONFORT.masque.visible=false; CONFORT.yawPrec=null; return; }
+  preparerVignette();
+  var vit=Math.abs(J.v)/4, rot=0;
+  if(CONFORT.yawPrec!==null) rot=Math.abs(ecartAngle(CAM.yaw-CONFORT.yawPrec))/Math.max(0.001,dt)/1.2;
+  CONFORT.yawPrec=CAM.yaw;
+  var cible=CONFORT.vignette ? Math.min(0.85,Math.max(vit*0.7,rot)) : 0;
+  CONFORT.op+=(cible-CONFORT.op)*Math.min(1,dt*(cible>CONFORT.op?8:3));
+  CONFORT.masque.material.opacity=CONFORT.op;
+  CONFORT.masque.visible=CONFORT.op>0.02;
+}
+/* rotation par crans : le manche droit tourne de 30° d'un coup, puis se réarme */
+var _xrManchesConfort=xrManches;
+xrManches=function(dt){
+  var yaw=CAM.yaw;
+  _xrManchesConfort(dt);
+  if(!CONFORT.crans || VRM.ouvert) return;
+  CAM.yaw=yaw;
+  var s=XR3D.session, x=0;
+  if(s && s.inputSources) for(var i=0;i<s.inputSources.length;i++){
+    var src=s.inputSources[i], g=src.gamepad;
+    if(src.handedness==='right' && g && g.axes) x=(g.axes.length>3)?g.axes[2]:g.axes[0];
+  }
+  if(!CONFORT.arme && Math.abs(x)>0.6){ CAM.yaw+=(x>0?1:-1)*PI/6; CONFORT.arme=true; }
+  else if(Math.abs(x)<0.3) CONFORT.arme=false;
+};
+/* les deux réglages dans le menu du casque : la carte rétrécit un peu */
+CARTE_VR.h=500;
+var _boutonsVRConfort=boutonsVR;
+boutonsVR=function(){
+  var B=_boutonsVRConfort.apply(this,arguments);
+  B.push({id:'c_vign', x:660, y:630, w:290, h:62, txt:'Vignette : '+(CONFORT.vignette?'oui':'non'), on:CONFORT.vignette,
+          fn:function(){ CONFORT.vignette=!CONFORT.vignette; sauverConfort(); dire('Vignette de confort : '+(CONFORT.vignette?'oui':'non')); }});
+  B.push({id:'c_rot', x:960, y:630, w:290, h:62, txt:'Rotation : '+(CONFORT.crans?'par crans':'fluide'), on:CONFORT.crans,
+          fn:function(){ CONFORT.crans=!CONFORT.crans; sauverConfort(); dire('Rotation '+(CONFORT.crans?'par crans de 30°':'fluide')); }});
+  return B;
+};
+var _sigConfort=signatureVR;
+signatureVR=function(){ return _sigConfort()+'|'+CONFORT.vignette+'|'+CONFORT.crans; };
+
+/* ===== branchements ===== */
+ETAPES.push(['Ouvreur à vélo',function(){ try{ construireOuvreur(); }catch(e){ console.warn('ouvreur :',e); } }]);
+var _decorUX=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _decorUX(dt,cx,cz);
+  var d=Math.min(dt,0.1);
+  try{
+    majOuvreur(d); majConfort(d);
+    if(PHOTO.actif && joueur) joueur.visible=PHOTO.coureur && VUE!=='fp';
+    MENUS.t=(MENUS.t||0)-d; if(MENUS.t<=0){ MENUS.t=0.4; majMenus(); }
+    if(construit && !ACCUEIL.vu && !XR3D.actif){ ACCUEIL.vu=true; setTimeout(function(){ montrerAccueil(false); },900); }
+  }catch(e){ console.warn('ux :',e); }
+};
+var _brancherUX=brancherInterface;
+brancherInterface=function(){
+  _brancherUX();
+  try{ reorganiserMenus(); }catch(e){ console.warn('menus :',e); }
+  try{ gestesCarte(); }catch(e){ console.warn('carte :',e); }
+  addEventListener('keydown',function(e){
+    if(!ouvert || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tg=e.target;
+    if(tg && ((tg.tagName==='INPUT' && tg.type!=='range') || tg.tagName==='TEXTAREA' || tg.tagName==='SELECT')) return;
+    var k=e.key.toLowerCase();
+    if(k==='i'){ if(PHOTO.actif) sortirPhoto(); else entrerPhoto(); }
+    else if(k==='escape' && PHOTO.actif) sortirPhoto();
+  });
+};
+/* la touche N, F, X changent aussi la vue et l'horaire : les pastilles suivent */
+var _nuitMenus=basculerNuit;
+basculerNuit=function(){ var r=_nuitMenus.apply(this,arguments); majMenus(); return r; };
 })();
