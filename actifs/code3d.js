@@ -18171,9 +18171,10 @@ function etapeMonumentSO(){
       if(Math.hypot(c[0]-d2[0],c[2]-d2[2])<1e-3) t3(pierre,a,b,c,n,blanc,1); else q4(pierre,a,b,c,d2,n,blanc,1);
     }
   }
-  /* trois mâts derrière : le drapeau national au centre */
+  /* trois mâts derrière, trois drapeaux français */
   var bleu=teinte(0x1f3e8c), blancD=teinte(0xf2f2f2), rouge=teinte(0xd7263d), bleuC=teinte(0x2a4f9a);
-  var couleurs=[[bleu,bleu,bleu],[bleu,blancD,rouge],[bleuC,blancD,bleuC]];
+  /* trois drapeaux français (Nicolas, 26 sept. 2026) */
+  var couleurs=[[bleu,blancD,rouge],[bleu,blancD,rouge],[bleu,blancD,rouge]];
   [-3.2,0,3.2].forEach(function(u,m){
     var mx=cx+R[0]*u+N[0]*(-9.5), mz=cz+R[2]*u+N[2]*(-9.5), my=hauteur(mx,mz);
     tube(mats,mx,my-0.3,mz,mx,my+11,mz,0.07,0.045,8,teinte(0xdadcdf),false,true);
