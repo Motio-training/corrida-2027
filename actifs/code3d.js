@@ -10856,12 +10856,12 @@ brancherInterface=function(){
     renderer.__fusil=true;
     var precedent=renderer.render;
     renderer.render=function(sc,cam){
-      var reel=!!(joueur && joueur.userData && joueur.userData.reel && FUSIL.actif);
+      var corps=!!(joueur && joueur.userData && joueur.userData.reel), reel=corps && FUSIL.actif;
       if(sc===scene && FUSIL.obj){
         /* vraie première personne : le corps du coureur et son arme, sans la tête */
-        if(VUE==='fp' && reel && FUSIL.vraiFP && joueur.userData.os && joueur.userData.os.Bip01_Head){
+        if(VUE==='fp' && corps && FUSIL.vraiFP && joueur.userData.os && joueur.userData.os.Bip01_Head){
           var tete=joueur.userData.os.Bip01_Head, echelle=tete.scale.clone(), vis=joueur.visible;
-          joueur.visible=true; FUSIL.obj.visible=true;
+          joueur.visible=true; FUSIL.obj.visible=reel;
           tete.scale.setScalar(0.001); tete.updateMatrixWorld(true);
           try{ precedent.call(renderer,sc,cam); }
           finally{ joueur.visible=vis; tete.scale.copy(echelle); tete.updateMatrixWorld(true); }
@@ -16220,6 +16220,8 @@ function majPeloton(dt){
     /* rattrapage doux si l'écart s'est creusé (virage, joueur qui accélère) */
     var cible=dAuto+c.o;
     c.v=vJ+c.vo+(cible-c.d)*1.2;
+    /* après la ligne, on continue en trottinant */
+    if(c.d>LONGUEUR) c.v=Math.min(c.v,Math.max(2.3,3.8-(c.d-LONGUEUR)*0.12));
     c.d+=c.v*dt;
   });
   PELOTON.gens=G.filter(function(c){
@@ -16230,7 +16232,7 @@ function majPeloton(dt){
       if(c.d>LONGUEUR-2 || Math.abs(c.d-(J.d||0))>90){ liberer2(c); return false; }
     }
     var dd=Math.max(0,Math.min(LONGUEUR,c.d));
-    var p=pointArrondi(dd), cap=capArrondi(dd);
+    var p=pointEtendu(Math.max(0,c.d)), cap=capArrondi(dd);
     c.cap+=ecartAngle(cap-c.cap)*Math.min(1,dt*5);
     /* dans un passage étroit, le groupe se resserre vers l'axe : un peu
        avant (couloir anticipé), et jamais au-delà du premier obstacle */
@@ -16246,6 +16248,8 @@ function majPeloton(dt){
     g.rotation.y=-(c.cap+Math.atan2(c.vl*c.fl,Math.max(1.5,c.v)));
     c.act.timeScale=Math.max(0,c.v)/3.4*c.cad;
     c.rig.mix.update(dt);
+    /* la ligne franchie : les bras se lèvent peu à peu */
+    if(c.d>LONGUEUR-1.5){ var kb=Math.min(1,(c.d-LONGUEUR+1.5)/3); leverBras(c.rig.g,kb*kb*(3-2*kb)); }
     return true;
   });
   /* ombres : les quatre plus proches de la caméra seulement */
@@ -21485,6 +21489,7 @@ function obstaclesEn(x,z){
 }
 function largeurCouloir(i){
   var D=COULOIR.D, M=COULOIR;
+  if(!M.v) indexEquipCouloir();
   if(D[i*2]>=0) return;
   var d=Math.min(LONGUEUR,i*M.pas), p=pointArrondi(d), cap=capArrondi(d), nx=-Math.sin(cap), nz=Math.cos(cap);
   var exclus=obstaclesEn(p[0],p[1]);
@@ -21501,11 +21506,41 @@ function largeurCouloir(i){
 /* [place à gauche, place à droite] de l'axe (écart négatif, positif) */
 function couloirPeloton(d,anticipe){
   if(!COULOIR.I) return [9,9];
-  if(!COULOIR.v) indexEquipCouloir();
   var i0=Math.floor(Math.max(0,Math.min(LONGUEUR,d))/COULOIR.pas), a=anticipe?i0-2:i0, b=anticipe?i0+12:i0+1, g=9, r=9;
   var n=COULOIR.D.length/2-1;
   for(var i=Math.max(0,a);i<=Math.min(n,b);i++){ largeurCouloir(i); g=Math.min(g,COULOIR.D[i*2]); r=Math.min(r,COULOIR.D[i*2+1]); }
   return [g,r];
 }
 ETAPES.push(['Couloir du peloton',function(){ try{ indexCouloir(); }catch(e){ console.warn('couloir :',e); } }]);
+
+/* ===== 21. l'arrivée franchie en courant, bras levés ; plus de fusil ===== */
+/* le coureur court les mains libres, en 3D comme en première personne */
+FUSIL.actif=false;
+/* au-delà de la ligne, le tracé se prolonge tout droit */
+function pointEtendu(d){
+  if(d<=LONGUEUR) return pointArrondi(Math.max(0,d));
+  var p=pointArrondi(LONGUEUR), c=capArrondi(LONGUEUR), e=d-LONGUEUR;
+  return [p[0]+Math.cos(c)*e, p[1]+Math.sin(c)*e];
+}
+/* bras levés en V, mêlés à l'animation de course selon k (0 → 1) */
+var _vBG=new THREE.Vector3(), _vBD=new THREE.Vector3(), _qBr=new THREE.Quaternion(), _qB0=new THREE.Quaternion();
+function leverBras(g,k){
+  if(!(k>0.001)) return;
+  var B=g.userData.os||(g.userData.os=osAvatar(g));
+  var G=B.Bip01_L_UpperArm, D=B.Bip01_R_UpperArm;
+  if(!G || !D) return;
+  g.updateMatrixWorld(true);
+  G.getWorldPosition(_vBG); D.getWorldPosition(_vBD);
+  var cote=_vBG.sub(_vBD); cote.y=0; cote.normalize();
+  ['L','R'].forEach(function(S){
+    var up=B['Bip01_'+S+'_UpperArm'], fo=B['Bip01_'+S+'_Forearm'], ha=B['Bip01_'+S+'_Hand'], s=S==='L'?1:-1;
+    if(!up || !fo || !ha) return;
+    _qB0.copy(up.quaternion);
+    orienterOs(up,fo,new THREE.Vector3(0,1,0).addScaledVector(cote,0.45*s));
+    _qBr.copy(up.quaternion); up.quaternion.copy(_qB0).slerp(_qBr,k); up.updateMatrixWorld(true);
+    _qB0.copy(fo.quaternion);
+    orienterOs(fo,ha,new THREE.Vector3(0,1,0).addScaledVector(cote,0.15*s));
+    _qBr.copy(fo.quaternion); fo.quaternion.copy(_qB0).slerp(_qBr,k); fo.updateMatrixWorld(true);
+  });
+}
 })();
