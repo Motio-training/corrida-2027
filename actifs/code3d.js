@@ -16232,14 +16232,13 @@ function majPeloton(dt){
     var dd=Math.max(0,Math.min(LONGUEUR,c.d));
     var p=pointArrondi(dd), cap=capArrondi(dd);
     c.cap+=ecartAngle(cap-c.cap)*Math.min(1,dt*5);
-    /* dans un passage étroit, le groupe se resserre vers l'axe */
-    var fl=1;
-    for(var k=0;k<3;k++){
-      var xs=p[0]-Math.sin(c.cap)*c.l*fl, zs=p[1]+Math.cos(c.cap)*c.l*fl;
-      if(!bloquer(xs,zs)) break;
-      fl*=0.5;
-    }
-    c.fl+=(fl-c.fl)*Math.min(1,dt*3);
+    /* dans un passage étroit, le groupe se resserre vers l'axe : un peu
+       avant (couloir anticipé), et jamais au-delà du premier obstacle */
+    var fl=1, la=Math.abs(c.l)||1e-3, LA=couloirPeloton(dd,true), lim=c.l>=0?LA[1]:LA[0];
+    if(la>lim) fl=lim/la;
+    c.fl+=(fl-c.fl)*Math.min(1,dt*4);
+    var L0=couloirPeloton(dd,false), lim0=c.l>=0?L0[1]:L0[0];
+    if(la*c.fl>lim0) c.fl=lim0/la;
     var x=p[0]-Math.sin(c.cap)*c.l*c.fl, z=p[1]+Math.cos(c.cap)*c.l*c.fl;
     var g=c.rig.g;
     g.position.set(x,hauteurSol(x,z,0),z);
@@ -18523,10 +18522,37 @@ function etapePlacesArmes(){
       var x=A[0]+(B[0]-A[0])*k/n, z=A[2]+(B[2]-A[2])*k/n, y=hauteur(x,z)+0.23, r=0.2;
       triHaut(marques,[x-r,y,z-r],[x+r,y,z-r],[x+r,y,z+r],blanc,1);
       triHaut(marques,[x-r,y,z-r],[x+r,y,z+r],[x-r,y,z+r],blanc,1);
+      CHEVLUM.pts.push(x,y,z);
     }
   });
   ajouter(sol,matSol('places d’armes',null,-3),false,true);
-  ajouter(marques,matSol('marquage de la place du Chevron',null,-5),false,false);
+  /* les plots sont des balises lumineuses encastrées : allumées la nuit */
+  var mm=matSol('marquage de la place du Chevron',null,-5);
+  mm.emissive=new THREE.Color(0xfff1d6); mm.emissiveIntensity=nuit?1.8:0; CHEVLUM.mat=mm;
+  ajouter(marques,mm,false,false);
+  try{ halosChevron(); }catch(e){ console.warn('balises chevron :',e); }
+}
+var CHEVLUM={pts:[], mat:null, halo:null};
+/* un halo chaud posé au sol autour de chaque balise */
+function halosChevron(){
+  var P=CHEVLUM.pts, n=P.length/3; if(!n) return;
+  var c=toile(64,64), g=c.getContext('2d'), gr=g.createRadialGradient(32,32,0,32,32,32);
+  gr.addColorStop(0,'rgba(255,236,200,1)'); gr.addColorStop(0.25,'rgba(255,226,180,0.45)'); gr.addColorStop(1,'rgba(255,220,170,0)');
+  g.fillStyle=gr; g.fillRect(0,0,64,64);
+  var pos=new Float32Array(n*18), uv=new Float32Array(n*12), r=1.1;
+  for(var i=0;i<n;i++){
+    var x=P[i*3], y=P[i*3+1]+0.015, z=P[i*3+2];
+    pos.set([x-r,y,z-r, x-r,y,z+r, x+r,y,z+r, x-r,y,z-r, x+r,y,z+r, x+r,y,z-r],i*18);
+    uv.set([0,0, 0,1, 1,1, 0,0, 1,1, 1,0],i*12);
+  }
+  var geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3)); geo.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  geo.computeBoundingSphere();
+  var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  var m=new THREE.MeshBasicMaterial({map:t, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, opacity:0.55});
+  m.name='halos des balises du Chevron';
+  var h=new THREE.Mesh(geo,m); h.renderOrder=2; h.visible=!!nuit;
+  monde.add(h); CHEVLUM.halo=h;
 }
 ETAPES.forEach(function(e,i){ if(e[0]==='Monument aux sous-officiers') ETAPES.splice(i+1,0,['Places d’armes',etapePlacesArmes]); });
 
@@ -19763,6 +19789,7 @@ appliquerCiel=function(){
     appliquerMoment();
     if(NUIT14.cones) NUIT14.cones.visible=!!nuit;
     if(TRICOLORE.voile){ TRICOLORE.voile.visible=!!nuit; TRICOLORE.projos.visible=!!nuit; }
+    if(CHEVLUM.mat){ CHEVLUM.mat.emissiveIntensity=nuit?1.8:0; if(CHEVLUM.halo) CHEVLUM.halo.visible=!!nuit; }
     if(PANKM.mat) PANKM.mat.emissiveIntensity=nuit?0.35:0;
     majRubalise(); majBoutonMoment();
   }catch(e){ console.warn('moment :',e); }
@@ -21371,4 +21398,114 @@ brancherInterface=function(){
 /* la touche N, F, X changent aussi la vue et l'horaire : les pastilles suivent */
 var _nuitMenus=basculerNuit;
 basculerNuit=function(){ var r=_nuitMenus.apply(this,arguments); majMenus(); return r; };
+
+/* ===== 20. le peloton ne traverse plus rien ===== */
+/* Chaque coureur garde son écart voulu, mais borné au couloir libre à sa
+   hauteur du parcours : tous les 50 cm, on relève la place libre de chaque
+   côté de l'axe jusqu'au premier obstacle (bâtiment, muret, pilier, arbre,
+   barrière, rubalise). Ce que le tracé traverse exprès (porche, passage
+   sous une arche) ne compte pas. Le groupe se resserre un peu avant. */
+var COULOIR={boites:[], fige:false, I:null, D:null, v:null, pas:0.5, maxi:3.0, marge:0.36, C:4};
+var _bqC=boiteQuad;
+boiteQuad=function(tas,a,b,c,d,y0,y1){
+  if(!COULOIR.fige && y1-y0>0.45) COULOIR.boites.push([a[0],a[1],b[0],b[1],c[0],c[1],d[0],d[1],y0,y1]);
+  return _bqC.apply(this,arguments);
+};
+var _mpC=murPente;
+murPente=function(tas,c0,c1,c2,c3,ybas,yt0,yt1){
+  if(!COULOIR.fige) COULOIR.boites.push([c0[0],c0[1],c1[0],c1[1],c2[0],c2[1],c3[0],c3[1],ybas,Math.max(yt0,yt1)]);
+  return _mpC.apply(this,arguments);
+};
+function poserCouloir(I,o,x0,x1,z0,z1){
+  var C=COULOIR.C;
+  for(var a=Math.floor(x0/C);a<=Math.floor(x1/C);a++) for(var b=Math.floor(z0/C);b<=Math.floor(z1/C);b++){ var k=a+','+b; (I[k]||(I[k]=[])).push(o); }
+}
+function indexCouloir(){
+  var I={}, pres=zoneTrace(30), loin=zoneTrace(60);
+  COULOIR.boites.forEach(function(B){
+    var cx=(B[0]+B[2]+B[4]+B[6])/4, cz=(B[1]+B[3]+B[5]+B[7])/4;
+    if(!pres(cx,cz)) return;
+    var hg=hauteur(cx,cz);
+    if(B[9]<hg+0.5 || B[8]>hg+1.8) return;
+    var p=B.slice(0,8);
+    poserCouloir(I,{t:0,p:p},Math.min(B[0],B[2],B[4],B[6]),Math.max(B[0],B[2],B[4],B[6]),Math.min(B[1],B[3],B[5],B[7]),Math.max(B[1],B[3],B[5],B[7]));
+  });
+  GEO.bats.forEach(function(b){
+    var P=b.p, x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+    for(var i=0;i<P.length;i+=2){ x0=Math.min(x0,P[i]); x1=Math.max(x1,P[i]); z0=Math.min(z0,P[i+1]); z1=Math.max(z1,P[i+1]); }
+    if(!pres((x0+x1)/2,(z0+z1)/2) && !loin(x0,z0) && !loin(x1,z1) && !loin(x0,z1) && !loin(x1,z0)) return;
+    poserCouloir(I,{t:0,p:P},x0,x1,z0,z1);
+  });
+  Darbres.forEach(function(a){
+    if(!pres(a[0],a[1])) return;
+    poserCouloir(I,{t:2,x:a[0],z:a[1],r:0.42},a[0]-0.5,a[0]+0.5,a[1]-0.5,a[1]+0.5);
+  });
+  COULOIR.I=I; COULOIR.fige=true; COULOIR.boites=null;
+  COULOIR.D=new Float32Array(2*(Math.ceil(LONGUEUR/COULOIR.pas)+2)).fill(-1);
+}
+/* barrières et rubalise : posées ou retirées à tout moment */
+function indexEquipCouloir(){
+  var I={};
+  try{
+    var E=CARTE.equip();
+    E.barrieres.concat(EQ.ancrages||[]).forEach(function(b){
+      if(b._x===undefined) return;
+      var a=b.ang*PI/180, ux=Math.cos(a)*0.99, uz=Math.sin(a)*0.99;
+      var s={t:3,ax:b._x-ux,az:b._z-uz,bx:b._x+ux,bz:b._z+uz,r:0.26};
+      poserCouloir(I,s,Math.min(s.ax,s.bx)-0.3,Math.max(s.ax,s.bx)+0.3,Math.min(s.az,s.bz)-0.3,Math.max(s.az,s.bz)+0.3);
+    });
+    E.rubalises.forEach(function(r){
+      var N=r._noeuds||noeudsRubalise(r);
+      for(var i=1;i<N.length;i++){
+        var s={t:3,ax:N[i-1][0],az:N[i-1][1],bx:N[i][0],bz:N[i][1],r:0.14};
+        poserCouloir(I,s,Math.min(s.ax,s.bx)-0.2,Math.max(s.ax,s.bx)+0.2,Math.min(s.az,s.bz)-0.2,Math.max(s.az,s.bz)+0.2);
+      }
+    });
+  }catch(e){}
+  COULOIR.v=I;
+}
+var _equipC=reconstruireEquip;
+reconstruireEquip=function(){
+  var r=_equipC.apply(this,arguments);
+  COULOIR.v=null; if(COULOIR.D) COULOIR.D.fill(-1);
+  return r;
+};
+function toucheCouloir(o,x,z){
+  if(o.t===0) return dansPoly(o.p,x,z);
+  if(o.t===2) return (x-o.x)*(x-o.x)+(z-o.z)*(z-o.z)<o.r*o.r;
+  var dx=o.bx-o.ax, dz=o.bz-o.az, L2=dx*dx+dz*dz||1e-6, u=Math.max(0,Math.min(1,((x-o.ax)*dx+(z-o.az)*dz)/L2));
+  var ex=o.ax+dx*u-x, ez=o.az+dz*u-z;
+  return ex*ex+ez*ez<o.r*o.r;
+}
+function obstaclesEn(x,z){
+  var k=Math.floor(x/COULOIR.C)+','+Math.floor(z/COULOIR.C), A=COULOIR.I[k]||[], B=COULOIR.v[k]||[], R=[], i;
+  for(i=0;i<A.length;i++) if(toucheCouloir(A[i],x,z)) R.push(A[i]);
+  for(i=0;i<B.length;i++) if(toucheCouloir(B[i],x,z)) R.push(B[i]);
+  return R;
+}
+function largeurCouloir(i){
+  var D=COULOIR.D, M=COULOIR;
+  if(D[i*2]>=0) return;
+  var d=Math.min(LONGUEUR,i*M.pas), p=pointArrondi(d), cap=capArrondi(d), nx=-Math.sin(cap), nz=Math.cos(cap);
+  var exclus=obstaclesEn(p[0],p[1]);
+  for(var k=0;k<2;k++){
+    var s=k?1:-1, w=M.maxi;
+    for(var o=0.15;o<=M.maxi+M.marge;o+=0.15){
+      var L=obstaclesEn(p[0]+nx*o*s,p[1]+nz*o*s), bloque=false;
+      for(var j=0;j<L.length;j++) if(exclus.indexOf(L[j])<0){ bloque=true; break; }
+      if(bloque){ w=o-M.marge; break; }
+    }
+    D[i*2+k]=Math.max(0,w);
+  }
+}
+/* [place à gauche, place à droite] de l'axe (écart négatif, positif) */
+function couloirPeloton(d,anticipe){
+  if(!COULOIR.I) return [9,9];
+  if(!COULOIR.v) indexEquipCouloir();
+  var i0=Math.floor(Math.max(0,Math.min(LONGUEUR,d))/COULOIR.pas), a=anticipe?i0-2:i0, b=anticipe?i0+12:i0+1, g=9, r=9;
+  var n=COULOIR.D.length/2-1;
+  for(var i=Math.max(0,a);i<=Math.min(n,b);i++){ largeurCouloir(i); g=Math.min(g,COULOIR.D[i*2]); r=Math.min(r,COULOIR.D[i*2+1]); }
+  return [g,r];
+}
+ETAPES.push(['Couloir du peloton',function(){ try{ indexCouloir(); }catch(e){ console.warn('couloir :',e); } }]);
 })();
