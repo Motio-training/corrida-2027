@@ -17278,15 +17278,36 @@ function chevronsFins(){
   }
   return ch;
 }
+function hautEscalier(x,z){
+  var Q=ESCALIER.quads; if(!Q) return null;
+  for(var i=0;i<Q.length;i++) if(dansPoly(Q[i].p,x,z)) return Q[i].y;
+  return null;
+}
+function poserSurMarches(g){
+  if(!ESCALIER.quads) return g;
+  var P=g.attributes.position;
+  for(var i=0;i<P.count;i++){ var y=hautEscalier(P.getX(i),P.getZ(i)); if(y!==null && P.getY(i)<y+0.025) P.setY(i,y+0.025); }
+  P.needsUpdate=true; g.computeBoundingSphere();
+  return g;
+}
 function affinerTrace(){
   if(typeof groupeParcours==='undefined' || !groupeParcours || TRACE.length<2) return;
-  var plat=[]; TRACE.forEach(function(p){ plat.push(p[0],p[1]); });
+  /* sur l'escalier, la ligne est posée sur les marches : points serrés,
+     puis remontés au niveau du giron */
+  var plat=[];
+  TRACE.forEach(function(p,i){
+    if(i>0 && ESCALIER.quads && (presDuTrace(ESCALIER.pts,p[0],p[1],6) || presDuTrace(ESCALIER.pts,TRACE[i-1][0],TRACE[i-1][1],6))){
+      var a=TRACE[i-1], L=Math.hypot(p[0]-a[0],p[1]-a[1]), n=Math.ceil(L/0.3);
+      for(var k=1;k<n;k++) plat.push(a[0]+(p[0]-a[0])*k/n, a[1]+(p[1]-a[1])*k/n);
+    }
+    plat.push(p[0],p[1]);
+  });
   var tas=new Tas(16384);
   ruban(tas,plat,TRACE_FIN.larg,COL.trace,0.215,2,4);
   var ch=chevronsFins();
   groupeParcours.children.forEach(function(m){
     if(!m.isMesh) return;
-    if(m.material===MAT.trace){ m.geometry.dispose(); m.geometry=tas.geo(); }
+    if(m.material===MAT.trace){ m.geometry.dispose(); m.geometry=poserSurMarches(tas.geo()); }
     else if(m.material===MAT.chevron){ m.geometry.dispose(); m.geometry=ch.geo(); }
   });
   /* une peinture, pas un tapis lumineux */
@@ -18156,7 +18177,7 @@ function etapeMonumentSO(){
   mh.name='butte du monument';
   ajouter(herbe,mh,true,true);
   ajouter(mats,MAT.zinc||MAT.deco,true,false);
-  ajouter(drap,MAT.deco,true,false);
+  ajouter(drap,matDrapeauxMSO(),true,false);
   /* on ne traverse ni la butte ni l'inscription */
   var poly=[]; for(var a2=0;a2<16;a2++) poly.push(cx+Math.cos(a2/16*2*PI)*6, cz+Math.sin(a2/16*2*PI)*6);
   marquerPoly(poly);
@@ -18170,10 +18191,44 @@ function etapeMonumentSO(){
    d'appui, sauf là où une maison borde déjà l'escalier. Tracé : le sentier
    OpenStreetMap, du bas de la rue jusqu'au porche. */
 var ESCALIER={pts:[112.6,535.4, 103.5,519.5, 98.3,504.9, 103.8,487.4, 106.4,478.5, 115.9,465.7, 117.1,451.7, 115.3,436.1, 113.8,429.8, 113,427],
-  larg:2.0, rise:0.16, gironMax:2.4, mur:0.4, hMur:0.95};
+  larg:2.0, rise:0.16, gironMax:2.4, mur:0.28, hMur:0.75};
 /* ===== la descente du jalonneur 42 : une ruelle pavée de béton ===== */
 var RUELLE={pts:[229,378.5, 231.9,390.1, 237.8,407.7, 244.6,427.6, 232.1,439.2, 227.2,447.4, 230.2,465.2, 231.7,479.3],
-  larg:3.4, hMur:2.3};
+  larg:3.4, hMur:1.1, mur:0.3};
+/* sur la chaussée ou son trottoir : ni marche, ni ruelle, ni mur */
+function surChaussee(x,z,marge){
+  if(!IDX_SOL && Dvoies) IDX_SOL=indexerChaussees(Dvoies);
+  var rp=IDX_SOL?routeProche(IDX_SOL,x,z,12):null;
+  return !!(rp && rp.d<rp.w/2+marge);
+}
+function presDuTrace(P,x,z,e){
+  for(var j=0;j+3<P.length;j+=2){
+    var dx=P[j+2]-P[j], dz=P[j+3]-P[j+1], L2=dx*dx+dz*dz||1, t=Math.max(0,Math.min(1,((x-P[j])*dx+(z-P[j+1])*dz)/L2));
+    if(Math.hypot(x-P[j]-dx*t,z-P[j+1]-dz*t)<e) return true;
+  }
+  return false;
+}
+/* le sentier de terre d'OpenStreetMap passait sous l'escalier et la ruelle
+   et perçait entre les marches : on le coupe sur ces deux tronçons */
+var _voiesEsc=construireVoies;
+construireVoies=function(voies,dpres){
+  var res=[];
+  voies.forEach(function(l){
+    var c=l.split('\t');
+    if(c.length<4 || (c[0]!=='s' && c[0]!=='t')){ res.push(l); return; }
+    var q0=densifier(pointsDe(c[3]),1), p=[], cour=[], coupe=false;
+    for(var k0=0;k0<q0.x.length;k0++) p.push(q0.x[k0],q0.z[k0]);
+    function fermer(){ if(cour.length>=2) res.push(c[0]+'\t'+c[1]+'\t'+c[2]+'\t'+cour.join(' ')); cour=[]; }
+    for(var i=0;i<p.length;i+=2){
+      var dedans=presDuTrace(ESCALIER.pts,p[i],p[i+1],2.5) || presDuTrace(RUELLE.pts,p[i],p[i+1],2.8);
+      if(dedans){ coupe=true; fermer(); }
+      else cour.push(Math.round(p[i]*10)+','+Math.round(p[i+1]*10));
+    }
+    if(!coupe){ res.push(l); return; }
+    fermer();
+  });
+  return _voiesEsc(res,dpres);
+};
 /* un mur dont le dessus suit la pente : c0-c1 face intérieure (début, fin),
    c2-c3 face extérieure (fin, début), dessus de yt0 au début à yt1 à la fin */
 function murPente(tas,c0,c1,c2,c3,ybas,yt0,yt1,col,colDessus){
@@ -18201,15 +18256,21 @@ function etapeEscalier(){
     var j=a+1, hmax=Hs(a);
     while(j<n-1 && Hs(j)-ya<E.rise && s[j]-s[a]<E.gironMax){ hmax=Math.max(hmax,Hs(j)); j++; }
     hmax=Math.max(hmax,Hs(j));
-    var y=Math.max(ya,hmax)+0.02;
     var dx=q.x[j]-q.x[a], dz=q.z[j]-q.z[a], L=Math.hypot(dx,dz)||1, nx=-dz/L, nz=dx/L, h=E.larg/2;
-    var ybas=Math.min(Hs(a),Hs(j))-0.5;
     var C=function(k,o){ return [q.x[k]+nx*o, q.z[k]+nz*o]; };
+    /* le coteau monte aussi en travers : la marche doit couvrir le sol sur
+       toute sa largeur, sinon l'herbe perce en dents de scie */
+    for(var k2=a;k2<=j;k2++) [h,-h].forEach(function(o){ var w=C(k2,o); hmax=Math.max(hmax,hauteur(w[0],w[1])); });
+    var y=Math.max(ya,hmax)+0.03;
+    var ybas=Math.min(Hs(a),Hs(j))-0.6;
+    var mi=C(Math.round((a+j)/2),0);
+    if(surChaussee(mi[0],mi[1],0.2)){ ya=y; a=j; continue; }
     boiteQuad(marches,C(a,h),C(j,h),C(j,-h),C(a,-h),ybas,y,nez,giron,1.0);
-    /* murs d'appui des deux côtés */
+    var qa=C(a,h),qb=C(j,h),qc=C(j,-h),qd=C(a,-h); (E.quads=E.quads||[]).push({p:[qa[0],qa[1],qb[0],qb[1],qc[0],qc[1],qd[0],qd[1]], y:y});
+    /* murs d'appui des deux côtés, qui s'arrêtent avant la rue */
     [1,-1].forEach(function(sg){
       var o0=sg*h, o1=sg*(h+E.mur), m=C(Math.round((a+j)/2),sg*(h+E.mur/2));
-      if(!libreDeMaison(m[0],m[1])) return;
+      if(!libreDeMaison(m[0],m[1]) || surChaussee(m[0],m[1],1.2)) return;
       var c0=C(a,o0), c1=C(j,o0), c2=C(j,o1), c3=C(a,o1);
       murPente(murs,c0,c1,c2,c3,ybas,ya+E.hMur,y+E.hMur,pierre,chaperon);
     });
@@ -18223,11 +18284,17 @@ function etapeEscalier(){
 function etapeRuelle(){
   var R=RUELLE, sol=new Tas(8192), cani=new Tas(2048), murs=new Tas(16384);
   var beton=teinte(0xc3b9a6), gris=teinte(0x8b8579), noir=teinte(0x3a3a38), pierre=teinte(0xd5cab6), chap=teinte(0xc4bba8);
-  /* au-dessus du sentier d'origine (15 cm), sous la ligne du parcours (21,5 cm) */
-  ruban(sol,R.pts,R.larg,beton,0.19,1,2.5);
+  /* la ruelle commence et finit au bord de la rue : on retire les bouts
+     qu'OpenStreetMap faisait déborder sur la chaussée */
+  var q1=densifier(R.pts,0.5), i0=0, i1=q1.x.length-1;
+  while(i0<i1 && surChaussee(q1.x[i0],q1.z[i0],0.3)) i0++;
+  while(i1>i0 && surChaussee(q1.x[i1],q1.z[i1],0.3)) i1--;
+  var pts=[]; for(var k=i0;k<=i1;k++) pts.push(q1.x[k],q1.z[k]);
+  /* au-dessus du sol, sous la ligne du parcours (21,5 cm) */
+  ruban(sol,pts,R.larg,beton,0.19,1,2.5);
   /* le caniveau central, et une grille tous les douze mètres */
-  ruban(cani,R.pts,0.36,gris,0.2,1,1);
-  var q=densifier(R.pts,1), n=q.x.length, acc=0, i;
+  ruban(cani,pts,0.36,gris,0.2,1,1);
+  var q=densifier(pts,1), n=q.x.length, acc=0, i;
   for(i=1;i<n;i++){
     var dx=q.x[i]-q.x[i-1], dz=q.z[i]-q.z[i-1], l=Math.hypot(dx,dz)||1, ux=dx/l, uz=dz/l, nx=-uz, nz=ux;
     acc+=l;
@@ -18238,13 +18305,14 @@ function etapeRuelle(){
       triHaut(cani,[P[0][0],y,P[0][1]],[P[1][0],y,P[1][1]],[P[2][0],y,P[2][1]],noir,1);
       triHaut(cani,[P[0][0],y,P[0][1]],[P[2][0],y,P[2][1]],[P[3][0],y,P[3][1]],noir,1);
     }
-    /* hauts murs de pierre de part et d'autre, là où il n'y a pas de maison */
+    /* murets de pierre de part et d'autre, là où il n'y a pas de maison,
+       arrêtés avant le trottoir de la rue */
     [1,-1].forEach(function(sg){
-      var o0=sg*R.larg/2, o1=sg*(R.larg/2+0.45);
-      var mx=(q.x[i]+q.x[i-1])/2+nx*sg*(R.larg/2+0.25), mz=(q.z[i]+q.z[i-1])/2+nz*sg*(R.larg/2+0.25);
-      if(!libreDeMaison(mx,mz)) return;
+      var o0=sg*R.larg/2, o1=sg*(R.larg/2+R.mur);
+      var mx=(q.x[i]+q.x[i-1])/2+nx*sg*(R.larg/2+R.mur/2), mz=(q.z[i]+q.z[i-1])/2+nz*sg*(R.larg/2+R.mur/2);
+      if(!libreDeMaison(mx,mz) || surChaussee(mx,mz,2.2)) return;
       var a=[q.x[i-1]+nx*o0,q.z[i-1]+nz*o0], b=[q.x[i]+nx*o0,q.z[i]+nz*o0], c2=[q.x[i]+nx*o1,q.z[i]+nz*o1], d=[q.x[i-1]+nx*o1,q.z[i-1]+nz*o1];
-      var y0=Math.min(hauteur(a[0],a[1]),hauteur(b[0],b[1]))-0.4;
+      var y0=Math.min(hauteur(a[0],a[1]),hauteur(b[0],b[1]),hauteur(c2[0],c2[1]),hauteur(d[0],d[1]))-0.5;
       murPente(murs,a,b,c2,d,y0,hauteur(a[0],a[1])+R.hMur,hauteur(b[0],b[1])+R.hMur,pierre,chap);
     });
   }
@@ -18376,4 +18444,1094 @@ function etapePlacesArmes(){
   ajouter(marques,matSol('marquage de la place du Chevron',null,-5),false,false);
 }
 ETAPES.forEach(function(e,i){ if(e[0]==='Monument aux sous-officiers') ETAPES.splice(i+1,0,['Places d’armes',etapePlacesArmes]); });
+
+/* ---------------- 14. l'ambiance de course ---------------- */
+/* Sept touches d'ambiance, toutes fabriquées sur place, sans aucun fichier :
+   1. la nuit de la course : cônes de lumière sous les lampadaires,
+      gyrophares, frontales du peloton, rubalise qui renvoie la lumière ;
+   2. le jour J : banderoles et drapeaux plumes au départ et à l'arrivée,
+      spectateurs groupés aux carrefours, applaudissements, sono au loin ;
+   3. les sons : pas selon le sol, souffle, rumeur de la foule, oiseaux le
+      jour et grillons la nuit, vent ;
+   4. les repères : panneaux kilométriques, chrono de course, arrivée ;
+   5. le moment de la journée : matin, fin d'après-midi, coucher de soleil ;
+   6. le vent : arbres et drapeaux qui bougent, oiseaux, reflets de la Sèvre ;
+   7. les caméras : drone au-dessus du peloton, spectateur au bord de la route. */
+var AMB={t:0, vent:{value:0}, lueur:null};
+function texLueur(){
+  if(AMB.lueur) return AMB.lueur;
+  var c=toile(64,64), g=c.getContext('2d'), r=g.createRadialGradient(32,32,0,32,32,32);
+  r.addColorStop(0,'rgba(255,255,255,1)'); r.addColorStop(0.25,'rgba(255,255,255,0.55)'); r.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle=r; g.fillRect(0,0,64,64);
+  AMB.lueur=new THREE.CanvasTexture(c);
+  return AMB.lueur;
+}
+function spriteLueur(col,echelle){
+  var s=new THREE.Sprite(new THREE.SpriteMaterial({map:texLueur(), color:col, blending:THREE.AdditiveBlending, transparent:true, depthWrite:false}));
+  s.scale.set(echelle,echelle,1);
+  return s;
+}
+function fmtChrono(s,heures){
+  s=Math.max(0,Math.floor(s));
+  var h=Math.floor(s/3600), m=Math.floor(s/60)%60, x=s%60;
+  var mm=(m<10?'0':'')+m, xx=(x<10?'0':'')+x;
+  return (heures||h) ? (h<10&&heures?'0':'')+h+':'+mm+':'+xx : m+':'+xx;
+}
+
+/* ===== 1. la nuit de la course ===== */
+var NUIT14={cones:null, gyros:[], lumGyro:null, taches:[], matTache:null};
+/* sous chaque lampadaire, un cône de lumière dans l'air du soir : blanc
+   chaud sous la lanterne, qui s'efface en touchant le sol */
+function etapeCones(){
+  if(typeof lampes==='undefined' || !lampes.length) return;
+  var seg=12, pos=[], col=[], idx=[];
+  lampes.forEach(function(L){
+    var x=L[0], y=L[1], z=L[2], ys=hauteur(x,z)+0.04, R=2.7, b=pos.length/3;
+    pos.push(x,y-0.12,z); col.push(0.1,0.078,0.046);
+    for(var i=0;i<seg;i++){ var a=i/seg*2*PI; pos.push(x+Math.cos(a)*R,ys,z+Math.sin(a)*R); col.push(0,0,0); }
+    for(i=0;i<seg;i++) idx.push(b,b+1+i,b+1+(i+1)%seg);
+  });
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  g.setIndex(idx);
+  var m=new THREE.MeshBasicMaterial({vertexColors:true, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.FrontSide});
+  m.name='cônes des lampadaires';
+  NUIT14.cones=new THREE.Mesh(g,m);
+  NUIT14.cones.renderOrder=3; NUIT14.cones.visible=!!nuit;
+  monde.add(NUIT14.cones);
+  /* une vraie lumière bleue, posée dès la construction (en ajouter une en
+     cours de route recompilerait tous les matériaux) : elle suit le
+     gyrophare le plus proche, la nuit */
+  NUIT14.lumGyro=new THREE.PointLight(0x2a5cff,0,26,2);
+  NUIT14.lumGyro.castShadow=false;
+  scene.add(NUIT14.lumGyro);
+  /* taches de lumière des frontales du peloton, sur la route devant eux */
+  var tc=toile(64,64), tg=tc.getContext('2d'), rg=tg.createRadialGradient(32,32,0,32,32,32);
+  rg.addColorStop(0,'rgba(255,248,230,0.9)'); rg.addColorStop(0.5,'rgba(255,248,230,0.35)'); rg.addColorStop(1,'rgba(255,248,230,0)');
+  tg.fillStyle=rg; tg.fillRect(0,0,64,64);
+  NUIT14.matTache=new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(tc), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false,
+    polygonOffset:true, polygonOffsetFactor:-8, polygonOffsetUnits:-8, opacity:0.3});
+}
+/* gyrophares : l'ambulance a déjà ses feux bleus, on les fait battre ; les
+   utilitaires militaires en reçoivent un sur le toit */
+function majGyros(dt){
+  if(typeof VM==='undefined' || !VM.objs) return;
+  var t=AMB.t, proche=null, dp=1e9;
+  var cx=camera?camera.position.x:0, cz=camera?camera.position.z:0;
+  VM.objs.forEach(function(o,v){
+    if(!o || (v.t!=='ambulance' && v.t!=='utilitaire')) return;
+    var u=o.userData;
+    if(!u.gyro14){
+      o.updateMatrixWorld(true);
+      var bb=new THREE.Box3().setFromObject(o), c=bb.getCenter(new THREE.Vector3());
+      var haut=o.worldToLocal(new THREE.Vector3(c.x,bb.max.y+0.12,c.z));
+      var ax=new THREE.Vector3(1,0,0), ws=o.getWorldScale(new THREE.Vector3());
+      u.ech14=1/Math.max(0.01,ws.x);
+      u.gyro14=[0,1].map(function(k){
+        var s=spriteLueur(0x3a6bff,1.2);
+        s.position.copy(haut).addScaledVector(ax,(k?1:-1)*0.35*u.ech14);
+        o.add(s); return s;
+      });
+      if(v.t==='utilitaire'){
+        var barre=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.12,0.25),new THREE.MeshStandardMaterial({color:0x1e4fff, emissive:0x2a5cff, emissiveIntensity:1.5, roughness:0.3}));
+        barre.position.copy(haut); barre.position.y-=0.06*u.ech14; barre.scale.setScalar(u.ech14);
+        o.add(barre); u.barre14=barre;
+      }
+      u.phase14=Math.random();
+    }
+    var ph=(t*1.5+u.phase14)%1;
+    u.gyro14.forEach(function(s,k){
+      var q=(ph+k*0.5)%1, on=(q<0.07)||(q>0.14&&q<0.21);
+      s.material.opacity=on?1:0.04;
+      var e=(nuit?3.2:1.3)*u.ech14; s.scale.set(e,e,1);
+    });
+    var d=Math.hypot(o.position.x-cx,o.position.z-cz);
+    if(d<dp){ dp=d; proche={o:o, on:(ph<0.07)||(ph>0.14&&ph<0.21)||(ph>0.5&&ph<0.57)||(ph>0.64&&ph<0.71)}; }
+  });
+  /* les feux bleus de l'ambulance battent aussi */
+  try{ var mg=ZAC.bleuGyro(), q2=(t*1.5)%1; mg.emissiveIntensity=((q2<0.07)||(q2>0.14&&q2<0.21)||(q2>0.5&&q2<0.57)||(q2>0.64&&q2<0.71))?(nuit?6:3.5):0.3; }catch(e){}
+  var L=NUIT14.lumGyro;
+  if(L){
+    if(nuit && proche && dp<90){
+      proche.o.getWorldPosition(L.position); L.position.y+=3;
+      L.intensity=proche.on?(window.CONSULTATION?220:320):0;
+    } else L.intensity=0;
+  }
+}
+/* frontales du peloton : un point blanc sur le front, et la tache de
+   lumière sur le bitume à quelques mètres devant */
+var _vTete=new THREE.Vector3();
+function majFrontalesPeloton(){
+  if(typeof PELOTON==='undefined') return;
+  var gens=PELOTON.gens||[];
+  while(NUIT14.taches.length<gens.length && NUIT14.matTache){
+    var m=new THREE.Mesh(new THREE.PlaneGeometry(3.0,1.9),NUIT14.matTache);
+    m.rotation.x=-PI/2; m.renderOrder=4; m.visible=false; monde.add(m);
+    var s=spriteLueur(0xfff4dc,0.15); s.visible=false; monde.add(s);
+    NUIT14.taches.push({sol:m, lampe:s});
+  }
+  NUIT14.taches.forEach(function(T,i){
+    var c=gens[i], vis=!!(nuit && c && c.rig && c.rig.g.visible && PELOTON.actif);
+    T.sol.visible=T.lampe.visible=vis;
+    if(!vis) return;
+    var r=c.rig;
+    if(r.tete14===undefined){ r.tete14=null; r.g.traverse(function(o){ if(!r.tete14 && o.isBone && /head/i.test(o.name) && !/end|nub|top/i.test(o.name)) r.tete14=o; }); }
+    var cap=-r.g.rotation.y, fx=Math.cos(cap), fz=Math.sin(cap);
+    if(r.tete14) r.tete14.getWorldPosition(_vTete); else _vTete.set(r.g.position.x,r.g.position.y+1.65,r.g.position.z);
+    T.lampe.position.set(_vTete.x+fx*0.13,_vTete.y+0.1,_vTete.z+fz*0.13);
+    var sx=r.g.position.x+fx*3.2, sz=r.g.position.z+fz*3.2;
+    T.sol.position.set(sx,hauteurSol(sx,sz,0)+0.06,sz);
+    T.sol.rotation.z=-cap;
+  });
+}
+/* la rubalise renvoie la lumière la nuit, comme une bande réfléchissante */
+function majRubalise(){
+  var m=(typeof EQ!=='undefined')?EQ.matTape:null;
+  if(!m) return;
+  if(!m.userData.reflet14){ m.userData.reflet14=true; m.emissive=new THREE.Color(0xffffff); m.emissiveMap=m.map; m.needsUpdate=true; }
+  m.emissiveIntensity=nuit?0.55:0;
+}
+
+/* ===== 2. le jour de la course ===== */
+/* banderoles sur pieds le long des 70 derniers et premiers mètres, et
+   drapeaux plumes qui claquent au vent, en quinconce */
+function atlasBanderoles(){
+  var W=1024, c=toile(W,1024), g=c.getContext('2d');
+  var lignes=[['CORRIDA 2027','#16264a','#f2b33d'],['ENSOA · SAINT-MAIXENT-L’ÉCOLE','#f2b33d','#16264a'],['ALLEZ LES COUREURS !','#ffffff','#16264a'],['','#16264a','#16264a']];
+  lignes.forEach(function(L,i){
+    var y=i*256;
+    g.fillStyle=L[1]; g.fillRect(0,y,W,256);
+    if(!L[0]) return;
+    g.fillStyle=L[2]; g.fillRect(0,y+14,W,10); g.fillRect(0,y+232,W,10);
+    var fs=118; g.font='900 '+fs+'px system-ui, sans-serif';
+    var lw=g.measureText(L[0]).width; if(lw>W-80){ fs=Math.floor(fs*(W-80)/lw); g.font='900 '+fs+'px system-ui, sans-serif'; }
+    g.textAlign='center'; g.textBaseline='middle';
+    g.fillText(L[0],W/2,y+132);
+  });
+  var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4;
+  return t;
+}
+function texPlume(){
+  var c=toile(128,512), g=c.getContext('2d');
+  g.fillStyle='#16264a'; g.fillRect(0,0,128,512);
+  g.fillStyle='#f2b33d'; g.fillRect(0,0,128,70); g.fillRect(0,470,128,42);
+  g.save(); g.translate(70,290); g.rotate(-PI/2);
+  g.fillStyle='#ffffff'; g.font='900 58px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillText('CORRIDA',0,0); g.restore();
+  g.fillStyle='#16264a'; g.font='900 40px system-ui, sans-serif'; g.textAlign='center'; g.fillText('2027',64,48);
+  var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  return t;
+}
+/* un matériau qui ondule au vent : chaque sommet porte sa distance au mât */
+function matPlume(){
+  var m=new THREE.MeshStandardMaterial({map:texPlume(), side:THREE.DoubleSide, roughness:0.7, metalness:0});
+  m.name='drapeaux plumes';
+  m.onBeforeCompile=function(sh){
+    sh.uniforms.uVent=AMB.vent;
+    sh.vertexShader=sh.vertexShader
+      .replace('#include <common>','#include <common>\nuniform float uVent;\nattribute float aMat;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nfloat plPh=uVent*3.4-aMat*4.2+position.x*0.23+position.z*0.19;\ntransformed+=objectNormal*(sin(plPh)*0.13+sin(plPh*2.1+1.3)*0.04)*aMat;');
+  };
+  m.customProgramCacheKey=function(){ return 'plume14'; };
+  return m;
+}
+var JOURJ={banderoles:null, plumes:null};
+function etapeJourJ(){
+  if(!LONGUEUR) return;
+  var tas=new Tas(16384), pieds=new Tas(8192), blanc=teinte(0xffffff), gris=teinte(0x5a5f66);
+  var poses=[];
+  function libre(x,z,e){ return !bloquer(x,z) && !poses.some(function(p){ return Math.hypot(p[0]-x,p[1]-z)<e; }); }
+  function banderole(d,cote,motif){
+    var p=pointArrondi(d), cap=capArrondi(d), rx=-Math.sin(cap), rz=Math.cos(cap), tx=Math.cos(cap), tz=Math.sin(cap);
+    var lat=4.4*cote, x=p[0]+rx*lat, z=p[1]+rz*lat;
+    if(!libre(x,z,2.2) || surLeParcours(x,z).ecart<3.6) return;
+    poses.push([x,z]);
+    var y=hauteur(x,z), L=1.15, b=y+0.22, h=y+0.95;
+    /* la face imprimée regarde la route */
+    var nx=-rx*cote, nz=-rz*cote, A=[x-tx*L,z-tz*L], B=[x+tx*L,z+tz*L];
+    if(cote>0){ var q=A; A=B; B=q; }
+    var v0=1-(motif+1)/4, v1=1-motif/4, vd0=0.02, vd1=0.23;
+    tas.tri(A[0],b,A[1], B[0],b,B[1], B[0],h,B[1], nx,0,nz,[0,v0,1,v0,1,v1],blanc);
+    tas.tri(A[0],b,A[1], B[0],h,B[1], A[0],h,A[1], nx,0,nz,[0,v0,1,v1,0,v1],blanc);
+    var o=0.012;
+    tas.tri(B[0]-nx*o,b,B[1]-nz*o, A[0]-nx*o,b,A[1]-nz*o, A[0]-nx*o,h,A[1]-nz*o, -nx,0,-nz,[0,vd0,1,vd0,1,vd1],blanc);
+    tas.tri(B[0]-nx*o,b,B[1]-nz*o, A[0]-nx*o,h,A[1]-nz*o, B[0]-nx*o,h,B[1]-nz*o, -nx,0,-nz,[0,vd0,1,vd1,0,vd1],blanc);
+    [A,B].forEach(function(P){ var yy=hauteur(P[0],P[1]); tube(pieds,P[0]-nx*0.03,yy,P[1]-nz*0.03,P[0]-nx*0.03,h+0.03,P[1]-nz*0.03,0.025,0.025,5,gris,false,true);
+      boiteQuad(pieds,[P[0]-0.25*nx-0.05*tx,P[1]-0.25*nz-0.05*tz],[P[0]+0.2*nx-0.05*tx,P[1]+0.2*nz-0.05*tz],[P[0]+0.2*nx+0.05*tx,P[1]+0.2*nz+0.05*tz],[P[0]-0.25*nx+0.05*tx,P[1]-0.25*nz+0.05*tz],yy,yy+0.05,gris,gris,1); });
+  }
+  var zones=[[6,75],[LONGUEUR-95,LONGUEUR-8]], k=0;
+  zones.forEach(function(Z){
+    for(var d=Z[0]; d<=Z[1]; d+=2.45){ banderole(d,1,k%3); banderole(d,-1,(k+1)%3); k++; }
+  });
+  var mb=new THREE.MeshStandardMaterial({vertexColors:true, map:atlasBanderoles(), side:THREE.FrontSide, roughness:0.6, metalness:0});
+  mb.name='banderoles';
+  JOURJ.banderoles=mb;
+  ajouter(tas,mb,true,true); ajouter(pieds,MAT.zinc||MAT.deco,true,false);
+  /* drapeaux plumes : mât cintré de 3,4 m, voile en forme de plume */
+  var pos=[], nor=[], uv=[], am=[], idx=[], mats=new Tas(4096);
+  function plume(d,cote){
+    var p=pointArrondi(d), cap=capArrondi(d), rx=-Math.sin(cap), rz=Math.cos(cap), tx=Math.cos(cap), tz=Math.sin(cap);
+    var x=p[0]+rx*5.3*cote, z=p[1]+rz*5.3*cote;
+    if(!libre(x,z,1.2) || surLeParcours(x,z).ecart<4) return;
+    poses.push([x,z]);
+    var y=hauteur(x,z), H=3.5, base=pos.length/3, nc=6, nr=12;
+    tube(mats,x,y,z,x,y+H,z,0.02,0.016,5,teinte(0x2b2f36),false,true);
+    /* la voile s'étire vers l'extérieur et un peu vers l'arrière : elle se
+       présente de trois quarts aux coureurs qui arrivent */
+    var sx=rx*cote*0.8-tx*0.6, sz=rz*cote*0.8-tz*0.6, nx=-sz, nz=sx;
+    for(var r=0;r<=nr;r++){
+      var f=r/nr, hy=y+0.75+f*(H-0.75), w=0.78*Math.sin(PI*(0.12+0.8*f))*(f>0.85?1-(f-0.85)*2.2:1);
+      for(var c=0;c<=nc;c++){
+        var u=c/nc, dx=sx*w*u, dz=sz*w*u, cb=(f>0.85?(f-0.85)*1.6*u:0);
+        pos.push(x+dx,hy-cb,z+dz); nor.push(nx,0,nz); uv.push(cote>0?u:1-u,f); am.push(u*(0.35+0.65*f));
+      }
+    }
+    for(r=0;r<nr;r++) for(var c2=0;c2<nc;c2++){
+      var a=base+r*(nc+1)+c2, b=a+1, cc=a+nc+1, dd=cc+1;
+      idx.push(a,b,dd, a,dd,cc);
+    }
+  }
+  zones.forEach(function(Z){ for(var d=Z[0]+4; d<=Z[1]; d+=13){ plume(d,1); plume(d+6.5,-1); } });
+  if(idx.length){
+    var g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));
+    g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+    g.setAttribute('aMat',new THREE.Float32BufferAttribute(am,1));
+    g.setIndex(idx);
+    var mp=new THREE.Mesh(g,matPlume()); mp.castShadow=true; mp.receiveShadow=true;
+    monde.add(mp); JOURJ.plumes=mp;
+    ajouter(mats,MAT.zinc||MAT.deco,true,false);
+  }
+}
+/* les drapeaux du monument aux sous-officiers flottent : ils ondulent le
+   long de l'axe du monument, d'autant plus qu'on s'éloigne du mât */
+function matDrapeauxMSO(){
+  var m=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.75, metalness:0, side:THREE.DoubleSide});
+  m.name='drapeaux du monument';
+  m.onBeforeCompile=function(sh){
+    var N=MSO.N||[1,0,0], R=MSO.R||[0,0,1], P=MSO.pos||[0,0];
+    var cx=P[0]+N[0]*(-9.5), cz=P[1]+N[2]*(-9.5);
+    sh.uniforms.uVent=AMB.vent;
+    sh.vertexShader=sh.vertexShader
+      .replace('#include <common>','#include <common>\nuniform float uVent;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\n'+
+        'float dmS=(position.x-('+cx.toFixed(3)+'))*('+R[0].toFixed(5)+')+(position.z-('+cz.toFixed(3)+'))*('+R[2].toFixed(5)+')+3.2;\n'+
+        'float dmK=floor((dmS+0.4)/3.2); float dmL=clamp(dmS-dmK*3.2,0.0,1.8);\n'+
+        'float dmA=sin(uVent*3.1-dmL*3.4+dmK*1.3+position.y*0.8)*0.11*(dmL/1.8);\n'+
+        'transformed+=vec3('+N[0].toFixed(5)+',0.0,'+N[2].toFixed(5)+')*dmA;');
+  };
+  m.customProgramCacheKey=function(){ return 'drapMSO14'; };
+  return m;
+}
+
+/* spectateurs groupés : aux virages marqués (les carrefours), aux
+   jalonneurs, et en nombre au départ et à l'arrivée */
+var POLES=[];
+function calculerPoles(){
+  POLES=[];
+  for(var d=15; d<LONGUEUR-15; d+=5){
+    var tr=Math.abs(ecartAngle(capSur(d+12)-capSur(d-12)));
+    if(tr<0.55) continue;
+    var p=pointSur(d), der=POLES[POLES.length-1];
+    if(der && d-der.d<40){ if(tr>der.tr){ der.d=d; der.x=p[0]; der.z=p[1]; der.tr=tr; } continue; }
+    POLES.push({d:d, x:p[0], z:p[1], tr:tr, n:7});
+  }
+  var a=pointSur(0), b=pointSur(LONGUEUR);
+  POLES.push({d:0, x:a[0], z:a[1], n:18, r:14}); POLES.push({d:LONGUEUR, x:b[0], z:b[1], n:18, r:14});
+}
+nouveauSpectateur=function(d0,cx,cz,R){
+  var noms=Object.keys(VIE.modeles);
+  if(!noms.length || !POLES.length) return;
+  var cands=[];
+  POLES.forEach(function(p){ var dd=Math.hypot(p.x-cx,p.z-cz); if(dd<R && dd>5) cands.push(p); });
+  JOBJ.forEach(function(o){ var dd=Math.hypot(o.x-cx,o.z-cz); if(dd<R && dd>5) cands.push({x:o.x, z:o.z, n:4}); });
+  var best=null, bs=1e9;
+  cands.forEach(function(p){
+    var k=0; FOULE.spect.forEach(function(s){ if(Math.hypot(s.x-p.x,s.z-p.z)<(p.r||9)+1) k++; });
+    if(k>=p.n) return;
+    var sc=k/p.n+Math.random()*0.15;
+    if(sc<bs){ bs=sc; best=p; }
+  });
+  if(!best) return;
+  var rayon=best.r||8;
+  for(var essai=0;essai<14;essai++){
+    var an=Math.random()*2*PI, rr=1.5+Math.random()*rayon, x=best.x+Math.cos(an)*rr, z=best.z+Math.sin(an)*rr;
+    var sp=surLeParcours(x,z);
+    if(sp.ecart<3.4 || sp.ecart>12) continue;
+    if(bloquer(x,z) || dansZoneMilitaire(x,z)) continue;
+    if(Math.hypot(x-cx,z-cz)<6) continue;
+    if(FOULE.spect.some(function(s){ return Math.hypot(s.x-x,s.z-z)<0.75; })) continue;
+    var rig=prendreRig(FOULE.rigsS,noms[Math.floor(Math.random()*noms.length)],creerRig,NB_SPECTATEURS[2]+3);
+    if(!rig) return;
+    var clip=rig.femme?VIE.clips.fi:VIE.clips.mi;
+    if(!clip) return;
+    rig.mix.stopAllAction();
+    var a=rig.mix.clipAction(clip);
+    a.reset().play(); a.time=Math.random()*clip.duration; a.timeScale=0.8+Math.random()*0.4;
+    var p=pointArrondi(sp.d), face=Math.atan2(p[1]-z,p[0]-x)+(Math.random()-0.5)*0.6;
+    rig.g.position.set(x,hauteurSol(x,z),z);
+    rig.g.rotation.y=-face;
+    FOULE.spect.push({rig:rig, x:x, z:z});
+    rig.libre=false; rig.g.visible=true;
+    return;
+  }
+};
+
+/* ===== 4. les repères pendant la course ===== */
+/* un panneau kilométrique à chaque kilomètre, sur pieds, à droite de la
+   route et tourné vers les coureurs qui arrivent */
+var PANKM={mat:null};
+function etapePanneauxKm(){
+  var n=Math.floor(LONGUEUR/1000);
+  if(n<1) return;
+  var c=toile(1024,1024), g=c.getContext('2d');
+  for(var k=1;k<=Math.min(n,15);k++){
+    var x0=(k%4)*256, y0=Math.floor(k/4)*256;
+    g.fillStyle='#16264a'; g.fillRect(x0,y0,256,256);
+    g.fillStyle='#f2b33d'; g.fillRect(x0,y0,256,46);
+    g.fillStyle='#16264a'; g.font='800 26px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+    g.fillText('CORRIDA 2027',x0+128,y0+24);
+    g.fillStyle='#ffffff'; g.font='900 132px system-ui, sans-serif'; g.fillText(String(k),x0+128,y0+132);
+    g.fillStyle='#f2b33d'; g.font='800 38px system-ui, sans-serif'; g.fillText('KM',x0+128,y0+222);
+    g.strokeStyle='#f2b33d'; g.lineWidth=6; g.strokeRect(x0+3,y0+3,250,250);
+  }
+  /* case 0 : le dos, uni */
+  g.fillStyle='#16264a'; g.fillRect(0,0,256,256);
+  var tex=new THREE.CanvasTexture(c); tex.colorSpace=THREE.SRGBColorSpace; tex.anisotropy=4;
+  var tas=new Tas(4096), pieds=new Tas(4096), blanc=teinte(0xffffff), gris=teinte(0x3b4048);
+  for(k=1;k<=Math.min(n,15);k++){
+    var d=k*1000, p=pointSur(d), cap=capSur(d), rx=-Math.sin(cap), rz=Math.cos(cap), tx=Math.cos(cap), tz=Math.sin(cap);
+    var pos=null;
+    [3.8,2.8,-3.8,-2.8,5].some(function(l){ var x=p[0]+rx*l, z=p[1]+rz*l; if(!bloquer(x,z)){ pos=[x,z]; return true; } return false; });
+    if(!pos) pos=[p[0]+rx*3,p[1]+rz*3];
+    var y=hauteur(pos[0],pos[1]), b=y+0.85, h=y+2.15, L=0.65;
+    var A=[pos[0]-rx*L,pos[1]-rz*L], B=[pos[0]+rx*L,pos[1]+rz*L];
+    var u0=(k%4)/4, u1=u0+0.25, v1=1-Math.floor(k/4)/4, v0=v1-0.25;
+    tas.tri(A[0],b,A[1], B[0],b,B[1], B[0],h,B[1], -tx,0,-tz,[u0,v0,u1,v0,u1,v1],blanc);
+    tas.tri(A[0],b,A[1], B[0],h,B[1], A[0],h,A[1], -tx,0,-tz,[u0,v0,u1,v1,u0,v1],blanc);
+    var o=0.02;
+    tas.tri(B[0]+tx*o,b,B[1]+tz*o, A[0]+tx*o,b,A[1]+tz*o, A[0]+tx*o,h,A[1]+tz*o, tx,0,tz,[0.01,0.76,0.24,0.76,0.24,0.99],blanc);
+    tas.tri(B[0]+tx*o,b,B[1]+tz*o, A[0]+tx*o,h,A[1]+tz*o, B[0]+tx*o,h,B[1]+tz*o, tx,0,tz,[0.01,0.76,0.24,0.99,0.01,0.99],blanc);
+    [-0.55,0.55].forEach(function(s){ var px=pos[0]+rx*s+tx*0.04, pz=pos[1]+rz*s+tz*0.04, yy=hauteur(px,pz);
+      tube(pieds,px,yy,pz,px,b+0.02,pz,0.03,0.03,6,gris,false,true); });
+  }
+  var m=new THREE.MeshStandardMaterial({vertexColors:true, map:tex, roughness:0.5, metalness:0, emissive:0xffffff, emissiveMap:tex, emissiveIntensity:nuit?0.35:0});
+  m.name='panneaux kilométriques';
+  PANKM.mat=m;
+  ajouter(tas,m,true,true); ajouter(pieds,MAT.zinc||MAT.deco,true,false);
+}
+/* le chrono : il part quand la visite guidée démarre au départ, s'arrête
+   sur la ligne ; l'horloge de l'arche le suit */
+var COURSE={en:false, t:0, fini:false, final:0, autoPrec:false, horloge:null, g:null, txt:'', tHud:0};
+function texHorlogeLive(){
+  if(COURSE.horloge) return COURSE.horloge;
+  var c=toile(512,160);
+  COURSE.g=c.getContext('2d');
+  COURSE.horloge=new THREE.CanvasTexture(c); COURSE.horloge.colorSpace=THREE.SRGBColorSpace;
+  dessinerHorloge('00:00:00');
+  return COURSE.horloge;
+}
+function dessinerHorloge(txt){
+  var g=COURSE.g; if(!g || txt===COURSE.txt) return;
+  COURSE.txt=txt;
+  g.fillStyle='#050608'; g.fillRect(0,0,512,160);
+  g.fillStyle='#ff3b2f'; g.textAlign='center'; g.textBaseline='middle';
+  g.font='700 98px "Courier New", monospace'; g.fillText(txt,256,84);
+  COURSE.horloge.needsUpdate=true;
+}
+function etapeHorloges(){
+  var tex=texHorlogeLive();
+  /* les arches posées sur la carte ont déjà leur horloge : on la branche */
+  function brancher(){ try{ Object.keys(ZA.mats).forEach(function(k){ if(k.indexOf('horloge-mat')===0){ var m=ZA.mats[k]; if(m.map!==tex){ m.map=tex; m.emissiveMap=tex; m.needsUpdate=true; } } }); }catch(e){} }
+  brancher(); COURSE.brancher=brancher;
+  /* sous les portiques par défaut, un afficheur suspendu */
+  var mh=new THREE.MeshStandardMaterial({map:tex, emissive:0xffffff, emissiveMap:tex, emissiveIntensity:1.4, roughness:0.6});
+  [[0,'arche_depart'],[LONGUEUR,'arche']].forEach(function(E){
+    var p=pointSur(E[0]);
+    if(archeTypeProche(E[1],p)) return;
+    var cap=capSur(E[0]), y=hauteur(p[0],p[1]);
+    var boite=new THREE.Mesh(new THREE.BoxGeometry(2.3,0.78,0.3),new THREE.MeshStandardMaterial({color:0x1d2026, roughness:0.7}));
+    boite.position.set(p[0],y+3.75,p[1]); boite.rotation.y=-cap-PI/2; monde.add(boite);
+    [0.16,-0.16].forEach(function(o,i){
+      var pl=new THREE.Mesh(new THREE.PlaneGeometry(2.1,0.62),mh);
+      pl.position.set(0,0,o); pl.rotation.y=i?PI:0; boite.add(pl);
+    });
+  });
+}
+function majCourse(dt){
+  if(auto && !COURSE.autoPrec && dAuto<40){ COURSE.en=true; COURSE.t=0; COURSE.fini=false; cacherArrivee(); }
+  COURSE.autoPrec=!!auto;
+  if(COURSE.en && !COURSE.fini){
+    if(auto) COURSE.t+=dt;
+    if(dAuto>=LONGUEUR-0.05){ COURSE.fini=true; COURSE.final=COURSE.t; montrerArrivee(); }
+  }
+  var s=COURSE.fini?COURSE.final:(COURSE.en?COURSE.t:0);
+  dessinerHorloge(fmtChrono(s,true));
+  COURSE.tHud-=dt;
+  if(COURSE.tHud<=0){
+    COURSE.tHud=0.2;
+    var box=$e('e3-ch-chrono'), b=$e('e3-chrono');
+    if(box){ var vis=COURSE.en; if(box.hidden===vis) box.hidden=!vis; }
+    if(b) b.textContent=fmtChrono(s,false);
+    if(COURSE.brancher) COURSE.brancher();
+  }
+}
+function interfaceCourse(){
+  if($e('e3-ch-chrono')) return;
+  var km=$e('e3-km'); if(!km) return;
+  var d=document.createElement('div'); d.className='e3-ch'; d.id='e3-ch-chrono'; d.hidden=true;
+  d.innerHTML='<i>Chrono</i><b id="e3-chrono">0:00</b>';
+  km.parentNode.parentNode.insertBefore(d,km.parentNode.nextSibling);
+  var s=document.createElement('style');
+  s.textContent=[
+    '#e3-ch-chrono b{color:#F2B33D}',
+    '#e3-arrivee{position:absolute;left:50%;top:18%;transform:translate(-50%,-10px);z-index:30;min-width:260px;text-align:center;',
+    '  background:rgba(14,20,31,.94);border:1px solid #F2B33D;border-radius:16px;padding:16px 22px;color:#fff;',
+    '  box-shadow:0 18px 50px rgba(0,0,0,.55);opacity:0;transition:opacity .6s,transform .6s;pointer-events:none}',
+    '#e3-arrivee.vu{opacity:1;transform:translate(-50%,0);pointer-events:auto}',
+    '#e3-arrivee small{display:block;font-size:11px;letter-spacing:1.4px;color:#F2B33D;text-transform:uppercase;font-weight:700}',
+    '#e3-arrivee b{display:block;font-size:44px;font-variant-numeric:tabular-nums;margin:4px 0 2px}',
+    '#e3-arrivee span{font-size:13px;color:#c8d0dc}'
+  ].join('\n');
+  document.head.appendChild(s);
+  var a=document.createElement('div'); a.id='e3-arrivee';
+  a.addEventListener('click',cacherArrivee);
+  $e('e3').appendChild(a);
+}
+function montrerArrivee(){
+  var a=$e('e3-arrivee'); if(!a) return;
+  var t=COURSE.final, km=LONGUEUR/1000, allure=t/km, v=km/(t/3600);
+  a.innerHTML='<small>Arrivée · Corrida 2027</small><b>'+fmtChrono(t,t>=3600)+'</b><span>'+
+    km.toFixed(2).replace('.',',')+' km · '+Math.floor(allure/60)+'’'+('0'+Math.round(allure%60)).slice(-2)+'” au km · '+v.toFixed(1).replace('.',',')+' km/h</span>';
+  a.classList.add('vu');
+  clearTimeout(COURSE.minuteur); COURSE.minuteur=setTimeout(cacherArrivee,9000);
+  try{ sonApplaudir(22,4.5,1); sonCorne(); }catch(e){}
+}
+function cacherArrivee(){ var a=$e('e3-arrivee'); if(a) a.classList.remove('vu'); }
+
+/* ===== 5. le moment de la journée ===== */
+/* Midi reste le ciel photographié. Les trois autres moments ont un ciel
+   peint (dégradé, lueur autour du soleil, nuages éclairés de côté), un
+   soleil placé où il est à Saint-Maixent en fin septembre, et la lumière
+   qui va avec : dorée et rasante le matin, chaude en fin d'après-midi,
+   orangée au coucher avec des ombres qui traversent la rue. */
+var MOMENT={cle:'midi', orig:null, ciels:{}, ordre:['midi','matin','soir','coucher']};
+try{ var _mo=localStorage.getItem('corrida3d-moment'); if(_mo==='matin'||_mo==='soir'||_mo==='coucher') MOMENT.cle=_mo; }catch(e){}
+var MOMENTS={
+  midi:{nom:'☀ Midi'},
+  matin:{nom:'🌅 Matin', dir:[0.92,0.22,0.32], soleil:0xffd8ae, int:3.1, hemi:0.75, ciel:0xbcd0ea, rebond:0x9a8870, expo:1.12, env:0.75, gain:1.0, feu:[3600,3000,2400],
+    zenith:'#2f6cc4', milieu:'#78a6e0', horizon:'#d2dcea', lueur:'255,206,150', sol:'#c4ccd4', nuage:'255,238,218', fog:[0.78,0.80,0.83], pano:0xe8e6e2, fen:0},
+  soir:{nom:'🌇 Fin d’après-midi', dir:[-0.78,0.40,0.48], soleil:0xffdcaa, int:3.2, hemi:0.6, ciel:0xbfcfe4, rebond:0xa89070, expo:1.05, env:0.8, gain:1.0, feu:[4400,3800,3000],
+    zenith:'#2d68c2', milieu:'#74a2de', horizon:'#d8dfe8', lueur:'255,216,160', sol:'#ccd2d6', nuage:'255,242,226', fog:[0.80,0.81,0.82], pano:0xf0e8dc, fen:0},
+  coucher:{nom:'🌆 Coucher de soleil', dir:[-0.975,0.075,-0.2], soleil:0xff9150, int:2.9, hemi:0.85, ciel:0xa49ec4, rebond:0x8a6a58, expo:1.3, env:0.6, gain:1.35, feu:[2000,1200,600],
+    zenith:'#2a3c74', milieu:'#7d80b2', horizon:'#d6a8b4', lueur:'255,136,56', sol:'#806a74', nuage:'255,150,100', fog:[0.62,0.52,0.56], pano:0xc09a9c, fen:0.5}
+};
+function aleaSeme(n){ var s=n; return function(){ s=(s*16807)%2147483647; return (s-1)/2147483646; }; }
+function cielMoment(cle){
+  if(MOMENT.ciels[cle]) return MOMENT.ciels[cle];
+  var P=MOMENTS[cle], W=2048, H=1024, c=toile(W,H), g=c.getContext('2d'), rnd=aleaSeme(77+cle.length*13);
+  var d=new THREE.Vector3().fromArray(P.dir).normalize(), phi=Math.atan2(d.z,d.x), el=Math.asin(d.y);
+  var sx=(phi/(2*PI)+0.5)*W, sy=(0.5-el/PI)*H;
+  var gr=g.createLinearGradient(0,0,0,H/2);
+  gr.addColorStop(0,P.zenith); gr.addColorStop(0.6,P.milieu); gr.addColorStop(1,P.horizon);
+  g.fillStyle=gr; g.fillRect(0,0,W,H/2+2);
+  g.fillStyle=P.sol; g.fillRect(0,H/2,W,H/2);
+  function autour(fn){ fn(sx-W); fn(sx); fn(sx+W); }
+  /* la lueur : large, écrasée sur l'horizon */
+  autour(function(x){
+    g.save(); g.translate(x,sy); g.scale(1,0.4);
+    var r=g.createRadialGradient(0,0,0,0,0,W*0.24);
+    r.addColorStop(0,'rgba('+P.lueur+',0.95)'); r.addColorStop(0.22,'rgba('+P.lueur+',0.5)'); r.addColorStop(1,'rgba('+P.lueur+',0)');
+    g.fillStyle=r; g.fillRect(-W*0.24,-W*0.24,W*0.48,W*0.64); g.restore();
+  });
+  /* des nuages en bancs étirés, plus clairs du côté du soleil */
+  for(var i=0;i<46;i++){
+    var nx=rnd()*W, ny=H*0.5-(0.03+Math.pow(rnd(),1.6)*0.3)*H, lw=60+rnd()*260, lh=6+rnd()*16;
+    var dx=Math.abs(((nx-sx)%W+W*1.5)%W-W/2), pres=1-Math.min(1,dx/(W*0.3));
+    var a=(0.16+rnd()*0.22)*(0.55+pres*0.9);
+    [nx-W,nx,nx+W].forEach(function(x){
+      var r=g.createRadialGradient(x,ny,0,x,ny,lw);
+      r.addColorStop(0,'rgba('+P.nuage+','+a.toFixed(3)+')'); r.addColorStop(1,'rgba('+P.nuage+',0)');
+      g.save(); g.translate(x,ny); g.scale(1,lh/lw); g.translate(-x,-ny); g.fillStyle=r; g.fillRect(x-lw,ny-lw,lw*2,lw*2); g.restore();
+    });
+  }
+  /* le disque du soleil */
+  autour(function(x){
+    var r=g.createRadialGradient(x,sy,0,x,sy,34);
+    r.addColorStop(0,'rgba(255,252,240,1)'); r.addColorStop(0.3,'rgba(255,245,215,0.95)'); r.addColorStop(1,'rgba('+P.lueur+',0)');
+    g.fillStyle=r; g.fillRect(x-34,sy-34,68,68);
+  });
+  /* en lumière linéaire, comme le ciel photographié de midi : le ciel peint
+     seul (valeurs plafonnées à 1) éclairait trois fois moins la scène, et
+     le soleil y devient un point très intense qui donne les reflets */
+  var w=1024, h=512, c2=toile(w,h), g2=c2.getContext('2d');
+  g2.drawImage(c,0,0,w,h);
+  var px=g2.getImageData(0,0,w,h).data, data=new Uint16Array(w*h*4), lin=new Float32Array(256), toH=THREE.DataUtils.toHalfFloat, k;
+  for(k=0;k<256;k++){ var vv=k/255; lin[k]=vv<=0.04045?vv/12.92:Math.pow((vv+0.055)/1.055,2.4); }
+  var un=toH(1);
+  for(k=0;k<w*h*4;k+=4){ data[k]=toH(lin[px[k]]*P.gain); data[k+1]=toH(lin[px[k+1]]*P.gain); data[k+2]=toH(lin[px[k+2]]*P.gain); data[k+3]=un; }
+  var sxs=Math.round(sx/2), sys=Math.round(sy/2);
+  for(var yy=sys-2;yy<=sys+2;yy++) for(var xx=sxs-2;xx<=sxs+2;xx++){
+    if(yy<0||yy>=h||(xx-sxs)*(xx-sxs)+(yy-sys)*(yy-sys)>0) continue;
+    var o=(yy*w+((xx%w)+w)%w)*4;
+    data[o]=toH(P.feu[0]); data[o+1]=toH(P.feu[1]); data[o+2]=toH(P.feu[2]);
+  }
+  var t=new THREE.DataTexture(data,w,h,THREE.RGBAFormat,THREE.HalfFloatType);
+  t.colorSpace=THREE.LinearSRGBColorSpace; t.minFilter=t.magFilter=THREE.LinearFilter; t.generateMipmaps=false;
+  t.flipY=true; t.mapping=THREE.EquirectangularReflectionMapping; t.needsUpdate=true;
+  var pm=new THREE.PMREMGenerator(renderer), env=pm.fromEquirectangular(t).texture;
+  pm.dispose();
+  return (MOMENT.ciels[cle]={tex:t, env:env, dir:d});
+}
+function appliquerMoment(){
+  var P=MOMENTS[MOMENT.cle];
+  if(!scene || !lumDir || nuit || !P.dir) { if(HORIZON.pano && !nuit) HORIZON.pano.material.color.setHex(0xffffff); return; }
+  var C=cielMoment(MOMENT.cle);
+  scene.background=C.tex; scene.environment=C.env;
+  scene.backgroundIntensity=1; scene.environmentIntensity=P.env;
+  lumDir.color.setHex(P.soleil); lumDir.intensity=P.int;
+  lumSol.intensity=P.hemi; lumSol.color.setHex(P.ciel); lumSol.groundColor.setHex(P.rebond);
+  renderer.toneMappingExposure=P.expo;
+  if(HORIZON.pano) HORIZON.pano.material.color.setHex(P.pano);
+  if(MAT.fenetresNuit) MAT.fenetresNuit.forEach(function(m){ m.emissiveIntensity=P.fen; });
+}
+function basculerMoment(){
+  var i=MOMENT.ordre.indexOf(MOMENT.cle);
+  if(nuit){ nuit=false; i=-1; }
+  MOMENT.cle=MOMENT.ordre[(i+1)%MOMENT.ordre.length];
+  try{ localStorage.setItem('corrida3d-moment',MOMENT.cle); }catch(e){}
+  appliquerCiel();
+  majBoutonMoment();
+  dire(MOMENTS[MOMENT.cle].nom.replace(/^\S+\s/,''));
+}
+function majBoutonMoment(){
+  var b=$e('e3-moment'); if(!b) return;
+  b.textContent=MOMENTS[MOMENT.cle].nom;
+  b.classList.toggle('on',MOMENT.cle!=='midi' && !nuit);
+}
+
+/* ===== 6. le vent ===== */
+/* Les arbres penchent et reviennent, chacun à son rythme ; les feuilles
+   frémissent. Le déplacement croît avec le carré de la hauteur : le pied
+   ne bouge pas, la cime d'un arbre de 10 m oscille d'une vingtaine de cm. */
+function glslVent(feuille){
+  return [
+    '#ifdef USE_INSTANCING',
+    'vec3 vtB=vec3(instanceMatrix[3][0],instanceMatrix[3][1],instanceMatrix[3][2]);',
+    'float vtSc=length(vec3(instanceMatrix[0][0],instanceMatrix[0][1],instanceMatrix[0][2]));',
+    'float vtH=max(transformed.y,0.0);',
+    '#else',
+    'vec3 vtB=position; float vtSc=1.0; float vtH=0.0;',
+    '#endif',
+    'float vtP=uVent*0.9+vtB.x*0.061+vtB.z*0.047;',
+    'float vtS=0.5+sin(vtP)*0.55+sin(vtP*2.37+1.1)*0.22;',
+    'transformed.x+=vtH*vtH*vtSc*0.0016*vtS; transformed.z+=vtH*vtH*vtSc*0.0009*vtS;',
+    feuille ? 'float vtF=sin(uVent*4.7+transformed.x*1.9+transformed.z*1.6+transformed.y*1.2)*0.028/max(vtSc,0.05); transformed+=vec3(vtF,vtF*0.5,vtF*0.8);' : ''
+  ].join('\n');
+}
+function venter(mat,feuille){
+  if(!mat || !mat.isMaterial || mat.userData.vent14) return;
+  mat.userData.vent14=true;
+  var ob=mat.onBeforeCompile, aOb=(ob && ob!==THREE.Material.prototype.onBeforeCompile);
+  var avant=mat.hasOwnProperty('customProgramCacheKey')?mat.customProgramCacheKey:null, txt=aOb?ob.toString():'';
+  mat.onBeforeCompile=function(sh,r){
+    if(aOb) ob.call(mat,sh,r);
+    sh.uniforms.uVent=AMB.vent;
+    sh.vertexShader=sh.vertexShader
+      .replace('#include <common>','#include <common>\nuniform float uVent;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\n'+glslVent(feuille));
+  };
+  mat.customProgramCacheKey=function(){ return (avant?avant.call(mat):txt)+'|vent'+(feuille?1:0); };
+  mat.needsUpdate=true;
+}
+function etapeVent(){
+  if(typeof ARB==='undefined' || !ARB.pret) return;
+  function jeu(j){ (j||[]).forEach(function(l){ (Array.isArray(l)?l:[l]).forEach(function(im){ if(im && im.material) venter(im.material,!!im.material.alphaTest); }); }); }
+  jeu(ARB.pres); jeu(ARB.moy); jeu(ARB.loin);
+}
+/* quelques vols d'oiseaux au-dessus des bois et de la Sèvre, le jour */
+var OISEAUX={vols:[]};
+function etapeOiseaux(){
+  if(!LONGUEUR) return;
+  var mat=new THREE.MeshBasicMaterial({color:0x26282c, side:THREE.DoubleSide});
+  var aile=new THREE.BufferGeometry();
+  aile.setAttribute('position',new THREE.Float32BufferAttribute([0,0,-0.08, 0,0,0.1, 0.46,0.02,-0.06, 0,0,0.1, 0.3,0.01,0.05, 0.46,0.02,-0.06],3));
+  aile.computeVertexNormals();
+  var corps=new THREE.BoxGeometry(0.08,0.07,0.34);
+  [0.1,0.33,0.58,0.83].forEach(function(f,vi){
+    var p=pointSur(LONGUEUR*f), cap=capSur(LONGUEUR*f), cx=p[0]-Math.sin(cap)*55, cz=p[1]+Math.cos(cap)*55;
+    var V={cx:cx, cz:cz, y:hauteur(cx,cz)+24+vi*4, r:38+vi*6, w:(vi%2?-1:1)*(0.16+vi*0.02), a:vi*1.7, gens:[]};
+    for(var i=0;i<6+vi;i++){
+      var g=new THREE.Group(), b=new THREE.Mesh(corps,mat), ad=new THREE.Mesh(aile,mat), ag=new THREE.Mesh(aile,mat);
+      ag.scale.x=-1; g.add(b); g.add(ad); g.add(ag);
+      g.scale.setScalar(1.6);
+      monde.add(g);
+      V.gens.push({g:g, ad:ad, ag:ag, ox:(Math.random()-0.5)*14, oy:(Math.random()-0.5)*5, oz:(Math.random()-0.5)*14, ph:Math.random()*6.3, v:8+Math.random()*3});
+    }
+    OISEAUX.vols.push(V);
+  });
+}
+function majOiseaux(dt){
+  var cx=camera?camera.position.x:0, cz=camera?camera.position.z:0;
+  OISEAUX.vols.forEach(function(V){
+    var vis=!nuit && Math.hypot(V.cx-cx,V.cz-cz)<520;
+    V.a+=V.w*dt;
+    V.gens.forEach(function(o,i){
+      o.g.visible=vis;
+      if(!vis) return;
+      var a=V.a+o.ox*0.012, r=V.r+o.oz*0.6+Math.sin(AMB.t*0.3+o.ph)*4;
+      var x=V.cx+Math.cos(a)*r, z=V.cz+Math.sin(a)*r, y=V.y+o.oy+Math.sin(AMB.t*0.5+o.ph)*2;
+      o.g.position.set(x,y,z);
+      /* la tangente au cercle, dans le sens du vol */
+      var tx=-Math.sin(a)*V.w, tz=Math.cos(a)*V.w;
+      o.g.rotation.set(0,Math.atan2(tx,tz),0);
+      /* battements, entrecoupés de glissés */
+      var cyc=(AMB.t*0.4+o.ph)%3, bat=cyc<1.8 ? Math.sin(AMB.t*11+o.ph)*0.75 : 0.12;
+      o.ad.rotation.z=bat; o.ag.rotation.z=-bat;
+    });
+  });
+}
+/* la Sèvre scintille : les rides glissent plus vite et leur relief respire */
+function majEau(dt){
+  if(MAT.eauN){ MAT.eauN.offset.x+=dt*0.009; MAT.eauN.offset.y-=dt*0.005; }
+  if(MAT.eau && MAT.eau.normalScale){ var k=0.8+0.28*Math.sin(AMB.t*0.8)+0.12*Math.sin(AMB.t*2.3); MAT.eau.normalScale.set(k,k); }
+}
+
+/* ===== 7. les caméras ===== */
+/* suivi (la caméra habituelle), drone (haut et de trois quarts, derrière
+   le peloton) et spectateur (posée au bord de la route, un peu plus loin,
+   elle regarde passer la course puis se replace plus loin) */
+var CAMV={mode:'suivi', pos:new THREE.Vector3(), vise:new THREE.Vector3(), init:false, tPrec:0, spot:null};
+var CAM_MODES=['suivi','drone','spectateur'];
+var CAM_NOMS={suivi:'🎥 Caméra : suivi', drone:'🚁 Caméra : drone', spectateur:'🧍 Caméra : spectateur'};
+var _vC=new THREE.Vector3(), _vV=new THREE.Vector3();
+function basculerCamera(){
+  CAMV.mode=CAM_MODES[(CAM_MODES.indexOf(CAMV.mode)+1)%CAM_MODES.length];
+  CAMV.init=false; CAMV.spot=null;
+  if(CAMV.mode!=='suivi'){ if(VUE==='jal') sortirVueJal(); if(VUE==='fp') basculerVue(); }
+  if(camera){ camera.fov=CAMV.mode==='spectateur'?40:(CAMV.mode==='drone'?50:(VUE==='fp'?80:56)); camera.updateProjectionMatrix(); }
+  majBoutonCamera();
+  dire(CAMV.mode==='drone'?'Caméra drone : au-dessus du peloton. Glisse pour tourner autour.'
+      :(CAMV.mode==='spectateur'?'Caméra spectateur : au bord de la route, elle regarde passer la course.':'Caméra de suivi'));
+}
+function majBoutonCamera(){
+  var b=$e('e3-camera'); if(!b) return;
+  b.textContent=CAM_NOMS[CAMV.mode]; b.classList.toggle('on',CAMV.mode!=='suivi');
+}
+function visibleDepuis(ax,az,bx,bz){
+  var L=Math.hypot(bx-ax,bz-az), n=Math.ceil(L/2);
+  for(var i=1;i<n;i++){ var f=i/n; if(bloquer(ax+(bx-ax)*f,az+(bz-az)*f)) return false; }
+  return true;
+}
+/* pas de caméra dans le dos d'un policier, d'un véhicule ou d'un spectateur */
+function encombre(x,z){
+  var pris=false;
+  try{ VM.objs.forEach(function(o){ if(Math.hypot(o.position.x-x,o.position.z-z)<4) pris=true; }); }catch(e){}
+  FOULE.spect.forEach(function(s){ if(Math.hypot(s.x-x,s.z-z)<2) pris=true; });
+  return pris;
+}
+function choisirSpot(){
+  var d0=J.d||dAuto||0;
+  var loin=[55,46,38,30,24];
+  for(var i=0;i<loin.length;i++){
+    var d=Math.min(LONGUEUR-2,d0+loin[i]), p=pointArrondi(d), cap=capArrondi(d), rx=-Math.sin(cap), rz=Math.cos(cap);
+    var cotes=Math.random()<0.5?[1,-1]:[-1,1];
+    for(var k=0;k<2;k++){
+      var x=p[0]+rx*5.5*cotes[k], z=p[1]+rz*5.5*cotes[k];
+      if(bloquer(x,z) || encombre(x,z)) continue;
+      var m=pointArrondi(Math.max(0,d-loin[i]*0.5)), q=pointArrondi(Math.max(0,d-loin[i]));
+      if(!visibleDepuis(x,z,m[0],m[1]) || !visibleDepuis(x,z,q[0],q[1])) continue;
+      return {x:x, y:hauteurSol(x,z,0)+1.62, z:z};
+    }
+  }
+  var p0=pointArrondi(Math.min(LONGUEUR-2,d0+40)), c0=capArrondi(Math.min(LONGUEUR-2,d0+40));
+  var x0=p0[0]-Math.sin(c0)*4.5, z0=p0[1]+Math.cos(c0)*4.5;
+  return {x:x0, y:hauteurSol(x0,z0,0)+1.62, z:z0};
+}
+function placerCameraSpeciale(){
+  if(CAMV.mode==='suivi' || !camera || VUE!=='tp' || (window.XR3D && XR3D.actif)) return;
+  var now=performance.now(), dt=CAMV.tPrec?Math.min(0.1,(now-CAMV.tPrec)/1000):0.016;
+  CAMV.tPrec=now;
+  var yj=joueur?joueur.position.y:hauteur(J.x,J.z);
+  if(CAMV.mode==='drone'){
+    var a=CAM.yaw+0.55, dist=30, tx=J.x-Math.cos(a)*dist, tz=J.z-Math.sin(a)*dist;
+    _vC.set(tx,Math.max(yj+21,hauteur(tx,tz)+9),tz);
+    _vV.set(J.x+Math.cos(J.cap)*5,yj+0.8,J.z+Math.sin(J.cap)*5);
+    if(!CAMV.init){ CAMV.pos.copy(_vC); CAMV.vise.copy(_vV); CAMV.init=true; }
+    CAMV.pos.lerp(_vC,1-Math.exp(-dt*1.6));
+    CAMV.vise.lerp(_vV,1-Math.exp(-dt*3.5));
+  } else {
+    var sp=CAMV.spot, besoin=!sp;
+    if(sp){
+      var dx=J.x-sp.x, dz=J.z-sp.z;
+      if(dx*Math.cos(J.cap)+dz*Math.sin(J.cap)>16 || Math.hypot(dx,dz)>190) besoin=true;
+    }
+    if(besoin){ sp=CAMV.spot=choisirSpot(); CAMV.init=false; }
+    CAMV.pos.set(sp.x,sp.y,sp.z);
+    _vV.set(J.x,yj+1.1,J.z);
+    if(!CAMV.init){ CAMV.vise.copy(_vV); CAMV.init=true; }
+    CAMV.vise.lerp(_vV,1-Math.exp(-dt*6));
+  }
+  camera.position.copy(CAMV.pos);
+  camera.lookAt(CAMV.vise);
+}
+
+/* ===== 3. les sons ===== */
+/* Tout est synthétisé (Web Audio) : des bruits filtrés et quelques
+   oscillateurs. Pas du coureur selon le sol (bitume, graviers, dalles,
+   pierre), souffle en rythme avec la foulée, rumeur des spectateurs
+   proches et applaudissements quand on passe devant un groupe, oiseaux le
+   jour, grillons la nuit, un souffle de vent, et la sono du départ qui
+   s'estompe à mesure qu'on s'éloigne. Bouton « Ambiance sonore ». */
+var SON14={ctx:null, maitre:null, bruit:null, voulu:true, pas:0, sPrec:0, rumeur:null, vent:null, tOiseau:3, tGrillon:1,
+           groupes:new Map(), sono:null, tSono:0, arbres:0, tArbres:0, sols:null};
+try{ if(localStorage.getItem('corrida3d-ambiance')==='0') SON14.voulu=false; }catch(e){}
+function sonCtx(){
+  if(SON14.ctx) return SON14.ctx;
+  var C=window.AudioContext||window.webkitAudioContext;
+  if(!C) return null;
+  var c=SON14.ctx=new C();
+  SON14.maitre=c.createGain(); SON14.maitre.gain.value=SON14.voulu?1:0; SON14.maitre.connect(c.destination);
+  var n=c.sampleRate*2, b=c.createBuffer(1,n,c.sampleRate), d=b.getChannelData(0);
+  for(var i=0;i<n;i++) d[i]=Math.random()*2-1;
+  SON14.bruit=b;
+  function boucleBruit(type,f,q){
+    var s=c.createBufferSource(); s.buffer=b; s.loop=true;
+    var fl=c.createBiquadFilter(); fl.type=type; fl.frequency.value=f; fl.Q.value=q;
+    var g=c.createGain(); g.gain.value=0;
+    s.connect(fl); fl.connect(g); g.connect(SON14.maitre); s.start();
+    return {g:g, f:fl};
+  }
+  SON14.rumeur=boucleBruit('bandpass',850,0.7);
+  SON14.vent=boucleBruit('lowpass',380,0.5);
+  /* la sono : un filtre qui étouffe avec la distance, un volume qui baisse */
+  var sf=c.createBiquadFilter(); sf.type='lowpass'; sf.frequency.value=800;
+  var sg=c.createGain(); sg.gain.value=0; sf.connect(sg); sg.connect(SON14.maitre);
+  SON14.sono={f:sf, g:sg, suivant:0, pas:0};
+  return c;
+}
+function sonActif(){ return SON14.voulu && SON14.ctx && SON14.ctx.state==='running'; }
+function bruitBref(t,type,f,q,vol,duree,dest){
+  var c=SON14.ctx, s=c.createBufferSource(); s.buffer=SON14.bruit;
+  var fl=c.createBiquadFilter(), g=c.createGain();
+  fl.type=type; fl.frequency.value=f; fl.Q.value=q;
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol,t+0.004); g.gain.exponentialRampToValueAtTime(0.0003,t+duree);
+  s.connect(fl); fl.connect(g); g.connect(dest||SON14.maitre);
+  s.start(t,Math.random()*1.7,duree+0.03);
+}
+/* un pas : un choc sourd de talon, et le grain du sol */
+var SOLS_SON={
+  bitume:{f:1300, type:'bandpass', q:1.0, d:0.055, v:0.10},
+  gravier:{f:3000, type:'highpass', q:0.7, d:0.10, v:0.09},
+  dalles:{f:1900, type:'bandpass', q:1.6, d:0.045, v:0.11},
+  pierre:{f:2400, type:'bandpass', q:2.2, d:0.04, v:0.12},
+  herbe:{f:650, type:'lowpass', q:0.8, d:0.07, v:0.06}
+};
+function sonPas(sol,force,dest){
+  var c=SON14.ctx, t=c.currentTime+0.01, P=SOLS_SON[sol]||SOLS_SON.bitume;
+  bruitBref(t,P.type,P.f*(0.9+Math.random()*0.2),P.q,P.v*force,P.d,dest);
+  if(sol==='gravier') for(var i=1;i<4;i++) bruitBref(t+i*0.018+Math.random()*0.01,'highpass',3600+Math.random()*1500,0.8,P.v*force*0.55,0.035,dest);
+  var o=c.createOscillator(), og=c.createGain();
+  o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(52,t+0.05);
+  og.gain.setValueAtTime(0.14*force,t); og.gain.exponentialRampToValueAtTime(0.0003,t+0.07);
+  o.connect(og); og.connect(dest||SON14.maitre); o.start(t); o.stop(t+0.08);
+}
+function sonSouffle(expire,effort){
+  var c=SON14.ctx, t=c.currentTime+0.02, s=c.createBufferSource(); s.buffer=SON14.bruit;
+  var fl=c.createBiquadFilter(), g=c.createGain(), d=expire?0.3:0.36, v=(expire?0.05:0.03)*effort;
+  fl.type='bandpass'; fl.frequency.value=expire?1050:1500; fl.Q.value=0.9;
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(v,t+(expire?0.05:0.12)); g.gain.exponentialRampToValueAtTime(0.0003,t+d);
+  s.connect(fl); fl.connect(g); g.connect(SON14.maitre); s.start(t,Math.random()*1.5,d+0.05);
+}
+function sonApplaudir(n,duree,fort){
+  if(!sonActif()) return;
+  var c=SON14.ctx, t0=c.currentTime+0.05, nb=Math.round(n*5.5*duree);
+  for(var i=0;i<nb;i++){
+    var f=Math.random(), t=t0+f*duree, env=Math.sin(PI*Math.min(1,f*1.25))*0.9+0.1;
+    bruitBref(t,'bandpass',1300+Math.random()*1600,1.3,(0.025+Math.random()*0.03)*env*fort,0.03+Math.random()*0.02);
+  }
+  /* quelques « allez ! » : un souffle voisé qui monte */
+  for(var k=0;k<Math.min(4,Math.ceil(n/4));k++){
+    var tt=t0+Math.random()*duree*0.7, o=c.createOscillator(), fl=c.createBiquadFilter(), g=c.createGain(), f0=190+Math.random()*120;
+    o.type='sawtooth'; o.frequency.setValueAtTime(f0,tt); o.frequency.linearRampToValueAtTime(f0*1.35,tt+0.25); o.frequency.linearRampToValueAtTime(f0*1.1,tt+0.5);
+    fl.type='bandpass'; fl.frequency.value=900; fl.Q.value=2.5;
+    g.gain.setValueAtTime(0,tt); g.gain.linearRampToValueAtTime(0.02*fort,tt+0.06); g.gain.exponentialRampToValueAtTime(0.0003,tt+0.55);
+    o.connect(fl); fl.connect(g); g.connect(SON14.maitre); o.start(tt); o.stop(tt+0.6);
+  }
+}
+function sonCorne(){
+  if(!sonActif()) return;
+  var c=SON14.ctx, t=c.currentTime+0.05;
+  [233,294,349].forEach(function(f){
+    var o=c.createOscillator(), g=c.createGain(); o.type='square'; o.frequency.value=f;
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.035,t+0.05); g.gain.setValueAtTime(0.035,t+0.9); g.gain.exponentialRampToValueAtTime(0.0003,t+1.3);
+    o.connect(g); g.connect(SON14.maitre); o.start(t); o.stop(t+1.35);
+  });
+}
+function sonOiseau(){
+  var c=SON14.ctx, t=c.currentTime+0.05, n=3+Math.floor(Math.random()*5), f0=2400+Math.random()*2200;
+  var pan=c.createStereoPanner?c.createStereoPanner():null, dest=SON14.maitre;
+  if(pan){ pan.pan.value=Math.random()*1.6-0.8; pan.connect(SON14.maitre); dest=pan; }
+  var style=Math.random();
+  for(var i=0;i<n;i++){
+    var o=c.createOscillator(), g=c.createGain(), d=style<0.5?0.06:0.11, f=f0*(0.92+Math.random()*0.16);
+    o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*(style<0.5?1.35:0.72),t+d);
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.028,t+0.012); g.gain.exponentialRampToValueAtTime(0.0003,t+d);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(t+d+0.02);
+    t+=d+0.03+Math.random()*0.07;
+  }
+}
+function sonGrillon(){
+  var c=SON14.ctx, t=c.currentTime+0.05, f=4200+Math.random()*500;
+  var pan=c.createStereoPanner?c.createStereoPanner():null, dest=SON14.maitre;
+  if(pan){ pan.pan.value=Math.random()*1.6-0.8; pan.connect(SON14.maitre); dest=pan; }
+  for(var r=0;r<3;r++) for(var i=0;i<4;i++){
+    var o=c.createOscillator(), g=c.createGain(), tt=t+r*0.32+i*0.028;
+    o.frequency.value=f;
+    g.gain.setValueAtTime(0,tt); g.gain.linearRampToValueAtTime(0.012,tt+0.004); g.gain.exponentialRampToValueAtTime(0.0003,tt+0.02);
+    o.connect(g); g.connect(dest); o.start(tt); o.stop(tt+0.03);
+  }
+}
+/* la sono du départ : 124 battements par minute, grosse caisse, charleston
+   et une basse en la mineur ; planifiée une demi-seconde d'avance */
+function planifierSono(){
+  var S=SON14.sono, c=SON14.ctx, bpm=124, pas=60/bpm/2, now=c.currentTime;
+  if(S.suivant<now) S.suivant=now+0.05;
+  var basse=[55,55,65.4,55,49,49,58.3,49,43.7,43.7,52,43.7,49,49,61.7,49];
+  while(S.suivant<now+0.5){
+    var t=S.suivant, k=S.pas%16;
+    if(k%2===0){
+      var o=c.createOscillator(), g=c.createGain();
+      o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(42,t+0.12);
+      g.gain.setValueAtTime(0.5,t); g.gain.exponentialRampToValueAtTime(0.0003,t+0.2);
+      o.connect(g); g.connect(S.f); o.start(t); o.stop(t+0.22);
+    } else bruitBref(t,'highpass',7000,0.7,0.12,0.04,S.f);
+    var ob=c.createOscillator(), gb=c.createGain();
+    ob.type='sawtooth'; ob.frequency.value=basse[k]*2;
+    gb.gain.setValueAtTime(0.09,t); gb.gain.exponentialRampToValueAtTime(0.0003,t+pas*0.9);
+    ob.connect(gb); gb.connect(S.f); ob.start(t); ob.stop(t+pas);
+    S.suivant+=pas; S.pas++;
+  }
+}
+/* le sol sous les pieds, relevé une fois pour toutes le long du tracé
+   (un point tous les 4 m) */
+function solsDuParcours(){
+  var n=Math.ceil(LONGUEUR/4)+1, S=new Array(n), grille={}, i, k;
+  var vo=(typeof Dvoies!=='undefined' && Dvoies)?Dvoies:[];
+  vo.forEach(function(l){
+    var c=l.split('\t'); if(c.length<4) return;
+    var p=pointsDe(c[3]);
+    for(var j=0;j+3<p.length;j+=2){
+      var cle=Math.floor(p[j]/20)+','+Math.floor(p[j+1]/20);
+      (grille[cle]=grille[cle]||[]).push([p[j],p[j+1],p[j+2],p[j+3],c[0]]);
+    }
+  });
+  function voieProche(x,z){
+    var best=null, bd=4.5, gx=Math.floor(x/20), gz=Math.floor(z/20);
+    for(var a=-1;a<=1;a++) for(var b=-1;b<=1;b++){
+      (grille[(gx+a)+','+(gz+b)]||[]).forEach(function(s){
+        var dx=s[2]-s[0], dz=s[3]-s[1], L2=dx*dx+dz*dz||1, t=Math.max(0,Math.min(1,((x-s[0])*dx+(z-s[1])*dz)/L2));
+        var d=Math.hypot(x-s[0]-dx*t,z-s[1]-dz*t);
+        if(d<bd){ bd=d; best=s[4]; }
+      });
+    }
+    return best;
+  }
+  function presDe(P,x,z,e){
+    for(var j=0;j+3<P.length;j+=2){
+      var dx=P[j+2]-P[j], dz=P[j+3]-P[j+1], L2=dx*dx+dz*dz||1, t=Math.max(0,Math.min(1,((x-P[j])*dx+(z-P[j+1])*dz)/L2));
+      if(Math.hypot(x-P[j]-dx*t,z-P[j+1]-dz*t)<e) return true;
+    }
+    return false;
+  }
+  var dalles=null, places=[];
+  try{ dalles=[]; ABORDS.dalles.forEach(function(p){ var q=abordVersMonde(p); dalles.push(q[0],q[1]); }); }catch(e){ dalles=null; }
+  try{ var pc=PLACES[PLACES.length-1]; places.push(pc); var qg=quadGSBdD(); places.push([qg[0][0],qg[0][1],qg[1][0],qg[1][1],qg[2][0],qg[2][1],qg[3][0],qg[3][1]]); }catch(e){}
+  var gravier=null;
+  try{ var G=TERRAINS.gravier; gravier=superE(G.c,G.ang,G.a,G.b,G.p,96); gravier.push(gravier[0],gravier[1]); }catch(e){}
+  for(i=0;i<n;i++){
+    var p=pointSur(Math.min(LONGUEUR,i*4)), x=p[0], z=p[1], s='bitume';
+    var v=voieProche(x,z);
+    if(v==='s' || v==='t') s='gravier';
+    for(k=0;k<places.length;k++) if(dansPoly(places[k],x,z)) s='dalles';
+    if(dalles && dansPoly(dalles,x,z)) s='dalles';
+    if(gravier && presDe(gravier,x,z,3)) s='gravier';
+    try{ if(presDe(ESCALIER.pts,x,z,2.2)) s='pierre'; else if(presDe(RUELLE.pts,x,z,2)) s='dalles'; }catch(e){}
+    S[i]=s;
+  }
+  SON14.sols=S;
+}
+function solIci(){
+  if(!SON14.sols) return 'bitume';
+  if(J.ecart>8) return 'herbe';
+  var i=Math.round((J.d||0)/4);
+  return SON14.sols[Math.max(0,Math.min(SON14.sols.length-1,i))]||'bitume';
+}
+function majSons(dt){
+  var c=SON14.ctx;
+  if(!c) return;
+  if(!ouvert || !SON14.voulu){ if(c.state==='running' && !ouvert) c.suspend(); return; }
+  if(c.state!=='running') return;
+  var proche=(CAMV.mode==='suivi');
+  /* la foulée : un pas à chaque changement de signe de la jambe */
+  var s=Math.sin(J.phase*2), v=Math.abs(J.v);
+  if(v>0.8 && VUE!=='jal' && ((s>0)!==(SON14.sPrec>0))){
+    var force=Math.min(1,v/4)*(proche?1:0.35);
+    sonPas(solIci(),force);
+    SON14.pas++;
+    if(proche && v>2.2 && SON14.pas%2===0) sonSouffle(SON14.pas%4===0,Math.min(1.3,v/3.6));
+  }
+  SON14.sPrec=s;
+  /* le peloton : des pas en désordre autour de soi */
+  if(typeof PELOTON!=='undefined' && PELOTON.actif && PELOTON.gens.length && v>0.8){
+    var taux=PELOTON.gens.length*2.6*dt*(v/3.6);
+    if(Math.random()<taux) sonPas(solIci(),0.28+Math.random()*0.15);
+  }
+  /* rumeur et applaudissements des groupes de spectateurs */
+  var n=0, cx=J.x, cz=J.z;
+  FOULE.spect.forEach(function(sp){ if(Math.hypot(sp.x-cx,sp.z-cz)<28) n++; });
+  var cible=Math.min(0.05,n*0.004)*(0.8+0.2*Math.sin(AMB.t*1.7));
+  SON14.rumeur.g.gain.setTargetAtTime(cible,c.currentTime,0.4);
+  var pole=null, pd=1e9;
+  POLES.forEach(function(p){ var d=Math.hypot(p.x-cx,p.z-cz); if(d<pd){ pd=d; pole=p; } });
+  if(pole && pd<16 && v>1){
+    var der=SON14.groupes.get(pole)||0;
+    if(AMB.t-der>25){
+      var k=0; FOULE.spect.forEach(function(sp){ if(Math.hypot(sp.x-pole.x,sp.z-pole.z)<(pole.r||9)+2) k++; });
+      if(k>=3){ SON14.groupes.set(pole,AMB.t); sonApplaudir(k,2.8,1); }
+    }
+  }
+  /* vent, oiseaux et grillons */
+  SON14.tArbres-=dt;
+  if(SON14.tArbres<=0){
+    SON14.tArbres=1.5; var a=0;
+    for(var i=0;i<Darbres.length;i+=2){ var t=Darbres[i]; if(Math.abs(t[0]-cx)<45 && Math.abs(t[1]-cz)<45) a++; }
+    SON14.arbres=a;
+  }
+  var y0=camera?camera.position.y-hauteur(camera.position.x,camera.position.z):2;
+  SON14.vent.g.gain.setTargetAtTime((nuit?0.012:0.018)+Math.min(0.05,Math.max(0,y0-5)*0.002),c.currentTime,0.8);
+  SON14.vent.f.frequency.setTargetAtTime(300+Math.sin(AMB.t*0.23)*120,c.currentTime,0.8);
+  if(!nuit){
+    SON14.tOiseau-=dt*(0.25+Math.min(1.5,SON14.arbres/12));
+    if(SON14.tOiseau<=0){ SON14.tOiseau=3+Math.random()*6; sonOiseau(); }
+  } else {
+    SON14.tGrillon-=dt*(0.4+Math.min(1.5,SON14.arbres/10));
+    if(SON14.tGrillon<=0){ SON14.tGrillon=1.2+Math.random()*2.5; sonGrillon(); }
+  }
+  /* la sono au départ et à l'arrivée (ou là où la scène est posée) */
+  var src=[pointSur(0),pointSur(LONGUEUR)];
+  try{ VM.objs.forEach(function(o,v2){ if(v2.t==='sono') src.push([o.position.x,o.position.z]); }); }catch(e){}
+  var dm=1e9; src.forEach(function(p){ dm=Math.min(dm,Math.hypot(p[0]-cx,p[1]-cz)); });
+  var S=SON14.sono;
+  if(dm<380){
+    planifierSono();
+    S.g.gain.setTargetAtTime(0.22/(1+Math.pow(dm/22,1.4)),c.currentTime,0.3);
+    S.f.frequency.setTargetAtTime(Math.max(260,9000/(1+dm/12)),c.currentTime,0.3);
+  } else S.g.gain.setTargetAtTime(0,c.currentTime,0.5);
+}
+function basculerAmbiance(){
+  SON14.voulu=!SON14.voulu;
+  try{ localStorage.setItem('corrida3d-ambiance',SON14.voulu?'1':'0'); }catch(e){}
+  var c=sonCtx();
+  if(c){
+    SON14.maitre.gain.setTargetAtTime(SON14.voulu?1:0,c.currentTime,0.1);
+    if(SON14.voulu && c.state!=='running') c.resume();
+  }
+  majBoutonAmbiance();
+  dire(SON14.voulu?'Ambiance sonore activée':'Ambiance sonore coupée');
+}
+function majBoutonAmbiance(){
+  var b=$e('e3-ambiance'); if(!b) return;
+  b.textContent=SON14.voulu?'🔊 Ambiance sonore':'🔈 Ambiance coupée';
+  b.classList.toggle('on',SON14.voulu);
+}
+/* le navigateur n'accepte le son qu'après un geste : on attend le premier
+   clic ou la première touche dans la 3D */
+['pointerdown','keydown','touchstart'].forEach(function(ev){
+  addEventListener(ev,function(){
+    if(!ouvert || !SON14.voulu) return;
+    var c=sonCtx();
+    if(c && c.state==='suspended') c.resume();
+  },true);
+});
+
+/* ===== branchements ===== */
+function etapeAmbiance(){
+  try{ etapeCones(); }catch(e){ console.warn('cônes :',e); }
+  try{ calculerPoles(); }catch(e){ console.warn('carrefours :',e); }
+  try{ etapeJourJ(); }catch(e){ console.warn('jour J :',e); }
+  try{ etapePanneauxKm(); }catch(e){ console.warn('panneaux km :',e); }
+  try{ etapeHorloges(); }catch(e){ console.warn('horloges :',e); }
+  try{ etapeOiseaux(); }catch(e){ console.warn('oiseaux :',e); }
+  try{ etapeVent(); }catch(e){ console.warn('vent :',e); }
+  try{ solsDuParcours(); }catch(e){ console.warn('sols :',e); }
+  appliquerCiel();
+}
+ETAPES.push(['Ambiance de course',etapeAmbiance]);
+var _cielAmb=appliquerCiel;
+appliquerCiel=function(){
+  /* le soleil et la brume du moment choisi, avant que la chaîne ne les lise */
+  if(CIELHDR.soleil && !MOMENT.orig) MOMENT.orig={soleil:CIELHDR.soleil.clone(), fog:CIELHDR.brumeFog?CIELHDR.brumeFog.slice():null};
+  var P=MOMENTS[MOMENT.cle];
+  if(MOMENT.orig){
+    if(!nuit && P.dir){ CIELHDR.soleil.fromArray(P.dir).normalize(); CIELHDR.brumeFog=P.fog.slice(); }
+    else { CIELHDR.soleil.copy(MOMENT.orig.soleil); CIELHDR.brumeFog=MOMENT.orig.fog?MOMENT.orig.fog.slice():CIELHDR.brumeFog; }
+  }
+  var r=_cielAmb.apply(this,arguments);
+  try{
+    appliquerMoment();
+    if(NUIT14.cones) NUIT14.cones.visible=!!nuit;
+    if(PANKM.mat) PANKM.mat.emissiveIntensity=nuit?0.35:0;
+    majRubalise(); majBoutonMoment();
+  }catch(e){ console.warn('moment :',e); }
+  return r;
+};
+var _decorAmb=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _decorAmb(dt,cx,cz);
+  var d=Math.min(dt,0.1);
+  AMB.t+=d; AMB.vent.value=AMB.t;
+  try{
+    majGyros(d); majFrontalesPeloton(); majCourse(d); majOiseaux(d); majEau(d); majSons(d);
+    AMB.tLent=(AMB.tLent||0)-d;
+    if(AMB.tLent<=0){ AMB.tLent=2; majRubalise(); }
+  }catch(e){ console.warn('ambiance :',e); }
+};
+var _rvAmb=rendreVue;
+rendreVue=function(){
+  try{ placerCameraSpeciale(); }catch(e){}
+  return _rvAmb.apply(this,arguments);
+};
+var _brancherAmb=brancherInterface;
+brancherInterface=function(){
+  _brancherAmb();
+  try{
+    interfaceCourse();
+    function bouton(id,titre,fn,apres){
+      if($e(id)) return;
+      var b=document.createElement('button'); b.type='button'; b.id=id; b.title=titre;
+      b.addEventListener('click',fn);
+      var ref=$e(apres);
+      if(ref && ref.parentNode) ref.parentNode.insertBefore(b,ref.nextSibling);
+      else { var barre=document.querySelector('#e3 .e3-barre'); if(barre) barre.appendChild(b); }
+    }
+    bouton('e3-moment','Moment de la journée : midi, matin, fin d’après-midi, coucher de soleil (J)',basculerMoment,'e3-nuit');
+    bouton('e3-ambiance','Sons d’ambiance : pas, souffle, foule, oiseaux, sono (U)',basculerAmbiance,'e3-moment');
+    bouton('e3-camera','Caméra : suivi, drone ou spectateur (X)',basculerCamera,'e3-vuep');
+    majBoutonMoment(); majBoutonAmbiance(); majBoutonCamera();
+  }catch(e){ console.warn('interface ambiance :',e); }
+  addEventListener('keydown',function(e){
+    if(!ouvert || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tg=e.target;
+    if(tg && ((tg.tagName==='INPUT' && tg.type!=='range') || tg.tagName==='TEXTAREA' || tg.tagName==='SELECT')) return;
+    var k=e.key.toLowerCase();
+    if(k==='j') basculerMoment();
+    else if(k==='u') basculerAmbiance();
+    else if(k==='x') basculerCamera();
+  });
+};
+var _nuitAmb=basculerNuit;
+basculerNuit=function(){ var r=_nuitAmb.apply(this,arguments); majBoutonMoment(); return r; };
 })();
