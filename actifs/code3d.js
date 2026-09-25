@@ -4417,8 +4417,15 @@ var tHud=0;
    montre. Mesurer une durée depuis l'extérieur demande donc l'horloge du
    dedans, pas celle du dehors.                                           */
 var TSIM=0, IMAGES=0, TREEL=0;
-function boucle(){
+/* Une seule boucle à la fois : en sortant du casque, une dernière image
+   du casque pouvait relancer une boucle d'écran en plus de celle que
+   sortirVR() démarre ; deux boucles doublaient tout le travail (saccades,
+   boutons qui ne répondent plus). Deux appels pour la même image : le
+   second s’arrête sans se reprogrammer. */
+var BOUCLE_T=-1;
+function boucle(tRaf){
   if(!ouvert){ boucleId=0; return; }
+  if(!XR3D.actif && typeof tRaf==="number"){ if(tRaf===BOUCLE_T) return; BOUCLE_T=tRaf; }
   /* en VR c'est le casque qui cadence, pas l'écran : setAnimationLoop rappelle boucle() */
   boucleId=XR3D.actif ? 1 : requestAnimationFrame(boucle);
   var dt=Math.min(0.06,horloge.getDelta());
@@ -20004,5 +20011,376 @@ ajouter=function(tas,mat,porte,recoit){
     if(mat && tas && tas.n && (mat===MAT.sol || mat===MAT.dur || mat===MAT.bit || mat===MAT.chemin || mat===MAT.marq || DRAPE.noms[mat.name])) draperTas(tas);
   }catch(e){ console.warn('drapage :',e); }
   return _ajouterDrape.apply(this,arguments);
+};
+
+/* ---------------- 17. le menu dans le casque ---------------- */
+/* Dans le casque, les menus de la page n'existent plus : il fallait sortir
+   de la VR pour changer quoi que ce soit, et le retour au navigateur du
+   Quest se passait mal. Ici tout se règle sans l'enlever :
+   - touche B (manette droite) ou Y (gauche) : ouvre et ferme le menu ;
+   - un panneau flotte devant soi, on vise avec le laser de la manette et
+     on valide à la gâchette ;
+   - allure, visite, peloton, départ et arrivée, moment de la journée, son,
+     graphismes, carte pour se téléporter, et « Quitter la VR » ;
+   - les messages de la 3D s'affichent aussi dans le casque.
+   Le manche ne fait plus avancer ni tourner tant que le menu est ouvert. */
+var VRM={ouvert:false, panneau:null, tex:null, g:null, W:1280, H:800, boutons:[], survol:null, carte:null, ctrl:[],
+         rc:new THREE.Raycaster(), bPrec:false, tRedessin:0, sale:true, astuce:null, tAstuce:0, toast:null, tToast:0, gfxFait:false,
+         visee:null, qSauve:null};
+var VR_GFX={
+  fluide:{nom:'Fluide', q:0, dist:180, ombre:false, fb:0.9},
+  equilibre:{nom:'Équilibré', q:0, dist:230, ombre:true, fb:1.0},
+  detaille:{nom:'Détaillé', q:1, dist:270, ombre:true, fb:1.0}
+};
+VRM.gfx='equilibre';
+try{ var _g=localStorage.getItem('corrida3d-vr-gfx'); if(VR_GFX[_g]) VRM.gfx=_g; }catch(e){}
+
+/* ----- la qualité dans le casque ----- */
+function appliquerGfxVR(){
+  var P=VR_GFX[VRM.gfx];
+  if(!P || !XR3D.actif) return;
+  if(!VRM.qSauve) VRM.qSauve=QUALITES.map(function(q){ return {ombre:q.ombre, carte:q.carte, ext:q.ext}; });
+  /* en qualité basse, les ombres proches seulement, sur une petite carte */
+  if(P.ombre && !QUALITES[P.q].ombre){ QUALITES[P.q].ombre=40; QUALITES[P.q].carte=1024; QUALITES[P.q].ext=32; }
+  PERF.auto=false; PERF.qualite=P.q; PERF.dist=P.dist;
+  ombres=P.ombre;
+  try{ appliquerQualite(); }catch(e){}
+  if(lumDir) lumDir.castShadow=P.ombre && QUAL().ombre>0;
+  try{ reglerBrume(); }catch(e){}
+}
+function rendreQualites(){
+  if(!VRM.qSauve) return;
+  VRM.qSauve.forEach(function(s,i){ QUALITES[i].ombre=s.ombre; QUALITES[i].carte=s.carte; QUALITES[i].ext=s.ext; });
+  VRM.qSauve=null;
+}
+
+/* ----- un panneau de texte dans la scène ----- */
+function panneauVR(w,h,W,H){
+  var c=toile(W,H), t=new THREE.CanvasTexture(c);
+  t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4;
+  var m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:t, transparent:true, depthTest:false, depthWrite:false, fog:false, toneMapped:false}));
+  m.renderOrder=1000; m.frustumCulled=false; m.visible=false;
+  return {mesh:m, c:c, g:c.getContext('2d'), tex:t};
+}
+function rondRect(g,x,y,w,h,r){
+  g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath();
+}
+
+/* ----- ce que contient le menu ----- */
+function allureKmh(){ var c=$e('e3-vitesse'); return c ? +c.value : Math.round(VITESSE*3.6); }
+function poserAllure(v){
+  var c=$e('e3-vitesse'); v=Math.max(4,Math.min(150,Math.round(v)));
+  if(c){ c.value=v; c.dispatchEvent(new Event('input',{bubbles:true})); } else VITESSE=v/3.6;
+}
+function momentActuel(){ return nuit ? 'nuit' : MOMENT.cle; }
+function choisirMoment(k){
+  if(k==='nuit'){ nuit=true; }
+  else { nuit=false; MOMENT.cle=k; try{ localStorage.setItem('corrida3d-moment',k); }catch(e){} }
+  appliquerCiel(); try{ majBoutonMoment(); }catch(e){}
+}
+function musiqueActive(){ try{ return !!(window.MUSIQUE && MUSIQUE.actif()); }catch(e){ return false; } }
+function boutonsVR(){
+  var B=[], x0=30, L=600;
+  function b(id,x,y,w,h,txt,on,fn){ B.push({id:id, x:x, y:y, w:w, h:h, txt:txt, on:!!on, fn:fn}); }
+  b('fermer',1080,14,180,50,'✕ Fermer (B)',false,fermerMenuVR);
+  var v=allureKmh();
+  b('moins',x0,110,90,62,'−',false,function(){ poserAllure(allureKmh()-1); });
+  b('plus',x0+510,110,90,62,'+',false,function(){ poserAllure(allureKmh()+1); });
+  [['Marche',6],['Footing',10],['Course',13],['Rapide',18],['Vélo',25]].forEach(function(p,i){
+    b('al'+p[1],x0+i*121,184,113,56,p[0]+' '+p[1],v===p[1],function(){ poserAllure(p[1]); });
+  });
+  b('visite',x0,284,294,58,auto?'⏸ Arrêter la visite':'▶ Visite guidée',auto,function(){ basculerAuto(); });
+  b('peloton',x0+306,284,294,58,'🏃 Peloton : '+(PELOTON.voulu?'oui':'non'),PELOTON.voulu,function(){ basculerPeloton(); });
+  b('depart',x0,352,294,56,'⏮ Au départ',false,function(){ placerJoueur(0); dire('Retour au départ'); });
+  b('arrivee',x0+306,352,294,56,'🏁 Avant l’arrivée',false,function(){ placerJoueur(Math.max(0,LONGUEUR-120)); dire('À 120 m de l’arrivée'); });
+  var mc=momentActuel();
+  [['midi','Midi'],['matin','Matin'],['soir','Soir'],['coucher','Coucher'],['nuit','Nuit']].forEach(function(p,i){
+    b('m_'+p[0],x0+i*121,452,113,56,p[1],mc===p[0],function(){ choisirMoment(p[0]); });
+  });
+  b('musique',x0,552,294,56,'♪ Musique : '+(musiqueActive()?'oui':'non'),musiqueActive(),function(){ basculerSon(); });
+  b('ambiance',x0+306,552,294,56,'🔊 Ambiance : '+(SON14.voulu?'oui':'non'),SON14.voulu,function(){ basculerAmbiance(); });
+  b('volm',x0,616,90,50,'−',false,function(){ volumeAmbiance(-0.1); });
+  b('volp',x0+510,616,90,50,'+',false,function(){ volumeAmbiance(0.1); });
+  ['fluide','equilibre','detaille'].forEach(function(k,i){
+    b('g_'+k,x0+i*202,718,194,56,VR_GFX[k].nom,VRM.gfx===k,function(){
+      VRM.gfx=k; try{ localStorage.setItem('corrida3d-vr-gfx',k); }catch(e){}
+      appliquerGfxVR(); dire('Graphismes : '+VR_GFX[k].nom+(VR_GFX[k].fb!==(XR3D.fbPris||0.9)?' (netteté complète à la prochaine entrée dans le casque)':''));
+    });
+  });
+  b('quitter',660,718,590,56,'🥽 Quitter la VR',false,function(){ fermerMenuVR(); sortirVR(); });
+  return B;
+}
+function volumeAmbiance(d){
+  SON14.volume=Math.max(0,Math.min(1,Math.round((SON14.volume+d)*10)/10));
+  try{ localStorage.setItem('corrida3d-ambiance-vol',String(SON14.volume)); }catch(e){}
+  var c=sonCtx(); if(c && SON14.voulu) SON14.maitre.gain.setTargetAtTime(SON14.volume,c.currentTime,0.05);
+}
+
+/* ----- la carte : le tracé, les jalonneurs, soi ----- */
+var CARTE_VR={x:660, y:110, w:590, h:590};
+function cadreCarteVR(){
+  if(VRM.carte && VRM.carte.n===TRACE.length) return VRM.carte;
+  var x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  TRACE.forEach(function(p){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); z0=Math.min(z0,p[1]); z1=Math.max(z1,p[1]); });
+  var m=40, cw=CARTE_VR.w-2*m, ch=CARTE_VR.h-2*m, k=Math.min(cw/Math.max(1,x1-x0), ch/Math.max(1,z1-z0));
+  var ox=CARTE_VR.x+m+(cw-(x1-x0)*k)/2, oz=CARTE_VR.y+m+(ch-(z1-z0)*k)/2;
+  /* le fond est dessiné une fois : bâtiments et tracé */
+  var c=toile(CARTE_VR.w,CARTE_VR.h), g=c.getContext('2d');
+  function X(x){ return ox+(x-x0)*k-CARTE_VR.x; } function Z(z){ return oz+(z-z0)*k-CARTE_VR.y; }
+  g.fillStyle='#0d1522'; rondRect(g,0,0,CARTE_VR.w,CARTE_VR.h,18); g.fill();
+  g.fillStyle='rgba(120,135,160,0.45)';
+  (GEO.bats||[]).forEach(function(b){
+    var p=b.p; if(!p || p.length<6) return;
+    var cx=X(p[0]), cz=Z(p[1]); if(cx<-20||cx>CARTE_VR.w+20||cz<-20||cz>CARTE_VR.h+20) return;
+    g.beginPath(); g.moveTo(cx,cz); for(var q=2;q<p.length;q+=2) g.lineTo(X(p[q]),Z(p[q+1])); g.closePath(); g.fill();
+  });
+  g.strokeStyle='#F2B33D'; g.lineWidth=5; g.lineJoin='round'; g.beginPath();
+  TRACE.forEach(function(p,i){ if(i) g.lineTo(X(p[0]),Z(p[1])); else g.moveTo(X(p[0]),Z(p[1])); });
+  g.stroke();
+  for(var km=1;km<=Math.floor(LONGUEUR/1000);km++){
+    var pk=pointSur(km*1000);
+    g.fillStyle='#fff0c8'; g.beginPath(); g.arc(X(pk[0]),Z(pk[1]),9,0,7); g.fill();
+    g.fillStyle='#1b1405'; g.font='700 13px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle'; g.fillText(km,X(pk[0]),Z(pk[1])+1);
+  }
+  var a=pointSur(0), b2=pointSur(LONGUEUR);
+  g.fillStyle='#4ade80'; g.beginPath(); g.arc(X(a[0]),Z(a[1]),11,0,7); g.fill();
+  g.fillStyle='#ff5a4d'; g.beginPath(); g.arc(X(b2[0]),Z(b2[1]),11,0,7); g.fill();
+  return (VRM.carte={n:TRACE.length, fond:c, x0:x0, z0:z0, k:k, ox:ox, oz:oz});
+}
+function carteVersMonde(px,py){
+  var C=cadreCarteVR();
+  return [C.x0+(px-C.ox)/C.k, C.z0+(py-C.oz)/C.k];
+}
+function mondeVersCarte(x,z){
+  var C=cadreCarteVR();
+  return [C.ox+(x-C.x0)*C.k, C.oz+(z-C.z0)*C.k];
+}
+
+/* ----- le dessin du panneau ----- */
+function dessinerMenuVR(){
+  var P=VRM.panneau, g=P.g, W=VRM.W, H=VRM.H;
+  VRM.boutons=boutonsVR();
+  g.clearRect(0,0,W,H);
+  g.fillStyle='rgba(12,18,28,0.94)'; rondRect(g,0,0,W,H,28); g.fill();
+  g.strokeStyle='rgba(242,179,61,0.8)'; g.lineWidth=3; rondRect(g,1.5,1.5,W-3,H-3,27); g.stroke();
+  g.textBaseline='middle'; g.textAlign='left';
+  g.fillStyle='#F2B33D'; g.font='800 34px system-ui, sans-serif'; g.fillText('CORRIDA 2027',30,40);
+  g.fillStyle='#98A3B6'; g.font='600 24px system-ui, sans-serif'; g.fillText('Menu du casque · vise et appuie sur la gâchette',290,41);
+  function titre(t,x,y){ g.fillStyle='#98A3B6'; g.font='700 20px system-ui, sans-serif'; g.textAlign='left'; g.fillText(t.toUpperCase(),x,y); }
+  titre('Allure',30,94); titre('Parcours',30,270); titre('Moment de la journée',30,436); titre('Son',30,536); titre('Graphismes',30,702);
+  titre('Carte : vise un point du parcours pour t’y rendre',660,94);
+  /* la valeur de l'allure et du volume, entre leurs boutons */
+  g.textAlign='center'; g.fillStyle='#ffffff'; g.font='800 44px system-ui, sans-serif'; g.fillText(allureKmh()+' km/h',330,142);
+  g.font='600 26px system-ui, sans-serif'; g.fillStyle='#dbe2ec'; g.fillText('Volume de l’ambiance : '+Math.round(SON14.volume*100)+' %',330,642);
+  VRM.boutons.forEach(function(b){
+    var sv=VRM.survol===b.id;
+    g.fillStyle=b.on?'rgba(242,179,61,0.22)':(sv?'rgba(255,255,255,0.16)':'rgba(255,255,255,0.07)');
+    rondRect(g,b.x,b.y,b.w,b.h,12); g.fill();
+    g.strokeStyle=b.on?'#F2B33D':(sv?'#ffffff':'rgba(255,255,255,0.22)'); g.lineWidth=sv?3:2; rondRect(g,b.x,b.y,b.w,b.h,12); g.stroke();
+    var fs=b.txt.length>16?24:27; g.font='700 '+fs+'px system-ui, sans-serif';
+    while(g.measureText(b.txt).width>b.w-16 && fs>15){ fs--; g.font='700 '+fs+'px system-ui, sans-serif'; }
+    g.fillStyle=b.on?'#F2B33D':'#ffffff'; g.textAlign='center';
+    g.fillText(b.txt,b.x+b.w/2,b.y+b.h/2+1);
+  });
+  /* la carte */
+  if(TRACE.length>1){
+    var C=cadreCarteVR();
+    g.drawImage(C.fond,CARTE_VR.x,CARTE_VR.y);
+    JOBJ.forEach(function(o){ var q=mondeVersCarte(o.x,o.z); g.fillStyle=o.j.niv==='r'?'#ff4b3e':'#ffab2e'; g.beginPath(); g.arc(q[0],q[1],4.5,0,7); g.fill(); });
+    var me=mondeVersCarte(J.x,J.z);
+    g.save(); g.translate(me[0],me[1]); g.rotate(J.cap);
+    g.fillStyle='#ffffff'; g.strokeStyle='#0d1522'; g.lineWidth=3;
+    g.beginPath(); g.moveTo(16,0); g.lineTo(-10,-10); g.lineTo(-5,0); g.lineTo(-10,10); g.closePath(); g.fill(); g.stroke();
+    g.restore();
+    if(VRM.visee){
+      var v2=mondeVersCarte(VRM.visee.x,VRM.visee.z);
+      g.strokeStyle='#4ade80'; g.lineWidth=4; g.beginPath(); g.arc(v2[0],v2[1],13,0,7); g.stroke();
+      g.fillStyle='#4ade80'; g.font='800 24px system-ui, sans-serif'; g.textAlign='center';
+      var ty=v2[1]-30<CARTE_VR.y+20 ? v2[1]+34 : v2[1]-30;
+      g.fillText('km '+(VRM.visee.d/1000).toFixed(2).replace('.',','),v2[0],ty);
+    }
+  }
+  P.tex.needsUpdate=true;
+  VRM.sale=false;
+}
+
+/* ----- ouvrir, fermer, viser ----- */
+function preparerMenuVR(){
+  if(VRM.panneau || !XR3D.rig) return;
+  VRM.panneau=panneauVR(1.28,0.8,VRM.W,VRM.H);
+  XR3D.rig.add(VRM.panneau.mesh);
+  /* un laser et un point d'impact par manette */
+  for(var i=0;i<2;i++){
+    var c=renderer.xr.getController(i);
+    var ligne=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]),
+      new THREE.LineBasicMaterial({color:0xF2B33D, depthTest:false, transparent:true, opacity:0.9, fog:false, toneMapped:false}));
+    ligne.renderOrder=1001; ligne.visible=false; ligne.frustumCulled=false;
+    c.add(ligne);
+    var point=spriteLueur(0xffffff,0.035); point.material.depthTest=false; point.renderOrder=1002; point.visible=false;
+    XR3D.rig.add(point);
+    var C={obj:c, ligne:ligne, point:point, main:null, cible:null};
+    (function(C){
+      c.addEventListener('connected',function(e){ C.main=e.data && e.data.handedness; });
+      c.addEventListener('disconnected',function(){ C.main=null; });
+      c.addEventListener('select',function(){ if(VRM.ouvert) cliquerVR(C); });
+    })(C);
+    XR3D.rig.add(c);
+    VRM.ctrl.push(C);
+  }
+  VRM.astuce=panneauVR(0.62,0.1,744,120);
+  VRM.toast=panneauVR(0.7,0.1,840,120);
+  camera.add(VRM.astuce.mesh); camera.add(VRM.toast.mesh);
+  VRM.astuce.mesh.position.set(0,-0.28,-1.3);
+  VRM.toast.mesh.position.set(0,-0.42,-1.3);
+}
+function texteBandeau(P,txt,couleur){
+  var g=P.g, W=P.c.width, H=P.c.height;
+  g.clearRect(0,0,W,H);
+  g.fillStyle='rgba(12,18,28,0.9)'; rondRect(g,0,0,W,H,H/2); g.fill();
+  g.strokeStyle=couleur||'#F2B33D'; g.lineWidth=3; rondRect(g,1.5,1.5,W-3,H-3,H/2-1); g.stroke();
+  g.fillStyle='#ffffff'; g.textAlign='center'; g.textBaseline='middle';
+  var fs=40; g.font='700 '+fs+'px system-ui, sans-serif';
+  while(g.measureText(txt).width>W-60 && fs>20){ fs-=2; g.font='700 '+fs+'px system-ui, sans-serif'; }
+  g.fillText(txt,W/2,H/2+2);
+  P.tex.needsUpdate=true;
+}
+function ouvrirMenuVR(){
+  preparerMenuVR();
+  if(!VRM.panneau) return;
+  /* devant le regard, à hauteur des yeux moins un peu, à 1,25 m */
+  var oeil=oeilMonde().clone(), dir=regardMonde().clone();
+  var loc=XR3D.rig.worldToLocal(oeil.clone());
+  var q=new THREE.Quaternion(); XR3D.rig.getWorldQuaternion(q); q.invert();
+  dir.applyQuaternion(q); dir.y=0;
+  if(dir.lengthSq()<1e-6) dir.set(0,0,-1);
+  dir.normalize();
+  var m=VRM.panneau.mesh;
+  m.position.set(loc.x+dir.x*1.25, loc.y-0.12, loc.z+dir.z*1.25);
+  m.rotation.set(0,Math.atan2(-dir.x,-dir.z),0);
+  m.visible=true; VRM.ouvert=true; VRM.sale=true; VRM.survol=null;
+  VRM.astuce.mesh.visible=false;
+  dessinerMenuVR();
+}
+function fermerMenuVR(){
+  VRM.ouvert=false;
+  if(VRM.panneau) VRM.panneau.mesh.visible=false;
+  VRM.ctrl.forEach(function(C){ C.ligne.visible=false; C.point.visible=false; C.cible=null; });
+}
+function basculerMenuVR(){ if(VRM.ouvert) fermerMenuVR(); else ouvrirMenuVR(); }
+var _vO=new THREE.Vector3(), _vD=new THREE.Vector3(), _qC=new THREE.Quaternion();
+function viserVR(){
+  var M=VRM.panneau.mesh, survol=null, visee=null;
+  M.updateMatrixWorld(true);
+  VRM.ctrl.forEach(function(C){
+    C.cible=null;
+    if(!C.main){ C.ligne.visible=false; C.point.visible=false; return; }
+    C.obj.updateMatrixWorld(true);
+    C.obj.getWorldPosition(_vO); C.obj.getWorldQuaternion(_qC);
+    _vD.set(0,0,-1).applyQuaternion(_qC);
+    VRM.rc.set(_vO,_vD); VRM.rc.far=6;
+    var h=VRM.rc.intersectObject(M,false)[0];
+    C.ligne.visible=true;
+    if(!h){ C.ligne.scale.z=2; C.point.visible=false; return; }
+    C.ligne.scale.z=h.distance;
+    C.point.visible=true; C.point.position.copy(XR3D.rig.worldToLocal(h.point.clone()));
+    var px=h.uv.x*VRM.W, py=(1-h.uv.y)*VRM.H;
+    var b=VRM.boutons.filter(function(b){ return px>=b.x && px<=b.x+b.w && py>=b.y && py<=b.y+b.h; })[0];
+    if(b){ C.cible={bouton:b}; if(C.main==='right' || !survol) survol=b.id; }
+    else if(px>=CARTE_VR.x && px<=CARTE_VR.x+CARTE_VR.w && py>=CARTE_VR.y && py<=CARTE_VR.y+CARTE_VR.h && TRACE.length>1){
+      var w=carteVersMonde(px,py), sp=surLeParcours(w[0],w[1]);
+      if(sp.ecart<60){ var p=pointSur(sp.d); C.cible={d:sp.d}; if(C.main==='right' || !visee) visee={x:p[0], z:p[1], d:sp.d}; }
+    }
+  });
+  var chg=(survol!==VRM.survol) || ((visee?Math.round(visee.d/10):-1)!==(VRM.visee?Math.round(VRM.visee.d/10):-1));
+  VRM.survol=survol; VRM.visee=visee;
+  if(chg) VRM.sale=true;
+}
+function cliquerVR(C){
+  if(!C.cible) return;
+  if(C.cible.bouton){ try{ C.cible.bouton.fn(); }catch(e){ console.warn('menu VR :',e); } }
+  else if(C.cible.d!==undefined){
+    placerJoueur(C.cible.d);
+    dire('Téléporté au km '+(C.cible.d/1000).toFixed(2).replace('.',','));
+  }
+  VRM.sale=true;
+  /* la réponse s'entend et se sent : petit clic, petite vibration */
+  try{ var s=XR3D.session; (s && s.inputSources||[]).forEach(function(src){ if(src.handedness===C.main && src.gamepad && src.gamepad.hapticActuators && src.gamepad.hapticActuators[0]) src.gamepad.hapticActuators[0].pulse(0.4,30); }); }catch(e){}
+}
+
+/* ----- chaque image dans le casque ----- */
+function majMenuVR(dt){
+  if(!XR3D.actif){ if(VRM.ouvert) fermerMenuVR(); return; }
+  preparerMenuVR();
+  if(!VRM.gfxFait){ VRM.gfxFait=true; appliquerGfxVR(); VRM.tAstuce=7; texteBandeau(VRM.astuce,'Touche B : menu, allure, carte, son…'); }
+  if(VRM.tAstuce>0){ VRM.tAstuce-=dt; VRM.astuce.mesh.visible=VRM.tAstuce>0 && !VRM.ouvert; }
+  if(VRM.tToast>0){ VRM.tToast-=dt; VRM.toast.mesh.visible=VRM.tToast>0; }
+  if(!VRM.ouvert) return;
+  viserVR();
+  VRM.tRedessin-=dt;
+  if(VRM.sale || VRM.tRedessin<=0){ VRM.tRedessin=0.5; dessinerMenuVR(); }
+}
+/* la touche B (manette droite) ou Y (gauche), sur son front montant */
+var _xrManchesVR=xrManches;
+xrManches=function(dt){
+  var s=XR3D.session, b=false;
+  if(s && s.inputSources) for(var i=0;i<s.inputSources.length;i++){
+    var g=s.inputSources[i].gamepad;
+    if(g && g.buttons && g.buttons[5] && g.buttons[5].pressed) b=true;
+  }
+  if(b && !VRM.bPrec) basculerMenuVR();
+  VRM.bPrec=b;
+  var yaw=CAM.yaw;
+  _xrManchesVR(dt);
+  if(VRM.ouvert){
+    /* le menu ouvert, le manche ne déplace ni ne tourne : la gâchette sert à cliquer */
+    touches.__analog=null; touches.shift=false; CAM.yaw=yaw;
+  }
+};
+/* les messages de la 3D, lisibles dans le casque */
+var _direVR=dire;
+dire=function(msg){
+  var r=_direVR.apply(this,arguments);
+  try{ if(XR3D.actif && VRM.toast && msg){ texteBandeau(VRM.toast,String(msg).replace(/<[^>]*>/g,'').slice(0,90),'#4ade80'); VRM.tToast=3.5; } }catch(e){}
+  return r;
+};
+/* netteté et rendu fovéal fixés avant la séance */
+var _entrerVRm=entrerVR;
+entrerVR=function(){
+  try{
+    if(renderer && renderer.xr){
+      if(!renderer.xr.__fbVR){
+        var fbOrig=renderer.xr.setFramebufferScaleFactor.bind(renderer.xr);
+        renderer.xr.setFramebufferScaleFactor=function(){ XR3D.fbPris=VR_GFX[VRM.gfx].fb; return fbOrig(XR3D.fbPris); };
+        renderer.xr.__fbVR=true;
+      }
+      if(renderer.xr.setFoveation) renderer.xr.setFoveation(1);
+    }
+  }catch(e){}
+  VRM.gfxFait=false;
+  return _entrerVRm.apply(this,arguments);
+};
+/* en sortant : menu refermé, qualités rendues ; sur le Quest, la page
+   revient en rendu léger (le navigateur y est moins puissant qu'un PC) */
+var _sortirVRm=sortirVR;
+sortirVR=function(){
+  var etait=XR3D.actif;
+  fermerMenuVR();
+  if(VRM.astuce) VRM.astuce.mesh.visible=false;
+  if(VRM.toast) VRM.toast.mesh.visible=false;
+  var r=_sortirVRm.apply(this,arguments);
+  rendreQualites();
+  if(etait && /OculusBrowser|Quest/i.test(navigator.userAgent||'')){
+    try{
+      PERF.qualite=0; PERF.dist=Math.min(PERF.dist,200); PERF.auto=true;
+      if(POST) POST.ok=false;
+      appliquerQualite();
+    }catch(e){}
+  }
+  return r;
+};
+var _decorVR=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _decorVR(dt,cx,cz);
+  try{ majMenuVR(Math.min(dt,0.1)); }catch(e){ console.warn('menu VR :',e); }
 };
 })();
