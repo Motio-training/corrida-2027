@@ -14735,6 +14735,8 @@ function rendreVue(){
   var sol=(typeof joueur!=='undefined' && joueur) ? joueur.position.y : hauteur(J.x,J.z);
   XR3D.rig.position.set(J.x, sol, J.z);
   XR3D.rig.rotation.set(0, Math.atan2(-Math.cos(CAM.yaw), -Math.sin(CAM.yaw)), 0);
+  /* les yeux du casque recalés sur ceux du coureur (voir xrAjusterRig) */
+  if(typeof xrAjusterRig==='function') xrAjusterRig();
   camera.position.set(0,0,0);
   camera.quaternion.set(0,0,0,1);
   renderer.render(scene,camera);
@@ -16000,6 +16002,7 @@ function greffer(mat,cle,fn){
   mat.onBeforeCompile=function(sh,r){
     if(ob) ob.call(mat,sh,r);
     sh.uniforms.tPat={value:TEX_MACRO};
+    if(!SOL_TEX) faireCarteSol();
     sh.uniforms.tSol={value:SOL_TEX.tex}; sh.uniforms.solMin={value:SOL_TEX.min}; sh.uniforms.solTaille={value:SOL_TEX.taille};
     if(sh.vertexShader.indexOf('vPatW')<0){
       sh.vertexShader=sh.vertexShader
@@ -20018,22 +20021,57 @@ ajouter=function(tas,mat,porte,recoit){
    de la VR pour changer quoi que ce soit, et le retour au navigateur du
    Quest se passait mal. Ici tout se règle sans l'enlever :
    - touche B (manette droite) ou Y (gauche) : ouvre et ferme le menu ;
-   - un panneau flotte devant soi, on vise avec le laser de la manette et
-     on valide à la gâchette ;
+   - un panneau s'affiche devant soi et reste fixe, accroché au corps du
+     coureur (pas à la tête) ; on vise au laser et on valide à la gâchette ;
    - allure, visite, peloton, départ et arrivée, moment de la journée, son,
      graphismes, carte pour se téléporter, et « Quitter la VR » ;
    - les messages de la 3D s'affichent aussi dans le casque.
+   Le panneau n'est redessiné que quand un réglage change : sur le Quest,
+   renvoyer une grande image à la carte graphique fait sauter des images
+   (les « flashs »). Le survol, le point visé sur la carte et sa propre
+   position sont de petits objets posés sur le panneau.
    Le manche ne fait plus avancer ni tourner tant que le menu est ouvert. */
-var VRM={ouvert:false, panneau:null, tex:null, g:null, W:1280, H:800, boutons:[], survol:null, carte:null, ctrl:[],
-         rc:new THREE.Raycaster(), bPrec:false, tRedessin:0, sale:true, astuce:null, tAstuce:0, toast:null, tToast:0, gfxFait:false,
-         visee:null, qSauve:null};
+var VRM={ouvert:false, panneau:null, W:1280, H:800, boutons:[], survol:null, carte:null, ctrl:[],
+         rc:new THREE.Raycaster(), bPrec:false, sale:true, sig:'', tSig:0, astuce:null, tAstuce:0, toast:null, tToast:0, gfxFait:false,
+         visee:null, qSauve:null, ancre:null, surbrillance:null, moi:null, cible:null, etiquette:null, etiqKm:null};
 var VR_GFX={
   fluide:{nom:'Fluide', q:0, dist:180, ombre:false, fb:0.9},
-  equilibre:{nom:'Équilibré', q:0, dist:230, ombre:true, fb:1.0},
-  detaille:{nom:'Détaillé', q:1, dist:270, ombre:true, fb:1.0}
+  equilibre:{nom:'Équilibré', q:0, dist:210, ombre:false, fb:1.0},
+  detaille:{nom:'Détaillé', q:1, dist:260, ombre:true, fb:1.0}
 };
 VRM.gfx='equilibre';
 try{ var _g=localStorage.getItem('corrida3d-vr-gfx'); if(VR_GFX[_g]) VRM.gfx=_g; }catch(e){}
+
+/* ----- les yeux du casque à hauteur des yeux du coureur ----- */
+/* Le casque donne la vraie hauteur de la tête au-dessus du sol : assis, on
+   voyait depuis la poitrine du coureur. Chaque image, le support est
+   décalé pour amener les yeux à 1,63 m au-dessus des pieds du coureur,
+   un peu en avant du corps, quelle que soit la taille de celui qui porte le
+   casque, debout ou assis. Le recalage est lissé sur une seconde : on peut
+   se pencher pour regarder, la vue revient doucement en place. */
+var XR_OEIL=1.63, XRC={off:new THREE.Vector3(), init:false, t:0, inv:new THREE.Matrix4(), invPret:false};
+var _vTete=new THREE.Vector3(), _vCible=new THREE.Vector3(), _vOffM=new THREE.Vector3();
+function xrAjusterRig(){
+  var R=XR3D.rig; if(!R) return;
+  var now=performance.now(), dt=XRC.t ? Math.min(0.1,(now-XRC.t)/1000) : 0.016;
+  XRC.t=now;
+  /* l'ancre : là où le moteur pose le corps, sans le recalage */
+  if(VRM.ancre){ VRM.ancre.position.copy(R.position); VRM.ancre.rotation.copy(R.rotation); }
+  if(_xrPris){
+    /* la tête dans l'espace du casque : l'œil de l'image précédente, ramené
+       par le support tel qu'il était alors (matrixWorld de l'image passée) */
+    /* (worldToLocal recalculerait le support avec sa nouvelle position : on
+       garde nous-mêmes la matrice inverse de l'image précédente) */
+    if(!XRC.invPret){ R.updateMatrixWorld(true); XRC.inv.copy(R.matrixWorld).invert(); }
+    _vTete.copy(_xrOeil).applyMatrix4(XRC.inv);
+    _vCible.set(0,XR_OEIL,-0.1).sub(_vTete);
+    if(!XRC.init){ XRC.off.copy(_vCible); XRC.init=true; }
+    else XRC.off.lerp(_vCible,1-Math.exp(-dt/0.9));
+  }
+  _vOffM.copy(XRC.off).applyEuler(R.rotation);
+  R.position.add(_vOffM);
+  XRC.inv.compose(R.position,R.quaternion,R.scale).invert(); XRC.invPret=true;
+}
 
 /* ----- la qualité dans le casque ----- */
 function appliquerGfxVR(){
@@ -20055,15 +20093,26 @@ function rendreQualites(){
 }
 
 /* ----- un panneau de texte dans la scène ----- */
-function panneauVR(w,h,W,H){
-  var c=toile(W,H), t=new THREE.CanvasTexture(c);
-  t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4;
+/* la toile est plus petite que le repère de dessin (1280 × 800) : on dessine
+   à l'échelle, et la texture n'a ni mipmaps ni filtrage anisotrope */
+function panneauVR(w,h,W,H,ech){
+  ech=ech||1;
+  var c=toile(Math.round(W*ech),Math.round(H*ech)), t=new THREE.CanvasTexture(c);
+  t.colorSpace=THREE.SRGBColorSpace; t.generateMipmaps=false; t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;
   var m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:t, transparent:true, depthTest:false, depthWrite:false, fog:false, toneMapped:false}));
   m.renderOrder=1000; m.frustumCulled=false; m.visible=false;
-  return {mesh:m, c:c, g:c.getContext('2d'), tex:t};
+  var g=c.getContext('2d'); g.setTransform(ech,0,0,ech,0,0);
+  return {mesh:m, c:c, g:g, tex:t, W:W, H:H};
 }
 function rondRect(g,x,y,w,h,r){
   g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath();
+}
+/* d'un point du repère de dessin au plan du panneau (1,28 × 0,80 m) */
+function surPanneau(px,py,z){ return new THREE.Vector3((px/VRM.W-0.5)*1.28,(0.5-py/VRM.H)*0.8,z||0.002); }
+function plaqueVR(w,h,couleur,opacite,ordre){
+  var m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color:couleur, transparent:true, opacity:opacite, depthTest:false, depthWrite:false, fog:false, toneMapped:false}));
+  m.renderOrder=ordre||1001; m.frustumCulled=false; m.visible=false;
+  return m;
 }
 
 /* ----- ce que contient le menu ----- */
@@ -20079,8 +20128,12 @@ function choisirMoment(k){
   appliquerCiel(); try{ majBoutonMoment(); }catch(e){}
 }
 function musiqueActive(){ try{ return !!(window.MUSIQUE && MUSIQUE.actif()); }catch(e){ return false; } }
+/* l'état qui se voit sur le panneau : on ne redessine que s'il change */
+function signatureVR(){
+  return [allureKmh(),auto?1:0,PELOTON.voulu?1:0,momentActuel(),musiqueActive()?1:0,SON14.voulu?1:0,SON14.volume,VRM.gfx,TRACE.length].join('|');
+}
 function boutonsVR(){
-  var B=[], x0=30, L=600;
+  var B=[], x0=30;
   function b(id,x,y,w,h,txt,on,fn){ B.push({id:id, x:x, y:y, w:w, h:h, txt:txt, on:!!on, fn:fn}); }
   b('fermer',1080,14,180,50,'✕ Fermer (B)',false,fermerMenuVR);
   var v=allureKmh();
@@ -20104,7 +20157,9 @@ function boutonsVR(){
   ['fluide','equilibre','detaille'].forEach(function(k,i){
     b('g_'+k,x0+i*202,718,194,56,VR_GFX[k].nom,VRM.gfx===k,function(){
       VRM.gfx=k; try{ localStorage.setItem('corrida3d-vr-gfx',k); }catch(e){}
-      appliquerGfxVR(); dire('Graphismes : '+VR_GFX[k].nom+(VR_GFX[k].fb!==(XR3D.fbPris||0.9)?' (netteté complète à la prochaine entrée dans le casque)':''));
+      var recompile=(VR_GFX[k].ombre!==!!ombres);
+      if(recompile) dire('Graphismes : '+VR_GFX[k].nom+'. Les ombres changent : quelques secondes de chargement…');
+      setTimeout(function(){ appliquerGfxVR(); if(!recompile) dire('Graphismes : '+VR_GFX[k].nom+(VR_GFX[k].fb!==(XR3D.fbPris||0.9)?' (netteté complète à la prochaine entrée)':'')); },recompile?150:0);
     });
   });
   b('quitter',660,718,590,56,'🥽 Quitter la VR',false,function(){ fermerMenuVR(); sortirVR(); });
@@ -20116,15 +20171,15 @@ function volumeAmbiance(d){
   var c=sonCtx(); if(c && SON14.voulu) SON14.maitre.gain.setTargetAtTime(SON14.volume,c.currentTime,0.05);
 }
 
-/* ----- la carte : le tracé, les jalonneurs, soi ----- */
+/* ----- la carte : le tracé, les km, le départ et l'arrivée ----- */
 var CARTE_VR={x:660, y:110, w:590, h:590};
 function cadreCarteVR(){
+  if(!TRACE.length) return null;
   if(VRM.carte && VRM.carte.n===TRACE.length) return VRM.carte;
   var x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
   TRACE.forEach(function(p){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); z0=Math.min(z0,p[1]); z1=Math.max(z1,p[1]); });
   var m=40, cw=CARTE_VR.w-2*m, ch=CARTE_VR.h-2*m, k=Math.min(cw/Math.max(1,x1-x0), ch/Math.max(1,z1-z0));
   var ox=CARTE_VR.x+m+(cw-(x1-x0)*k)/2, oz=CARTE_VR.y+m+(ch-(z1-z0)*k)/2;
-  /* le fond est dessiné une fois : bâtiments et tracé */
   var c=toile(CARTE_VR.w,CARTE_VR.h), g=c.getContext('2d');
   function X(x){ return ox+(x-x0)*k-CARTE_VR.x; } function Z(z){ return oz+(z-z0)*k-CARTE_VR.y; }
   g.fillStyle='#0d1522'; rondRect(g,0,0,CARTE_VR.w,CARTE_VR.h,18); g.fill();
@@ -20137,6 +20192,7 @@ function cadreCarteVR(){
   g.strokeStyle='#F2B33D'; g.lineWidth=5; g.lineJoin='round'; g.beginPath();
   TRACE.forEach(function(p,i){ if(i) g.lineTo(X(p[0]),Z(p[1])); else g.moveTo(X(p[0]),Z(p[1])); });
   g.stroke();
+  JOBJ.forEach(function(o){ g.fillStyle=o.j.niv==='r'?'#ff4b3e':'#ffab2e'; g.beginPath(); g.arc(X(o.x),Z(o.z),4.5,0,7); g.fill(); });
   for(var km=1;km<=Math.floor(LONGUEUR/1000);km++){
     var pk=pointSur(km*1000);
     g.fillStyle='#fff0c8'; g.beginPath(); g.arc(X(pk[0]),Z(pk[1]),9,0,7); g.fill();
@@ -20147,21 +20203,15 @@ function cadreCarteVR(){
   g.fillStyle='#ff5a4d'; g.beginPath(); g.arc(X(b2[0]),Z(b2[1]),11,0,7); g.fill();
   return (VRM.carte={n:TRACE.length, fond:c, x0:x0, z0:z0, k:k, ox:ox, oz:oz});
 }
-function carteVersMonde(px,py){
-  var C=cadreCarteVR();
-  return [C.x0+(px-C.ox)/C.k, C.z0+(py-C.oz)/C.k];
-}
-function mondeVersCarte(x,z){
-  var C=cadreCarteVR();
-  return [C.ox+(x-C.x0)*C.k, C.oz+(z-C.z0)*C.k];
-}
+function carteVersMonde(px,py){ var C=cadreCarteVR(); return [C.x0+(px-C.ox)/C.k, C.z0+(py-C.oz)/C.k]; }
+function mondeVersCarte(x,z){ var C=cadreCarteVR(); return [C.ox+(x-C.x0)*C.k, C.oz+(z-C.z0)*C.k]; }
 
-/* ----- le dessin du panneau ----- */
+/* ----- le dessin du panneau, seulement quand un réglage change ----- */
 function dessinerMenuVR(){
   var P=VRM.panneau, g=P.g, W=VRM.W, H=VRM.H;
   VRM.boutons=boutonsVR();
   g.clearRect(0,0,W,H);
-  g.fillStyle='rgba(12,18,28,0.94)'; rondRect(g,0,0,W,H,28); g.fill();
+  g.fillStyle='rgba(12,18,28,0.95)'; rondRect(g,0,0,W,H,28); g.fill();
   g.strokeStyle='rgba(242,179,61,0.8)'; g.lineWidth=3; rondRect(g,1.5,1.5,W-3,H-3,27); g.stroke();
   g.textBaseline='middle'; g.textAlign='left';
   g.fillStyle='#F2B33D'; g.font='800 34px system-ui, sans-serif'; g.fillText('CORRIDA 2027',30,40);
@@ -20169,55 +20219,49 @@ function dessinerMenuVR(){
   function titre(t,x,y){ g.fillStyle='#98A3B6'; g.font='700 20px system-ui, sans-serif'; g.textAlign='left'; g.fillText(t.toUpperCase(),x,y); }
   titre('Allure',30,94); titre('Parcours',30,270); titre('Moment de la journée',30,436); titre('Son',30,536); titre('Graphismes',30,702);
   titre('Carte : vise un point du parcours pour t’y rendre',660,94);
-  /* la valeur de l'allure et du volume, entre leurs boutons */
   g.textAlign='center'; g.fillStyle='#ffffff'; g.font='800 44px system-ui, sans-serif'; g.fillText(allureKmh()+' km/h',330,142);
   g.font='600 26px system-ui, sans-serif'; g.fillStyle='#dbe2ec'; g.fillText('Volume de l’ambiance : '+Math.round(SON14.volume*100)+' %',330,642);
   VRM.boutons.forEach(function(b){
-    var sv=VRM.survol===b.id;
-    g.fillStyle=b.on?'rgba(242,179,61,0.22)':(sv?'rgba(255,255,255,0.16)':'rgba(255,255,255,0.07)');
+    g.fillStyle=b.on?'rgba(242,179,61,0.22)':'rgba(255,255,255,0.07)';
     rondRect(g,b.x,b.y,b.w,b.h,12); g.fill();
-    g.strokeStyle=b.on?'#F2B33D':(sv?'#ffffff':'rgba(255,255,255,0.22)'); g.lineWidth=sv?3:2; rondRect(g,b.x,b.y,b.w,b.h,12); g.stroke();
+    g.strokeStyle=b.on?'#F2B33D':'rgba(255,255,255,0.22)'; g.lineWidth=2; rondRect(g,b.x,b.y,b.w,b.h,12); g.stroke();
     var fs=b.txt.length>16?24:27; g.font='700 '+fs+'px system-ui, sans-serif';
     while(g.measureText(b.txt).width>b.w-16 && fs>15){ fs--; g.font='700 '+fs+'px system-ui, sans-serif'; }
     g.fillStyle=b.on?'#F2B33D':'#ffffff'; g.textAlign='center';
     g.fillText(b.txt,b.x+b.w/2,b.y+b.h/2+1);
   });
-  /* la carte */
-  if(TRACE.length>1){
-    var C=cadreCarteVR();
-    g.drawImage(C.fond,CARTE_VR.x,CARTE_VR.y);
-    JOBJ.forEach(function(o){ var q=mondeVersCarte(o.x,o.z); g.fillStyle=o.j.niv==='r'?'#ff4b3e':'#ffab2e'; g.beginPath(); g.arc(q[0],q[1],4.5,0,7); g.fill(); });
-    var me=mondeVersCarte(J.x,J.z);
-    g.save(); g.translate(me[0],me[1]); g.rotate(J.cap);
-    g.fillStyle='#ffffff'; g.strokeStyle='#0d1522'; g.lineWidth=3;
-    g.beginPath(); g.moveTo(16,0); g.lineTo(-10,-10); g.lineTo(-5,0); g.lineTo(-10,10); g.closePath(); g.fill(); g.stroke();
-    g.restore();
-    if(VRM.visee){
-      var v2=mondeVersCarte(VRM.visee.x,VRM.visee.z);
-      g.strokeStyle='#4ade80'; g.lineWidth=4; g.beginPath(); g.arc(v2[0],v2[1],13,0,7); g.stroke();
-      g.fillStyle='#4ade80'; g.font='800 24px system-ui, sans-serif'; g.textAlign='center';
-      var ty=v2[1]-30<CARTE_VR.y+20 ? v2[1]+34 : v2[1]-30;
-      g.fillText('km '+(VRM.visee.d/1000).toFixed(2).replace('.',','),v2[0],ty);
-    }
-  }
+  var C=cadreCarteVR();
+  if(C) g.drawImage(C.fond,CARTE_VR.x,CARTE_VR.y);
   P.tex.needsUpdate=true;
-  VRM.sale=false;
+  VRM.sale=false; VRM.sig=signatureVR();
 }
 
 /* ----- ouvrir, fermer, viser ----- */
 function preparerMenuVR(){
   if(VRM.panneau || !XR3D.rig) return;
-  VRM.panneau=panneauVR(1.28,0.8,VRM.W,VRM.H);
-  XR3D.rig.add(VRM.panneau.mesh);
+  /* l'ancre suit le corps du coureur, pas la tête */
+  VRM.ancre=new THREE.Group(); VRM.ancre.name='ancre du menu VR'; scene.add(VRM.ancre);
+  VRM.panneau=panneauVR(1.28,0.8,VRM.W,VRM.H,0.8);
+  VRM.ancre.add(VRM.panneau.mesh);
+  var M=VRM.panneau.mesh;
+  /* la surbrillance du bouton visé, un voile blanc posé dessus */
+  VRM.surbrillance=plaqueVR(1,1,0xffffff,0.16,1001); M.add(VRM.surbrillance);
+  /* soi sur la carte, et le point visé avec son km */
+  var fl=new THREE.Shape(); fl.moveTo(0,0.018); fl.lineTo(-0.012,-0.012); fl.lineTo(0,-0.005); fl.lineTo(0.012,-0.012); fl.closePath();
+  VRM.moi=new THREE.Mesh(new THREE.ShapeGeometry(fl),new THREE.MeshBasicMaterial({color:0xffffff, depthTest:false, depthWrite:false, transparent:true, fog:false, toneMapped:false}));
+  VRM.moi.renderOrder=1002; VRM.moi.frustumCulled=false; M.add(VRM.moi);
+  VRM.cible=new THREE.Mesh(new THREE.RingGeometry(0.009,0.013,24),new THREE.MeshBasicMaterial({color:0x4ade80, depthTest:false, depthWrite:false, transparent:true, fog:false, toneMapped:false}));
+  VRM.cible.renderOrder=1002; VRM.cible.frustumCulled=false; VRM.cible.visible=false; M.add(VRM.cible);
+  VRM.etiquette=panneauVR(0.2,0.05,256,64); VRM.etiquette.mesh.renderOrder=1003; M.add(VRM.etiquette.mesh);
   /* un laser et un point d'impact par manette */
   for(var i=0;i<2;i++){
     var c=renderer.xr.getController(i);
     var ligne=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]),
       new THREE.LineBasicMaterial({color:0xF2B33D, depthTest:false, transparent:true, opacity:0.9, fog:false, toneMapped:false}));
-    ligne.renderOrder=1001; ligne.visible=false; ligne.frustumCulled=false;
+    ligne.renderOrder=1004; ligne.visible=false; ligne.frustumCulled=false;
     c.add(ligne);
-    var point=spriteLueur(0xffffff,0.035); point.material.depthTest=false; point.renderOrder=1002; point.visible=false;
-    XR3D.rig.add(point);
+    var point=spriteLueur(0xffffff,0.035); point.material.depthTest=false; point.renderOrder=1005; point.visible=false;
+    VRM.ancre.add(point);
     var C={obj:c, ligne:ligne, point:point, main:null, cible:null};
     (function(C){
       c.addEventListener('connected',function(e){ C.main=e.data && e.data.handedness; });
@@ -20234,32 +20278,33 @@ function preparerMenuVR(){
   VRM.toast.mesh.position.set(0,-0.42,-1.3);
 }
 function texteBandeau(P,txt,couleur){
-  var g=P.g, W=P.c.width, H=P.c.height;
+  var g=P.g, W=P.W, H=P.H;
   g.clearRect(0,0,W,H);
   g.fillStyle='rgba(12,18,28,0.9)'; rondRect(g,0,0,W,H,H/2); g.fill();
   g.strokeStyle=couleur||'#F2B33D'; g.lineWidth=3; rondRect(g,1.5,1.5,W-3,H-3,H/2-1); g.stroke();
   g.fillStyle='#ffffff'; g.textAlign='center'; g.textBaseline='middle';
-  var fs=40; g.font='700 '+fs+'px system-ui, sans-serif';
-  while(g.measureText(txt).width>W-60 && fs>20){ fs-=2; g.font='700 '+fs+'px system-ui, sans-serif'; }
+  var fs=Math.round(H*0.46); g.font='700 '+fs+'px system-ui, sans-serif';
+  while(g.measureText(txt).width>W-H*0.5 && fs>12){ fs-=2; g.font='700 '+fs+'px system-ui, sans-serif'; }
   g.fillText(txt,W/2,H/2+2);
   P.tex.needsUpdate=true;
 }
 function ouvrirMenuVR(){
   preparerMenuVR();
   if(!VRM.panneau) return;
-  /* devant le regard, à hauteur des yeux moins un peu, à 1,25 m */
-  var oeil=oeilMonde().clone(), dir=regardMonde().clone();
-  var loc=XR3D.rig.worldToLocal(oeil.clone());
-  var q=new THREE.Quaternion(); XR3D.rig.getWorldQuaternion(q); q.invert();
+  /* posé une fois pour toutes devant le regard, à hauteur des yeux, à
+     1,25 m ; il ne bouge plus ensuite, quoi que fasse la tête */
+  VRM.ancre.updateMatrixWorld(true);
+  var oeil=VRM.ancre.worldToLocal(oeilMonde().clone()), dir=regardMonde().clone();
+  var q=new THREE.Quaternion(); VRM.ancre.getWorldQuaternion(q); q.invert();
   dir.applyQuaternion(q); dir.y=0;
   if(dir.lengthSq()<1e-6) dir.set(0,0,-1);
   dir.normalize();
   var m=VRM.panneau.mesh;
-  m.position.set(loc.x+dir.x*1.25, loc.y-0.12, loc.z+dir.z*1.25);
+  m.position.set(oeil.x+dir.x*1.25, oeil.y-0.05, oeil.z+dir.z*1.25);
   m.rotation.set(0,Math.atan2(-dir.x,-dir.z),0);
-  m.visible=true; VRM.ouvert=true; VRM.sale=true; VRM.survol=null;
+  m.visible=true; VRM.ouvert=true; VRM.survol=null; VRM.visee=null;
   VRM.astuce.mesh.visible=false;
-  dessinerMenuVR();
+  if(VRM.sale || VRM.sig!==signatureVR()) dessinerMenuVR();
 }
 function fermerMenuVR(){
   VRM.ouvert=false;
@@ -20282,18 +20327,40 @@ function viserVR(){
     C.ligne.visible=true;
     if(!h){ C.ligne.scale.z=2; C.point.visible=false; return; }
     C.ligne.scale.z=h.distance;
-    C.point.visible=true; C.point.position.copy(XR3D.rig.worldToLocal(h.point.clone()));
+    C.point.visible=true; C.point.position.copy(VRM.ancre.worldToLocal(h.point.clone()));
     var px=h.uv.x*VRM.W, py=(1-h.uv.y)*VRM.H;
     var b=VRM.boutons.filter(function(b){ return px>=b.x && px<=b.x+b.w && py>=b.y && py<=b.y+b.h; })[0];
-    if(b){ C.cible={bouton:b}; if(C.main==='right' || !survol) survol=b.id; }
+    if(b){ C.cible={bouton:b}; if(C.main==='right' || !survol) survol=b; }
     else if(px>=CARTE_VR.x && px<=CARTE_VR.x+CARTE_VR.w && py>=CARTE_VR.y && py<=CARTE_VR.y+CARTE_VR.h && TRACE.length>1){
       var w=carteVersMonde(px,py), sp=surLeParcours(w[0],w[1]);
       if(sp.ecart<60){ var p=pointSur(sp.d); C.cible={d:sp.d}; if(C.main==='right' || !visee) visee={x:p[0], z:p[1], d:sp.d}; }
     }
   });
-  var chg=(survol!==VRM.survol) || ((visee?Math.round(visee.d/10):-1)!==(VRM.visee?Math.round(VRM.visee.d/10):-1));
-  VRM.survol=survol; VRM.visee=visee;
-  if(chg) VRM.sale=true;
+  /* le survol : on déplace le voile, sans rien redessiner */
+  var S=VRM.surbrillance;
+  if(survol){
+    S.visible=true; S.scale.set(survol.w/VRM.W*1.28,survol.h/VRM.H*0.8,1);
+    S.position.copy(surPanneau(survol.x+survol.w/2,survol.y+survol.h/2,0.002));
+  } else S.visible=false;
+  VRM.survol=survol && survol.id;
+  /* le point visé sur la carte et son km (petite étiquette, redessinée
+     seulement quand le km affiché change) */
+  VRM.visee=visee;
+  if(visee){
+    var v2=mondeVersCarte(visee.x,visee.z);
+    VRM.cible.visible=true; VRM.cible.position.copy(surPanneau(v2[0],v2[1],0.003));
+    var km='km '+(visee.d/1000).toFixed(2).replace('.',',');
+    if(km!==VRM.etiqKm){ VRM.etiqKm=km; texteBandeau(VRM.etiquette,km,'#4ade80'); }
+    VRM.etiquette.mesh.visible=true;
+    VRM.etiquette.mesh.position.copy(surPanneau(v2[0],v2[1]+(v2[1]-40<CARTE_VR.y+20?40:-40),0.004));
+  } else { VRM.cible.visible=false; VRM.etiquette.mesh.visible=false; }
+}
+function placerMoiVR(){
+  if(!VRM.moi || !cadreCarteVR()) return;
+  var me=mondeVersCarte(J.x,J.z);
+  VRM.moi.position.copy(surPanneau(me[0],me[1],0.003));
+  /* la flèche pointe dans le sens de course : cap compté depuis +x, carte orientée nord en haut */
+  VRM.moi.rotation.set(0,0,-J.cap-Math.PI/2);
 }
 function cliquerVR(C){
   if(!C.cible) return;
@@ -20303,7 +20370,6 @@ function cliquerVR(C){
     dire('Téléporté au km '+(C.cible.d/1000).toFixed(2).replace('.',','));
   }
   VRM.sale=true;
-  /* la réponse s'entend et se sent : petit clic, petite vibration */
   try{ var s=XR3D.session; (s && s.inputSources||[]).forEach(function(src){ if(src.handedness===C.main && src.gamepad && src.gamepad.hapticActuators && src.gamepad.hapticActuators[0]) src.gamepad.hapticActuators[0].pulse(0.4,30); }); }catch(e){}
 }
 
@@ -20316,8 +20382,10 @@ function majMenuVR(dt){
   if(VRM.tToast>0){ VRM.tToast-=dt; VRM.toast.mesh.visible=VRM.tToast>0; }
   if(!VRM.ouvert) return;
   viserVR();
-  VRM.tRedessin-=dt;
-  if(VRM.sale || VRM.tRedessin<=0){ VRM.tRedessin=0.5; dessinerMenuVR(); }
+  placerMoiVR();
+  /* redessin seulement si l'état a changé (clic, touche, visite qui s'arrête) */
+  VRM.tSig-=dt;
+  if(VRM.sale || VRM.tSig<=0){ VRM.tSig=0.4; if(VRM.sale || VRM.sig!==signatureVR()) dessinerMenuVR(); }
 }
 /* la touche B (manette droite) ou Y (gauche), sur son front montant */
 var _xrManchesVR=xrManches;
@@ -20343,7 +20411,8 @@ dire=function(msg){
   try{ if(XR3D.actif && VRM.toast && msg){ texteBandeau(VRM.toast,String(msg).replace(/<[^>]*>/g,'').slice(0,90),'#4ade80'); VRM.tToast=3.5; } }catch(e){}
   return r;
 };
-/* netteté et rendu fovéal fixés avant la séance */
+/* netteté et rendu fovéal fixés avant la séance ; la carte du menu est
+   préparée ici, sur l'écran, et non à la première ouverture dans le casque */
 var _entrerVRm=entrerVR;
 entrerVR=function(){
   try{
@@ -20355,8 +20424,11 @@ entrerVR=function(){
       }
       if(renderer.xr.setFoveation) renderer.xr.setFoveation(1);
     }
+    cadreCarteVR();
   }catch(e){}
-  VRM.gfxFait=false;
+  VRM.gfxFait=false; XRC.init=false; XRC.invPret=false; XRC.off.set(0,0,0); VRM.sale=true;
+  /* la tête de la séance précédente ne doit pas servir de départ au recalage */
+  _xrPris=false;
   return _entrerVRm.apply(this,arguments);
 };
 /* en sortant : menu refermé, qualités rendues ; sur le Quest, la page
@@ -20369,6 +20441,7 @@ sortirVR=function(){
   if(VRM.toast) VRM.toast.mesh.visible=false;
   var r=_sortirVRm.apply(this,arguments);
   rendreQualites();
+  XRC.init=false; XRC.invPret=false; XRC.off.set(0,0,0);
   if(etait && /OculusBrowser|Quest/i.test(navigator.userAgent||'')){
     try{
       PERF.qualite=0; PERF.dist=Math.min(PERF.dist,200); PERF.auto=true;
