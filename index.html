@@ -213536,10 +213536,11 @@ function figerEpaisseurs(racine,kk){
 }
 /* cartouche : titre, chiffres, échelle et nord, en unités de la page */
 function cartoucheSVG(L,H,mpu,kk,ch){
-  var g=el('g',{}), y=H-64;
-  g.appendChild(el('rect',{x:0,y:y-20,width:L,height:84,fill:'#0B1019','fill-opacity':0.94}));
+  var g=el('g',{}), y=H-64, cl=!!ch.clair, encre=cl?'#2A3342':'#F4F4F0';
+  g.appendChild(el('rect',{x:0,y:y-20,width:L,height:84,fill:cl?'#FFFFFF':'#0B1019','fill-opacity':0.94}));
+  if(cl) g.appendChild(el('line',{x1:0,y1:y-20,x2:L,y2:y-20,stroke:'#D8D2C6','stroke-width':1.5}));
   if(ch.cTitre){
-    var t1=el('text',{x:24,y:y+8,'font-family':'Oswald, Impact, sans-serif','font-size':26,'font-weight':600,fill:'#F2B33D'});
+    var t1=el('text',{x:24,y:y+8,'font-family':'Oswald, Impact, sans-serif','font-size':26,'font-weight':600,fill:cl?'#A5620A':'#F2B33D'});
     t1.textContent='CORRIDA 2027 ENSOA – PARCOURS '+nomParcours();
     g.appendChild(t1);
   }
@@ -213548,7 +213549,7 @@ function cartoucheSVG(L,H,mpu,kk,ch){
     if(INFO && INFO.dplus) infos+='  ·  '+Math.round(INFO.dplus)+' m D+';
     if(JAL.length) infos+='  ·  '+JAL.length+' jalonneur'+(JAL.length>1?'s':'');
     infos+='  ·  Saint-Maixent-l’École  ·  '+new Date().toLocaleDateString('fr-FR');
-    var t2=el('text',{x:24,y:y+36,'font-family':'Helvetica, Arial, sans-serif','font-size':15,fill:'#C9CED4'});
+    var t2=el('text',{x:24,y:y+36,'font-family':'Helvetica, Arial, sans-serif','font-size':15,fill:cl?'#3F4756':'#C9CED4'});
     t2.textContent=infos;
     g.appendChild(t2);
   }
@@ -213559,17 +213560,17 @@ function cartoucheSVG(L,H,mpu,kk,ch){
     for(i=0;i<pas.length;i++) if(Math.abs(pas[i]-visee)<Math.abs(m-visee)) m=pas[i];
     var lpx=m*kk/mpu;
     x0=L-24-lpx;
-    g.appendChild(el('line',{x1:x0,y1:y+22,x2:x0+lpx,y2:y+22,stroke:'#F4F4F0','stroke-width':3}));
-    [x0,x0+lpx].forEach(function(x){ g.appendChild(el('line',{x1:x,y1:y+15,x2:x,y2:y+29,stroke:'#F4F4F0','stroke-width':3})); });
-    var t3=el('text',{x:x0+lpx/2,y:y+8,'text-anchor':'middle','font-family':'Helvetica, Arial, sans-serif','font-size':14,fill:'#F4F4F0'});
+    g.appendChild(el('line',{x1:x0,y1:y+22,x2:x0+lpx,y2:y+22,stroke:encre,'stroke-width':3}));
+    [x0,x0+lpx].forEach(function(x){ g.appendChild(el('line',{x1:x,y1:y+15,x2:x,y2:y+29,stroke:encre,'stroke-width':3})); });
+    var t3=el('text',{x:x0+lpx/2,y:y+8,'text-anchor':'middle','font-family':'Helvetica, Arial, sans-serif','font-size':14,fill:encre});
     t3.textContent=(m>=1000 ? (m/1000)+' km' : m+' m');
     g.appendChild(t3);
   }
   if(ch.cNord){
     /* la carte est en projection Mercator, le nord est vers le haut */
     var xn=x0-46;
-    g.appendChild(el('path',{d:'M'+xn+' '+(y+30)+'L'+(xn-7)+' '+(y+30)+'L'+xn+' '+(y+4)+'L'+(xn+7)+' '+(y+30)+'Z',fill:'#F4F4F0'}));
-    var t4=el('text',{x:xn,y:y-2,'text-anchor':'middle','font-family':'Oswald, Impact, sans-serif','font-size':15,fill:'#F4F4F0'});
+    g.appendChild(el('path',{d:'M'+xn+' '+(y+30)+'L'+(xn-7)+' '+(y+30)+'L'+xn+' '+(y+4)+'L'+(xn+7)+' '+(y+30)+'Z',fill:encre}));
+    var t4=el('text',{x:xn,y:y-2,'text-anchor':'middle','font-family':'Oswald, Impact, sans-serif','font-size':15,fill:encre});
     t4.textContent='N';
     g.appendChild(t4);
   }
@@ -213666,7 +213667,7 @@ function imageParcoursSVG(ch){
   });
   /* le tracé doit se détacher du fond : liseré sombre dessous, couleur avivée dessus,
      et le halo un peu plus présent pour écarter la carte autour */
-  var gT=c.querySelector('#c-trace');
+  var gT=c.querySelector('#c-trace'), coulT=couleurTraceImage(ch);
   if(gT) Array.prototype.slice.call(gT.querySelectorAll('path[stroke]')).forEach(function(p){
     var coul=aviverCouleur(p.getAttribute('stroke'));
     if(!coul) return;                       /* zone de clic transparente : on la laisse */
@@ -213675,14 +213676,14 @@ function imageParcoursSVG(ch){
     lis.setAttribute('stroke','#080C14');
     lis.setAttribute('stroke-width',(w+IMG_LISERE).toFixed(2));
     gT.insertBefore(lis,p);
-    p.setAttribute('stroke',coul);
+    p.setAttribute('stroke',(ch.couleur||ch.clair)?coulT:coul);
   });
   var gHa=c.querySelector('#c-halo');
   if(gHa) Array.prototype.slice.call(gHa.querySelectorAll('path[stroke]')).forEach(function(p){
     var coul=aviverCouleur(p.getAttribute('stroke'));
     if(!coul) return;
-    p.setAttribute('stroke-opacity',IMG_HALO);
-    p.setAttribute('stroke',coul);
+    p.setAttribute('stroke-opacity',ch.clair?IMG_HALO*0.8:IMG_HALO);
+    p.setAttribute('stroke',(ch.couleur||ch.clair)?coulT:coul);
   });
   /* allègement : infobulles, zones de clic invisibles, curseurs */
   Array.prototype.slice.call(c.querySelectorAll('title')).forEach(function(e){ e.parentNode.removeChild(e); });
@@ -213694,7 +213695,8 @@ function imageParcoursSVG(ch){
   Array.prototype.slice.call(c.querySelectorAll('[pointer-events]')).forEach(function(e){ e.removeAttribute('pointer-events'); });
   ['vecteur','raster','satellite'].forEach(function(id){ elaguerHorsCadre(c.querySelector('#'+id),cadre[0],cadre[1],cadre[2],cadre[3]); });
   figerEpaisseurs(c,kk);
-  c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:'#0B1019'}),c.firstChild);
+  if(ch.clair) eclaircirSVG(c);
+  c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:ch.clair?'#F4F1EA':'#0B1019'}),c.firstChild);
   if(cart) c.appendChild(cartoucheSVG(L,H,metresParUnite(),kk,ch));
   return {txt:'<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(c)+'\n', L:L, H:H};
 }
@@ -213723,7 +213725,52 @@ var IMG_CHOIX={fRues:true, fBati:true, fVeg:true, fEau:true, fEmprise:true, fRai
   plan:false, sat:false,
   trace:true, halo:true, fleches:true, km:true, da:true, autres:false,
   jal:true, jalNum:true, bar:true, rub:true, mat:true, veh:true, pol:true, zones:true, pois:false, piste:false,
-  cTitre:true, cChiffres:true, cEchelle:true, cNord:true, largeur:3000};
+  cTitre:true, cChiffres:true, cEchelle:true, cNord:true, largeur:3000,
+  clair:false, couleur:''};
+/* style de l'image et couleur du tracé : retenus d'une fois sur l'autre */
+(function(){
+  try{
+    var s=JSON.parse(localStorage.getItem('corrida-image-style')||'{}');
+    if(typeof s.clair==='boolean') IMG_CHOIX.clair=s.clair;
+    if(/^#[0-9a-fA-F]{6}$/.test(s.couleur||'')) IMG_CHOIX.couleur=s.couleur;
+  }catch(e){}
+})();
+function retenirStyleImage(){
+  try{ localStorage.setItem('corrida-image-style',JSON.stringify({clair:IMG_CHOIX.clair, couleur:IMG_CHOIX.couleur})); }catch(e){}
+}
+/* couleur du tracé par défaut : celle du parcours sur fond sombre ; sur fond
+   clair, un jaune ne ressort pas : un bleu franc, bien distinct des triangles
+   rouges des jalonneurs */
+var IMG_TRACE_CLAIR='#1D4ED8';
+function couleurTraceImage(ch){
+  if(ch.couleur) return ch.couleur;
+  if(ch.clair) return IMG_TRACE_CLAIR;
+  var p=document.querySelector('#c-trace path[stroke]:not([stroke="transparent"])');
+  return aviverCouleur(p && p.getAttribute('stroke')) || '#FFD348';
+}
+/* mode clair : chaque teinte sombre du fond et des calques a son équivalent
+   sur papier clair ; le noir des contours (#0B1019) reste pour le contraste */
+var IMG_PALETTE_CLAIRE={
+  '#141C2B':'#F4F1EA',
+  '#1A2620':'#DCE7D0','#1A2921':'#D5E3C8','#1C2622':'#DFE8D5','#1C2C25':'#D3E2C6',
+  '#1A2C3A':'#BCD8EA','#1D2533':'#D8D2C6',
+  '#4A7FA0':'#2F6286','#6E8059':'#51663B','#7E9067':'#5E7248','#98A3B6':'#4E5868',
+  '#242D3C':'#E2DCCF','#283341':'#DAD3C5','#2E3B4D':'#D0C9BA','#42536F':'#B9B1A1',
+  '#2E5570':'#86B4D2','#454F63':'#8A8F99',
+  '#05080E':'#B9B2A5','#1E2534':'#D8D2C6','#2E384B':'#E0DAD0','#3A4660':'#E8E3DA','#44405A':'#E3DCD5','#4B4446':'#E5DAD1','#5B6884':'#A39C8E',
+  '#B4BECD':'#2A3342','#7E8AA0':'#5F6B80',
+  '#F4F4F0':'#4F5561','#C9CED4':'#4A5260','#C9D1A0':'#6F7C3E','#E9B8B4':'#E7A7A1'
+};
+function eclaircirSVG(racine){
+  Array.prototype.slice.call(racine.querySelectorAll('[fill],[stroke]')).forEach(function(e){
+    ['fill','stroke'].forEach(function(a){
+      var v=e.getAttribute(a);
+      if(!v || v.charAt(0)!=='#') return;
+      var n=IMG_PALETTE_CLAIRE[v.toUpperCase()];
+      if(n) e.setAttribute(a,n);
+    });
+  });
+}
 var IMG_SECTIONS=[
   ['Fond de carte',[['fRues','Rues et places'],['fBati','Bâtiments'],['fVeg','Végétation et terrains'],
     ['fEau','Rivière et plans d’eau'],['fEmprise','Limites des quartiers militaires'],['fRail','Voie ferrée'],
@@ -213754,6 +213801,14 @@ function apercuPlusTard(){
   if(IMG_VUE.attente) clearTimeout(IMG_VUE.attente);
   IMG_VUE.attente=setTimeout(function(){ IMG_VUE.attente=null; majApercu(); },140);
 }
+/* les commandes de style suivent le choix retenu, le cadre d'aperçu aussi */
+function synchroStyleImage(m){
+  Array.prototype.slice.call(m.querySelectorAll('input[name="img-style"]')).forEach(function(r){
+    r.checked=(r.value==='clair')===!!IMG_CHOIX.clair;
+  });
+  m.querySelector('#img-couleur').value=couleurTraceImage(IMG_CHOIX).toLowerCase();
+  m.querySelector('#img-fond').style.background=IMG_CHOIX.clair?'#F4F1EA':'#0B1019';
+}
 function ouvrirImageParcours(){
   var m=document.getElementById('modale-image');
   if(!m){
@@ -213761,8 +213816,14 @@ function ouvrirImageParcours(){
     m.className='modale'; m.id='modale-image'; m.hidden=true;
     m.innerHTML='<div class="modale-in" style="width:min(1060px,100%)"><h2>Image du parcours</h2>'+
       '<p class="mode">Coche ce que l’image doit montrer, l’aperçu suit. L’image est cadrée sur le parcours, pas sur ce qui est à l’écran.</p>'+
-      '<div style="background:#0B1019;border:1px solid var(--trait);border-radius:3px;padding:8px;display:flex;justify-content:center">'+
+      '<div id="img-fond" style="background:#0B1019;border:1px solid var(--trait);border-radius:3px;padding:8px;display:flex;justify-content:center">'+
       '<img id="img-apercu" alt="Aperçu du parcours" style="max-width:100%;max-height:44vh;display:block"></div>'+
+      '<div class="mode" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;margin:4px 0">'+
+      '<span class="menu-titre" style="margin:0">Style</span>'+
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="img-style" value="sombre"> Fond sombre</label>'+
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="img-style" value="clair"> Fond clair</label>'+
+      '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">Couleur du tracé <input type="color" id="img-couleur" style="width:44px;height:28px;padding:0;border:1px solid var(--trait);background:none;cursor:pointer"></label>'+
+      '<button id="img-couleur-auto" type="button" title="Couleur du parcours sur fond sombre, bleu franc sur fond clair">Couleur par défaut</button></div>'+
       '<div id="img-cases" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:4px 18px;align-items:start"></div>'+
       '<label class="mode" style="display:flex;align-items:center;gap:10px">Résolution de l’image '+
       '<select id="img-largeur"><option value="1200">1200 px</option><option value="2000">2000 px</option>'+
@@ -213790,6 +213851,19 @@ function ouvrirImageParcours(){
       });
       box.appendChild(col);
     });
+    Array.prototype.slice.call(m.querySelectorAll('input[name="img-style"]')).forEach(function(r){
+      r.addEventListener('change',function(){
+        if(!r.checked) return;
+        IMG_CHOIX.clair=(r.value==='clair');
+        retenirStyleImage(); synchroStyleImage(m); apercuPlusTard();
+      });
+    });
+    m.querySelector('#img-couleur').addEventListener('input',function(){
+      IMG_CHOIX.couleur=this.value; retenirStyleImage(); apercuPlusTard();
+    });
+    m.querySelector('#img-couleur-auto').onclick=function(){
+      IMG_CHOIX.couleur=''; retenirStyleImage(); synchroStyleImage(m); apercuPlusTard();
+    };
     m.querySelector('#img-largeur').addEventListener('change',function(){
       IMG_CHOIX.largeur=+this.value;
       var et=m.querySelector('#img-etat');
@@ -213815,6 +213889,7 @@ function ouvrirImageParcours(){
     };
   }
   m.querySelector('h2').textContent='Image du parcours '+nomParcours();
+  synchroStyleImage(m);
   m.querySelector('#img-etat').textContent='Dessin de l’aperçu…';
   m.hidden=false;
   setTimeout(majApercu,20);
