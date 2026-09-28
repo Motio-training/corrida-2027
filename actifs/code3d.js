@@ -21535,40 +21535,60 @@ function leverBras(g,k){
   G.getWorldPosition(_vBG); D.getWorldPosition(_vBD);
   var cote=_vBG.sub(_vBD); cote.y=0; cote.normalize();
   var ca=-g.rotation.y, av=new THREE.Vector3(Math.cos(ca),0,Math.sin(ca)), haut=new THREE.Vector3(0,1,0);
-  /* le geste du vainqueur, posé par la cinématique inverse du moteur : poing
-     au-dessus et un peu en dehors de l'épaule, bras presque tendu, coude
-     vers l'extérieur et légèrement en arrière, paume tournée vers la tête
-     et un peu vers l'avant, doigts serrés ; puis mêlé à la course selon k */
+  /* le buste se redresse et bascule un peu en arrière, la tête se lève */
+  var tete=B.Bip01_Head, buste=B.Bip01_Spine2||B.Bip01_Spine1;
+  function basculer(os,ang,test){
+    if(!os || !test) return;
+    var q0=os.quaternion.clone(), a0=test();
+    tournerOsMonde(os,cote,0.1); os.updateMatrixWorld(true); var a1=test();
+    os.quaternion.copy(q0); os.updateMatrixWorld(true);
+    tournerOsMonde(os,cote,(a1>a0?1:-1)*ang); os.updateMatrixWorld(true);
+  }
+  if(tete){
+    /* buste : la tête recule ; tête : un point devant le visage monte */
+    basculer(buste,LEVE.buste*k,function(){ return -tete.getWorldPosition(new THREE.Vector3()).dot(av); });
+    var visage=tete.worldToLocal(tete.getWorldPosition(new THREE.Vector3()).addScaledVector(av,0.2));
+    basculer(tete,LEVE.tete*k,function(){ tete.updateMatrixWorld(true); return tete.localToWorld(visage.clone()).y; });
+  }
+  /* le geste de la photo de référence : le bras monte en V à 45° vers
+     l'extérieur, le coude plié et tourné vers l'extérieur, l'avant-bras
+     presque vertical, le poing au-dessus du coude, doigts vers l'avant */
   ['L','R'].forEach(function(S){
     var up=B['Bip01_'+S+'_UpperArm'], fo=B['Bip01_'+S+'_Forearm'], ha=B['Bip01_'+S+'_Hand'], s=S==='L'?1:-1;
     if(!up || !fo || !ha) return;
     var q0=[up.quaternion.clone(), fo.quaternion.clone(), ha.quaternion.clone()];
+    up.updateMatrixWorld(true);
     var pE=up.getWorldPosition(new THREE.Vector3()), pC=fo.getWorldPosition(new THREE.Vector3()), pM=ha.getWorldPosition(new THREE.Vector3());
-    var lon=pE.distanceTo(pC)+pC.distanceTo(pM);
-    var dir=haut.clone().multiplyScalar(LEVE.haut).addScaledVector(cote,LEVE.ecart*s).addScaledVector(av,LEVE.avant).normalize();
-    var cible=pE.clone().addScaledVector(dir,lon*LEVE.tendu);
-    var pole=cote.clone().multiplyScalar(s).addScaledVector(av,-LEVE.coudeArr).addScaledVector(haut,-0.15).normalize();
-    var paume=av.clone().multiplyScalar(LEVE.paumeAv).addScaledVector(cote,-s).normalize();
+    var la=pE.distanceTo(pC), lb=pC.distanceTo(pM);
+    var u1=haut.clone().multiplyScalar(Math.cos(LEVE.ouv)).addScaledVector(cote,s*Math.sin(LEVE.ouv)).addScaledVector(av,LEVE.avBras).normalize();
+    var coude=pE.clone().addScaledVector(u1,la);
+    var u2=haut.clone().addScaledVector(cote,s*LEVE.avantBrasDehors).addScaledVector(av,LEVE.avBras*0.5).normalize();
+    var cible=coude.clone().addScaledVector(u2,lb*0.985);
+    var ax=cible.clone().sub(pE).normalize(), rel=coude.clone().sub(pE);
+    var pole=rel.sub(ax.clone().multiplyScalar(rel.dot(ax)));
+    if(pole.lengthSq()<1e-6) pole=cote.clone().multiplyScalar(s); pole.normalize();
     try{ ikBras(B,S,cible,pole,null,null,0); }catch(e){ return; }
-    /* la paume se tourne surtout par l'épaule : tout le bras pivote autour
-       de l'axe épaule-main (la main ne bouge pas), le poignet ne fait que finir */
+    var paume=av.clone().addScaledVector(cote,-s*LEVE.paumeDedans).normalize();
+    /* la paume se tourne par l'avant-bras (pronation), le poignet finit */
     try{
-      var Rm=repereMain(B,S), pM2=ha.getWorldPosition(new THREE.Vector3()), A=pM2.sub(pE).normalize();
+      fo.updateMatrixWorld(true);
+      var Rm=repereMain(B,S), A=ha.getWorldPosition(new THREE.Vector3()).sub(fo.getWorldPosition(new THREE.Vector3())).normalize();
       if(Rm){
         var n1=Rm.N.clone().sub(A.clone().multiplyScalar(Rm.N.dot(A))), n2=paume.clone().sub(A.clone().multiplyScalar(paume.dot(A)));
         if(n1.lengthSq()>1e-4 && n2.lengthSq()>1e-4){
           n1.normalize(); n2.normalize();
-          var aE=Math.atan2(new THREE.Vector3().crossVectors(n1,n2).dot(A), n1.dot(n2));
-          tournerOsMonde(up,A,aE); up.updateMatrixWorld(true);
+          var aP=Math.atan2(new THREE.Vector3().crossVectors(n1,n2).dot(A), n1.dot(n2));
+          aP=Math.max(-LEVE.pronation,Math.min(LEVE.pronation,aP));
+          tournerOsMonde(fo,A,aP); fo.updateMatrixWorld(true);
         }
       }
     }catch(e){}
-    try{ mainPoing(B,S,dir,paume,k>0.3?Math.min(1,(k-0.3)/0.5):0); }catch(e){}
+    try{ mainPoing(B,S,u2,paume,k>0.3?Math.min(1,(k-0.3)/0.5):0); }catch(e){}
     if(k<0.999){ [up,fo,ha].forEach(function(o,i){ var q=o.quaternion.clone(); o.quaternion.copy(q0[i]).slerp(q,k); }); }
     up.updateMatrixWorld(true);
   });
 }
-var LEVE={haut:0.86, ecart:0.42, avant:0.16, tendu:0.96, coudeArr:0.35, paumeAv:0.45, vrille:0.6, pouce:0.2, serre:[0.35,0.3,0.2]};
+var LEVE={ouv:0.88, avBras:0.12, avantBrasDehors:-0.08, paumeDedans:0.3, pronation:1.2, buste:0.12, tete:0.35, vrille:0.6, pouce:0.2, serre:[0.35,0.3,0.2]};
 /* repère de la main, déduit du pouce (et non de la pose de repos, trompeuse
    sur ces modèles) : doigts F, pouce T, paume N. Main droite N = T × F,
    main gauche N = F × T. */
