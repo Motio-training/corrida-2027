@@ -213400,13 +213400,177 @@ function telechargerRues(){
     dire('Liste des rues du parcours '+nom+' téléchargée.','ok');
   }catch(e){ console.error(e); dire('Liste des rues impossible à produire.','err'); }
 }
+/* ---------------------------------------------------------------
+   Liste des rues au format Word, avec les horaires de passage, sur
+   le modèle du document « Corrida 2027 - voies et horaires » : pour
+   chaque voie, la plage où elle est empruntée (entrée du premier
+   coureur → sortie du dernier), puis le détail du premier et du
+   dernier coureur. Entrée arrondie à la minute inférieure, sortie à
+   la minute supérieure. Heure de départ et allures réglables.
+   Le .docx est assemblé ici même (archive ZIP sans compression).
+--------------------------------------------------------------- */
+var RUES_HOR={depart:'19:00', tete:'3:00', dernier:'12:00'};
+(function(){
+  try{
+    var s=JSON.parse(localStorage.getItem('corrida-rues-horaires2')||'{}');
+    Object.keys(RUES_HOR).forEach(function(k){ if(s[k]!==undefined && s[k]!=='') RUES_HOR[k]=s[k]; });
+  }catch(e){}
+})();
+function minutesDe(hhmm){ var m=/^(\d{1,2})\s*[:h]\s*(\d{2})$/.exec(String(hhmm).trim()); return m ? (+m[1])*60+(+m[2]) : NaN; }
+function heureH(min){ var h=Math.floor(min/60)%24, m=min%60; return h+'h'+(m<10?'0':'')+m; }
+function hEsp(min){ var h=Math.floor(min/60)%24, m=min%60; return h+' h '+(m<10?'0':'')+m; }
+/* allure « 3:00 » (min:s par km) → minutes par mètre */
+function allureMin(s){ var m=/^(\d{1,2})\s*[:'’′]\s*(\d{2})/.exec(String(s).trim()); return m ? ((+m[1])+(+m[2])/60)/1000 : NaN; }
+function allureTxt(s){ var m=/^(\d{1,2})\s*[:'’′]\s*(\d{2})/.exec(String(s).trim()); return m ? (+m[1])+'′'+m[2]+'″/km' : s; }
+var _crcT=null;
+function crc32(b){
+  if(!_crcT){ _crcT=new Uint32Array(256); for(var n=0;n<256;n++){ var c=n; for(var k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); _crcT[n]=c>>>0; } }
+  var x=0xFFFFFFFF; for(var i=0;i<b.length;i++) x=_crcT[(x^b[i])&255]^(x>>>8);
+  return (x^0xFFFFFFFF)>>>0;
+}
+function zipStocke(fichiers){
+  var enc=new TextEncoder(), parts=[], centre=[], off=0, d=new Date();
+  var dosT=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1), dosD=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate();
+  function u16(v){ return [v&255,(v>>8)&255]; }
+  function u32(v){ return [v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255]; }
+  fichiers.forEach(function(f){
+    var nom=enc.encode(f.nom), data=enc.encode(f.txt), crc=crc32(data);
+    var tete=[].concat(u32(0x04034b50),u16(20),u16(0x0800),u16(0),u16(dosT),u16(dosD),u32(crc),u32(data.length),u32(data.length),u16(nom.length),u16(0));
+    parts.push(new Uint8Array(tete),nom,data);
+    centre.push(new Uint8Array([].concat(u32(0x02014b50),u16(20),u16(20),u16(0x0800),u16(0),u16(dosT),u16(dosD),u32(crc),u32(data.length),u32(data.length),u16(nom.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off))),nom);
+    off+=tete.length+nom.length+data.length;
+  });
+  var taille=centre.reduce(function(a,b){ return a+b.length; },0);
+  var fin=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(fichiers.length),u16(fichiers.length),u32(taille),u32(off),u16(0)));
+  return new Blob(parts.concat(centre,[fin]),{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+}
+function docxRues(P){
+  var toutes=ruesBrutes(), longues=fusionnerRues(toutes,35);
+  var total=CUM.length ? CUM[CUM.length-1] : 0;
+  var t0=minutesDe(P.depart), aT=allureMin(P.tete), aD=allureMin(P.dernier);
+  if(isNaN(t0) || isNaN(aT) || isNaN(aD)) throw new Error('heure ou allure illisible (écrire 19:00, 3:00, 12:00)');
+  function entree(d,a){ return Math.floor(t0+d*a+1e-9); }
+  function sortie(d,a){ return Math.ceil(t0+d*a-1e-9); }
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var ENCRE='1A2433', GRIS='5A6579', OR='8A5510', VERT='215158', KAKI='4A5740';
+  function run(t,o){ o=o||{};
+    var rp='<w:rFonts w:ascii="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'+(o.b?'<w:b/><w:bCs/>':'')+(o.i?'<w:i/><w:iCs/>':'')+(o.caps?'<w:caps/>':'')+
+      '<w:color w:val="'+(o.c||ENCRE)+'"/>'+(o.esp?'<w:spacing w:val="'+o.esp+'"/>':'')+'<w:sz w:val="'+(o.sz||20)+'"/><w:szCs w:val="'+(o.sz||20)+'"/>';
+    return '<w:r><w:rPr>'+rp+'</w:rPr><w:t xml:space="preserve">'+esc(t)+'</w:t></w:r>'; }
+  function para(runs,jc,pp){ return '<w:p><w:pPr>'+(pp||'<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>')+(jc?'<w:jc w:val="'+jc+'"/>':'')+'</w:pPr>'+runs+'</w:p>'; }
+  var LARG=[500,3090,900,2050,1549,1549];
+  function bords(i,ligne){
+    var h=ligne?'E2E5DF':'C8CCC4', centre=(i===3);
+    return '<w:tcBorders><w:top w:val="single" w:sz="2" w:space="0" w:color="'+h+'"/>'+
+      (centre?'<w:left w:val="single" w:sz="2" w:space="0" w:color="C8CCC4"/>':'<w:left w:val="none" w:sz="0" w:space="0" w:color="FFFFFF"/>')+
+      '<w:bottom w:val="single" w:sz="2" w:space="0" w:color="'+h+'"/>'+
+      (centre?'<w:right w:val="single" w:sz="2" w:space="0" w:color="C8CCC4"/>':'<w:right w:val="none" w:sz="0" w:space="0" w:color="FFFFFF"/>')+'</w:tcBorders>';
+  }
+  function cell(i,contenu,ligne,fond){
+    return '<w:tc><w:tcPr><w:tcW w:w="'+LARG[i]+'" w:type="dxa"/>'+bords(i,ligne)+(fond?'<w:shd w:val="clear" w:color="auto" w:fill="'+fond+'"/>':'')+
+      '<w:tcMar><w:top w:w="26" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="26" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tcMar><w:vAlign w:val="center"/></w:tcPr>'+contenu+'</w:tc>';
+  }
+  var ENTETE={b:true, caps:true, c:GRIS, esp:16, sz:16}, SOUS={c:GRIS, sz:14};
+  var x='<w:tbl><w:tblPr><w:tblW w:w="9638" w:type="dxa"/><w:tblBorders>'+
+    ['top','left','bottom','right','insideH','insideV'].map(function(b){ return '<w:'+b+' w:val="single" w:sz="4" w:space="0" w:color="auto"/>'; }).join('')+
+    '</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="10" w:type="dxa"/><w:right w:w="10" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'+
+    LARG.map(function(w){ return '<w:gridCol w:w="'+w+'"/>'; }).join('')+'</w:tblGrid>';
+  x+='<w:tr><w:trPr><w:tblHeader/></w:trPr>'+
+    cell(0,para(run('N°',ENTETE),'right'),false,'EDEFE9')+
+    cell(1,para(run('Voie',ENTETE)),false,'EDEFE9')+
+    cell(2,para(run('Long.',ENTETE),'right'),false,'EDEFE9')+
+    cell(3,para(run('Rue empruntée',{b:true,caps:true,c:ENCRE,esp:16,sz:18}),'center')+para(run('du 1ᵉʳ au dernier coureur',SOUS),'center'),false,'EDEFE9')+
+    cell(4,para(run('1ᵉʳ coureur',{b:true,caps:true,c:OR,esp:16,sz:16}),'center')+para(run(allureTxt(P.tete),SOUS),'center'),false,'EDEFE9')+
+    cell(5,para(run('Dernier coureur',{b:true,caps:true,c:VERT,esp:16,sz:16}),'center')+para(run(allureTxt(P.dernier),SOUS),'center'),false,'EDEFE9')+'</w:tr>';
+  var n=0, debut=null, fin=null;
+  longues.forEach(function(r){
+    var e1=entree(r.debut,aT), s1=sortie(r.fin,aT), e2=entree(r.debut,aD), s2=sortie(r.fin,aD);
+    if(debut===null) debut=e1;
+    fin=s2;
+    var emp=(r.nom==='@emprise'), fond=emp?'E9ECE3':null, coul=emp?KAKI:ENCRE;
+    /* « RD 611 (section sans nom) » → « RD 611 » ; majuscule en tête */
+    var nomV=emp?'Traversée de l’emprise militaire (ENSOA)':r.nom.replace(/\s*\(section sans nom\)$/,'');
+    nomV=(nomV.charAt(0).toUpperCase()+nomV.slice(1)).replace(/'/g,'’');
+    var italique=!emp && /sans nom/.test(nomV);
+    if(!emp) n++;
+    x+='<w:tr><w:trPr><w:cantSplit/></w:trPr>'+
+      cell(0,para(emp?'':run(n+'.',{c:GRIS,sz:18}),'right'),true,fond)+
+      cell(1,para(run(nomV,{b:emp,i:italique,c:coul})),true,fond)+
+      cell(2,para(run(Math.round(r.fin-r.debut)+' m',{c:coul,sz:18}),'right'),true,fond)+
+      cell(3,para(run(heureH(e1)+' → '+heureH(s2),{b:true,c:coul,sz:21}),'center'),true,fond)+
+      cell(4,para(run(heureH(e1)+' → '+heureH(s1),{c:OR,sz:17}),'center'),true,fond)+
+      cell(5,para(run(heureH(e2)+' → '+heureH(s2),{c:VERT,sz:17}),'center'),true,fond)+'</w:tr>';
+  });
+  x+='</w:tbl>';
+  if(debut===null){ debut=t0; fin=t0; }
+  var km=(total/1000).toFixed(2).replace('.',',');
+  var corps=para(run('Corrida 2027',{b:true,sz:36}),null,'<w:spacing w:after="40"/>')+
+    para(run('Saint-Maixent-l’École · ENSOA — '+km+' km — départ '+hEsp(t0),{c:GRIS}),null,'<w:spacing w:after="100"/>')+
+    para(run('Les voies du parcours sont empruntées entre ')+run(hEsp(debut),{b:true})+run(' et ')+run(hEsp(fin)+' environ',{b:true})+run('.'),null,'<w:spacing w:after="60"/>')+
+    '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="10" w:color="C8CCC4"/></w:pBdr><w:spacing w:after="150"/></w:pPr></w:p>'+
+    x+'<w:p/>';
+  var doc='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+corps+
+    '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="964" w:right="1134" w:bottom="850" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>'+
+    '</w:body></w:document>';
+  return zipStocke([
+    {nom:'[Content_Types].xml', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'+
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'},
+    {nom:'_rels/.rels', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
+    {nom:'word/document.xml', txt:doc}
+  ]);
+}
+function ouvrirRuesWord(){
+  var m=document.getElementById('modale-rues');
+  if(!m){
+    m=document.createElement('div');
+    m.className='modale'; m.id='modale-rues'; m.hidden=true;
+    function champ(id,lib,aide){ return '<label class="mode" style="display:grid;grid-template-columns:220px 110px 1fr;align-items:center;gap:10px;margin:0 0 6px">'+lib+
+      '<input id="'+id+'" type="text" style="width:100px"><span style="opacity:.75">'+aide+'</span></label>'; }
+    m.innerHTML='<div class="modale-in" style="width:min(640px,100%)"><h2>Rues du parcours</h2>'+
+      '<p class="mode">Voies empruntées dans l’ordre de passage, avec les horaires du premier et du dernier coureur, au format Word.</p>'+
+      champ('rh-depart','Heure de départ','ex. 19:00')+
+      champ('rh-tete','Allure du premier coureur','min:s par km, ex. 3:00')+
+      champ('rh-dernier','Allure du dernier coureur','min:s par km, ex. 12:00')+
+      '<p class="mode" id="rh-etat"></p>'+
+      '<div class="modale-actions"><button id="rh-ok" class="primaire">Télécharger (.docx)</button>'+
+      '<button id="rh-txt">Version texte (.txt)</button><button id="rh-non">Fermer</button></div></div>';
+    document.body.appendChild(m);
+    var cles={depart:'rh-depart', tete:'rh-tete', dernier:'rh-dernier'};
+    Object.keys(cles).forEach(function(k){
+      m.querySelector('#'+cles[k]).addEventListener('input',function(){
+        RUES_HOR[k]=this.value;
+        try{ localStorage.setItem('corrida-rues-horaires2',JSON.stringify(RUES_HOR)); }catch(e){}
+      });
+    });
+    m.addEventListener('click',function(ev){ if(ev.target===m) m.hidden=true; });
+    m.querySelector('#rh-non').onclick=function(){ m.hidden=true; };
+    m.querySelector('#rh-txt').onclick=telechargerRues;
+    m.querySelector('#rh-ok').onclick=function(){
+      var et=m.querySelector('#rh-etat');
+      try{
+        var b=docxRues(RUES_HOR);
+        telechargerBlob('Corrida 2027 - voies et horaires - parcours '+(nomParcours()||'x')+'.docx',b);
+        et.textContent='Document Word téléchargé ('+Math.round(b.size/1024)+' Ko).';
+        dire('Voies et horaires du parcours '+nomParcours()+' téléchargés.','ok');
+      }catch(e){ console.error(e); et.textContent='Document impossible à produire : '+e.message+'.'; }
+    };
+    m.__cles=cles;
+  }
+  Object.keys(m.__cles).forEach(function(k){ m.querySelector('#'+m.__cles[k]).value=RUES_HOR[k]; });
+  m.querySelector('h2').textContent='Rues du parcours '+nomParcours();
+  m.querySelector('#rh-etat').textContent='';
+  m.hidden=false;
+}
 (function(){
   if(window.CONSULTATION) return;
   if(!document.getElementById('d-rues')) return;
   var b=document.createElement('button');
-  b.id='b-rues'; b.type='button'; b.textContent='Exporter les rues (.txt)';
-  b.title='Liste des voies empruntées par le parcours affiché, dans l’ordre, pour l’arrêté préfectoral';
-  b.onclick=telechargerRues;
+  b.id='b-rues'; b.type='button'; b.textContent='Exporter les rues (Word)';
+  b.title='Voies empruntées par le parcours affiché, dans l’ordre, avec les horaires du premier et du dernier coureur';
+  b.onclick=function(){ ouvrirRuesWord(); };
   var save=document.getElementById('b-save');
   if(save && save.parentNode) save.parentNode.insertBefore(b,save);
   setTimeout(function(){
