@@ -213581,7 +213581,7 @@ var ZONE_MATERIEL=['arche','tente_chrono','tente_medicale','tente_ravito','sono'
 function imageParcoursSVG(ch){
   var L=IMG_REF;
   var s={k:k, tx:tx, ty:ty, T:TAILLE, BAR:BAR, RUB:RUB, VEH:VEH, ZSV:ZSV, SELC:SELC};
-  if(ch.plan) construireTuiles('tuiles-data',raster,'png');
+  if(ch.plan || ch.clair) construireTuiles('tuiles-data',raster,'png');
   if(ch.sat) construireTuiles('sat-data',satellite,'jpeg');
   var mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity, i;
   for(i=0;i<POLY.length;i++){
@@ -213623,7 +213623,7 @@ function imageParcoursSVG(ch){
   c.setAttribute('width',L); c.setAttribute('height',H);
   c.removeAttribute('id'); c.removeAttribute('style'); c.removeAttribute('class');
   function jeter(id){ var e=c.querySelector('#'+id); if(e && e.parentNode) e.parentNode.removeChild(e); }
-  if(!ch.plan) jeter('raster'); else { var r=c.querySelector('#raster'); if(r) r.setAttribute('style','opacity:1'); }
+  if(!(ch.plan || ch.clair)) jeter('raster'); else { var r=c.querySelector('#raster'); if(r) r.setAttribute('style','opacity:1'); }
   if(!ch.sat) jeter('satellite'); else { var sa=c.querySelector('#satellite'); if(sa) sa.setAttribute('style','opacity:1'); }
   trierFond(c.querySelector('#vecteur'),ch);
   var v=c.querySelector('#vecteur');
@@ -213633,6 +213633,8 @@ function imageParcoursSVG(ch){
     if(pap) v.removeChild(pap);
     v.setAttribute('style','opacity:0.35');
   }
+  /* fond clair : le plan OpenStreetMap tel quel, sans le dessin sombre par-dessus */
+  if(ch.clair) jeter('vecteur');
   if(!ch.autres) jeter('c-autres');
   if(!ch.halo) jeter('c-halo');
   if(!ch.trace) jeter('c-trace');
@@ -213696,7 +213698,7 @@ function imageParcoursSVG(ch){
   ['vecteur','raster','satellite'].forEach(function(id){ elaguerHorsCadre(c.querySelector('#'+id),cadre[0],cadre[1],cadre[2],cadre[3]); });
   figerEpaisseurs(c,kk);
   if(ch.clair) eclaircirSVG(c);
-  c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:ch.clair?'#F4F1EA':'#0B1019'}),c.firstChild);
+  c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:ch.clair?'#EEEAE1':'#0B1019'}),c.firstChild);
   if(cart) c.appendChild(cartoucheSVG(L,H,metresParUnite(),kk,ch));
   return {txt:'<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(c)+'\n', L:L, H:H};
 }
@@ -213751,13 +213753,13 @@ function couleurTraceImage(ch){
 /* mode clair : chaque teinte sombre du fond et des calques a son équivalent
    sur papier clair ; le noir des contours (#0B1019) reste pour le contraste */
 var IMG_PALETTE_CLAIRE={
-  '#141C2B':'#F4F1EA',
-  '#1A2620':'#DCE7D0','#1A2921':'#D5E3C8','#1C2622':'#DFE8D5','#1C2C25':'#D3E2C6',
-  '#1A2C3A':'#BCD8EA','#1D2533':'#D8D2C6',
-  '#4A7FA0':'#2F6286','#6E8059':'#51663B','#7E9067':'#5E7248','#98A3B6':'#4E5868',
-  '#242D3C':'#E2DCCF','#283341':'#DAD3C5','#2E3B4D':'#D0C9BA','#42536F':'#B9B1A1',
-  '#2E5570':'#86B4D2','#454F63':'#8A8F99',
-  '#05080E':'#B9B2A5','#1E2534':'#D8D2C6','#2E384B':'#E0DAD0','#3A4660':'#E8E3DA','#44405A':'#E3DCD5','#4B4446':'#E5DAD1','#5B6884':'#A39C8E',
+  '#141C2B':'#EEEAE1',
+  '#1A2620':'#CBDAB9','#1A2921':'#C3D5AF','#1C2622':'#D0DDC2','#1C2C25':'#BFD2AA',
+  '#1A2C3A':'#A6CBE2','#1D2533':'#BDB2A0',
+  '#4A7FA0':'#1F5475','#6E8059':'#3F5529','#7E9067':'#4B6233','#98A3B6':'#353E4C',
+  '#242D3C':'#C2B8A6','#283341':'#B4A994','#2E3B4D':'#A69B85','#42536F':'#8C826D',
+  '#2E5570':'#5F97BD','#454F63':'#5F646E',
+  '#05080E':'#8F8574','#1E2534':'#BDB2A0','#2E384B':'#C8BEAD','#3A4660':'#D1C8B8','#44405A':'#CBC0B4','#4B4446':'#CDBFB2','#5B6884':'#7F7564',
   '#B4BECD':'#2A3342','#7E8AA0':'#5F6B80',
   '#F4F4F0':'#4F5561','#C9CED4':'#4A5260','#C9D1A0':'#6F7C3E','#E9B8B4':'#E7A7A1'
 };
@@ -213807,7 +213809,7 @@ function synchroStyleImage(m){
     r.checked=(r.value==='clair')===!!IMG_CHOIX.clair;
   });
   m.querySelector('#img-couleur').value=couleurTraceImage(IMG_CHOIX).toLowerCase();
-  m.querySelector('#img-fond').style.background=IMG_CHOIX.clair?'#F4F1EA':'#0B1019';
+  m.querySelector('#img-fond').style.background=IMG_CHOIX.clair?'#EEEAE1':'#0B1019';
 }
 function ouvrirImageParcours(){
   var m=document.getElementById('modale-image');
@@ -213821,7 +213823,7 @@ function ouvrirImageParcours(){
       '<div class="mode" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;margin:4px 0">'+
       '<span class="menu-titre" style="margin:0">Style</span>'+
       '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="img-style" value="sombre"> Fond sombre</label>'+
-      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="img-style" value="clair"> Fond clair</label>'+
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="img-style" value="clair"> Fond clair (plan)</label>'+
       '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">Couleur du tracé <input type="color" id="img-couleur" style="width:44px;height:28px;padding:0;border:1px solid var(--trait);background:none;cursor:pointer"></label>'+
       '<button id="img-couleur-auto" type="button" title="Couleur du parcours sur fond sombre, bleu franc sur fond clair">Couleur par défaut</button></div>'+
       '<div id="img-cases" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:4px 18px;align-items:start"></div>'+
