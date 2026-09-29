@@ -215288,15 +215288,13 @@ function docxZJ(images){
     corps+=titreSection('Jalonneurs ('+b.jal.length+')');
     if(!b.jal.length) corps+=para(run('Aucun jalonneur dans cette zone.',{i:true,c:GRIS}));
     else {
-      var lj=[560,3050,2250,1778,2000];
-      corps+=tableau(lj,['N°','Emplacement','Consigne','1er → dernier coureur','Signaleur (nom, tél.)'],b.jal.map(function(x){
+      var lj=[560,4300,2000,2778];
+      corps+=tableau(lj,['N°','Emplacement','1er → dernier coureur','Signaleur (nom, tél.)'],b.jal.map(function(x){
         var j=x.j, C=zjConsignes(j), emp=zjEmplacement(j.la,j.lo);
-        var cons=C.map(function(c){ return (C.length>1 ? 'km '+kmTxt(c.d)+' : ' : '')+(ZJ_BRAS[c.bras]||'Bras tendu'); }).join('\n');
-        var hor=C.map(function(c){ return heureH(H.entree(c.d,H.aT))+' → '+heureH(H.sortie(c.d,H.aD)); }).join('\n');
+        var hor=C.map(function(c){ return (C.length>1 ? 'km '+kmTxt(c.d)+' : ' : '')+heureH(H.entree(c.d,H.aT))+' → '+heureH(H.sortie(c.d,H.aD)); }).join('\n');
         return [
           {x:para(run(String(x.n),{b:true,sz:22,c:j.niv==='r'?'B3261E':'B8651B'}),{jc:'center'})},
           {x:para(run(emp||'Position GPS',{b:!!emp}))+para(run('km '+kmTxt(C[0].d)+' · '+j.la.toFixed(5)+', '+j.lo.toFixed(5),{c:GRIS,sz:16}))},
-          {x:para(run(cons,{sz:18}))+para(run(j.niv==='r'?'Indispensable':'Facultatif',{c:j.niv==='r'?'B3261E':'B8651B',sz:16}))},
           {x:para(run(hor,{sz:18}),{jc:'center'})},
           {x:para('')}
         ];
