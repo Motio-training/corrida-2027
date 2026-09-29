@@ -211434,7 +211434,7 @@ document.addEventListener('keydown',function(ev){
     if(HISTEQ.pile.length && (!hist.length || (HISTEQ.tChange||0)>=ORDRE_ANNUL.tTrace)){
       ev.preventDefault(); ev.stopImmediatePropagation();
       SELC=null; CARTE.annulerEquip(); ORDRE_ANNUL.tAnnulEq=Date.now();
-      dire('Annulé (jalonneurs, barrières et rubalise). Ctrl+Y pour rétablir.','');
+      dire('Annulé (jalonneurs, matériel et zones). Ctrl+Y pour rétablir.','');
     }
     return;
   }
@@ -212948,6 +212948,56 @@ if(window.CONSULTATION){
 }
 
 /* ---------------------------------------------------------------
+   Zones de jalonnement (Zone A, Zone B…), données. Chaque parcours a
+   ses zones, enregistrées dans le paquet sous zones_jal :
+   [{nom, couleur, pts:[la,lo,la,lo,…], chef, tel, notes, mat:[[nom,qté],…]}].
+   Placé avant le chargement du travail au démarrage ; carte, fiche et
+   récapitulatif Word sont en fin de script (zjRedessiner y est remplacée).
+--------------------------------------------------------------- */
+var ZJ=[], zjRedessiner=function(){};
+function zjDepuis(o){
+  if(!o || !Array.isArray(o.pts) || o.pts.length<6) return null;
+  var pts=[], i;
+  for(i=0;i+1<o.pts.length;i+=2) pts.push([+o.pts[i], +o.pts[i+1]]);
+  return {nom:String(o.nom||'Zone'), couleur:(/^#[0-9a-fA-F]{6}$/.test(o.couleur||'') ? o.couleur : '#3B82F6'), pts:pts,
+    chef:String(o.chef||''), tel:String(o.tel||''), notes:String(o.notes||''),
+    mat:(Array.isArray(o.mat) ? o.mat.filter(Array.isArray).map(function(m){ return [String(m[0]||''), String(m[1]===undefined||m[1]===null ? '' : m[1])]; }) : [])};
+}
+function zjVers(z){
+  var f=[];
+  z.pts.forEach(function(p){ f.push(+p[0].toFixed(6), +p[1].toFixed(6)); });
+  var o={nom:z.nom, couleur:z.couleur, pts:f};
+  if(z.chef) o.chef=z.chef;
+  if(z.tel) o.tel=z.tel;
+  if(z.notes) o.notes=z.notes;
+  var m=z.mat.filter(function(x){ return x[0] || x[1]; });
+  if(m.length) o.mat=m.map(function(x){ return x.slice(); });
+  return o;
+}
+paquet=(function(orig){ return function(){ var p=orig(); p.zones_jal=ZJ.map(zjVers); return p; }; })(paquet);
+chargerEtat=(function(orig){
+  return function(data,refRef){
+    if(!data) return orig(data,refRef);
+    var avant=ZJ;
+    ZJ=Array.isArray(data.zones_jal) ? data.zones_jal.map(zjDepuis).filter(Boolean) : [];
+    var ok=orig(data,refRef);
+    if(!ok) ZJ=avant;
+    zjRedessiner();
+    return ok;
+  };
+})(chargerEtat);
+/* Ctrl+Z : les zones suivent l'historique des jalonneurs et du matériel */
+etatEquip=(function(orig){ return function(){ var o=JSON.parse(orig()); o.z=ZJ.map(zjVers); return JSON.stringify(o); }; })(etatEquip);
+restaurerEquip=(function(orig){
+  return function(s){
+    var o=JSON.parse(s);
+    ZJ=Array.isArray(o.z) ? o.z.map(zjDepuis).filter(Boolean) : [];
+    orig(s);
+    zjRedessiner();
+  };
+})(restaurerEquip);
+
+/* ---------------------------------------------------------------
    Travail dans un fichier, pour la version hors ligne (clé USB,
    autre ordinateur) : « Enregistrer » écrit un fichier .json qui
    contient tous les parcours, jalonneurs, barrières, rubalise et les
@@ -213434,7 +213484,7 @@ function zipStocke(fichiers){
   function u16(v){ return [v&255,(v>>8)&255]; }
   function u32(v){ return [v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255]; }
   fichiers.forEach(function(f){
-    var nom=enc.encode(f.nom), data=enc.encode(f.txt), crc=crc32(data);
+    var nom=enc.encode(f.nom), data=f.data || enc.encode(f.txt), crc=crc32(data);
     var tete=[].concat(u32(0x04034b50),u16(20),u16(0x0800),u16(0),u16(dosT),u16(dosD),u32(crc),u32(data.length),u32(data.length),u16(nom.length),u16(0));
     parts.push(new Uint8Array(tete),nom,data);
     centre.push(new Uint8Array([].concat(u32(0x02014b50),u16(20),u16(20),u16(0x0800),u16(0),u16(dosT),u16(dosD),u32(crc),u32(data.length),u32(data.length),u16(nom.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off))),nom);
@@ -213745,7 +213795,9 @@ var ZONE_MATERIEL=['arche','tente_chrono','tente_medicale','tente_ravito','sono'
 function imageParcoursSVG(ch){
   var L=IMG_REF;
   var s={k:k, tx:tx, ty:ty, T:TAILLE, BAR:BAR, RUB:RUB, VEH:VEH, ZSV:ZSV, SELC:SELC};
-  if(ch.plan || ch.clair) construireTuiles('tuiles-data',raster,'png');
+  /* ch.dessin : fond clair tiré du dessin vectoriel (net à tous les zooms) plutôt que du plan OpenStreetMap */
+  var planClair=ch.clair && !ch.dessin;
+  if(ch.plan || planClair) construireTuiles('tuiles-data',raster,'png');
   if(ch.sat) construireTuiles('sat-data',satellite,'jpeg');
   var mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity, i;
   for(i=0;i<POLY.length;i++){
@@ -213756,7 +213808,9 @@ function imageParcoursSVG(ch){
     var p=PISTE_REP[r], x2=X(p[1]), y2=Y(p[0]);
     if(x2<mnx)mnx=x2; if(x2>mxx)mxx=x2; if(y2<mny)mny=y2; if(y2>mxy)mxy=y2;
   });
-  var marge=54, larg=Math.max(1,mxx-mnx), haut=Math.max(1,mxy-mny);
+  /* ch.cadre : [x0,y0,x1,y1] en unités de la carte, pour une vue resserrée (zone de jalonnement) */
+  if(ch.cadre){ mnx=ch.cadre[0]; mny=ch.cadre[1]; mxx=ch.cadre[2]; mxy=ch.cadre[3]; }
+  var marge=ch.cadre?0:54, larg=Math.max(1,mxx-mnx), haut=Math.max(1,mxy-mny);
   var kk=(L-2*marge)/larg, cart=(ch.cTitre||ch.cChiffres||ch.cEchelle||ch.cNord);
   var H=Math.round(haut*kk+2*marge+(cart?92:0));
   k=kk; tx=marge-mnx*k; ty=marge-mny*k;
@@ -213787,7 +213841,7 @@ function imageParcoursSVG(ch){
   c.setAttribute('width',L); c.setAttribute('height',H);
   c.removeAttribute('id'); c.removeAttribute('style'); c.removeAttribute('class');
   function jeter(id){ var e=c.querySelector('#'+id); if(e && e.parentNode) e.parentNode.removeChild(e); }
-  if(!(ch.plan || ch.clair)) jeter('raster'); else { var r=c.querySelector('#raster'); if(r) r.setAttribute('style','opacity:1'); }
+  if(!(ch.plan || planClair)) jeter('raster'); else { var r=c.querySelector('#raster'); if(r) r.setAttribute('style','opacity:1'); }
   if(!ch.sat) jeter('satellite'); else { var sa=c.querySelector('#satellite'); if(sa) sa.setAttribute('style','opacity:1'); }
   trierFond(c.querySelector('#vecteur'),ch);
   var v=c.querySelector('#vecteur');
@@ -213798,7 +213852,7 @@ function imageParcoursSVG(ch){
     v.setAttribute('style','opacity:0.35');
   }
   /* fond clair : le plan OpenStreetMap tel quel, sans le dessin sombre par-dessus */
-  if(ch.clair) jeter('vecteur');
+  if(planClair) jeter('vecteur');
   if(!ch.autres) jeter('c-autres');
   if(!ch.halo) jeter('c-halo');
   if(!ch.trace) jeter('c-trace');
@@ -213860,6 +213914,7 @@ function imageParcoursSVG(ch){
   Array.prototype.slice.call(c.querySelectorAll('[style*="cursor"]')).forEach(function(e){ e.removeAttribute('style'); });
   Array.prototype.slice.call(c.querySelectorAll('[pointer-events]')).forEach(function(e){ e.removeAttribute('pointer-events'); });
   ['vecteur','raster','satellite'].forEach(function(id){ elaguerHorsCadre(c.querySelector('#'+id),cadre[0],cadre[1],cadre[2],cadre[3]); });
+  if(ch.retouche) ch.retouche(c,kk,metresParUnite());
   figerEpaisseurs(c,kk);
   if(ch.clair) eclaircirSVG(c);
   c.insertBefore(el('rect',{x:0,y:0,width:L,height:H,fill:ch.clair?'#EEEAE1':'#0B1019'}),c.firstChild);
@@ -214268,6 +214323,1105 @@ function ouvrirLienGoogle(){
   };
   ['pointerup','touchend','click'].forEach(function(t){ window.addEventListener(t,premier,{capture:true, passive:true}); });
 })();
+
+/* ---------------------------------------------------------------
+   Zones de jalonnement : carte, fiche et récapitulatif Word.
+   « Ajouter › Zone de jalonnement » puis clic sur la carte : un carré
+   de 100 m × 100 m centré sur le clic. Zone choisie (clic dessus) :
+   glisser un coin pour le déplacer, un « + » au milieu d'un côté pour
+   ajouter un coin, double-clic ou clic droit sur un coin pour l'enlever,
+   glisser l'intérieur pour déplacer la zone. La case « Afficher les
+   zones » (Calques, panneau, fenêtre de l'image) vaut pour la carte et
+   pour l'image PNG. Fichier › « Récapitulatif des zones (Word) » : une
+   page de synthèse puis une page par zone (carte centrée sur la zone,
+   passage des coureurs, jalonneurs, matériel, consignes).
+   Les données (ZJ, zjDepuis, zjVers) sont avant ed_app10.
+--------------------------------------------------------------- */
+var ZJ_PALETTE=['#3B82F6','#22C55E','#F97316','#A855F7','#EC4899','#14B8A6','#EAB308','#EF4444','#6366F1','#84CC16'];
+var ZJ_COTE=100;                 /* côté du carré posé, en mètres */
+var ZJ_VIS=true;
+try{ if(localStorage.getItem('corrida-zones-visibles')==='0') ZJ_VIS=false; }catch(e){}
+var SELZ=null, ZJ_FOCUS=null, POSE_ZJ=false, gliZ=null, zjDbl={z:null,i:-1,t:0}, zjBas=null, zjIgnorer=false, elsZJ=[];
+var gZJ=el('g',{id:'c-zjal'}), gZJT=el('g',{id:'c-zjal-t','pointer-events':'none'}), gZJE=el('g',{id:'c-zjal-ed'});
+dyn.insertBefore(gZJ,dyn.firstChild);
+dyn.insertBefore(gZJT,gWp);
+dyn.appendChild(gZJE);
+var ZJ_BRAS={d:'Bras droit tendu', g:'Bras gauche tendu', n:'Sans geste (présence)', x:'Bras croisés : accès fermé'};
+(function(){
+  var s=document.createElement('style');
+  s.textContent=[
+    '#zj-outils{position:absolute;left:10px;top:10px;z-index:6;width:min(430px,calc(100% - 80px));background:rgba(14,20,31,.95);border:1px solid #3a4a63;border-radius:12px;padding:9px 11px;display:flex;flex-direction:column;gap:7px;color:#E8EDF5;font-size:12.5px;box-shadow:0 8px 24px rgba(0,0,0,.45)}',
+    '#zj-outils .l{display:flex;gap:6px;flex-wrap:wrap;align-items:center}',
+    '#zj-outils input[type=text]{font:inherit;font-weight:600;font-size:13px;flex:1;min-width:90px;background:#0B1019;color:#E8EDF5;border:1px solid #34425a;border-radius:7px;padding:4px 7px}',
+    '#zj-outils input[type=color]{width:34px;height:28px;padding:0;border:1px solid #34425a;border-radius:7px;background:none;cursor:pointer}',
+    '#zj-outils button{font:inherit;font-size:12px;padding:5px 9px;border-radius:8px;border:1px solid #34425a;background:#1c2638;color:#E8EDF5;cursor:pointer}',
+    '#zj-outils button:hover{border-color:#F2B33D;color:#F2B33D}',
+    '#zj-outils button.fort{background:#1f3a5c;border-color:#3d6b8c}',
+    '#zj-outils button.danger{color:#ffb3aa;border-color:#6b2a24}',
+    '#zj-outils button.danger.confirme{background:#6b2a24;color:#fff}',
+    '#zj-outils small{color:#98A3B6;line-height:1.35}',
+    '#zj-outils .zj-stats{color:#C9D3E3;line-height:1.4}',
+    '.zj-liste{list-style:none;margin:0 0 6px;padding:0;display:flex;flex-direction:column;gap:3px}',
+    '.zj-liste li{display:grid;grid-template-columns:14px 1fr auto;gap:8px;align-items:center;padding:5px 6px;border-radius:6px;border:1px solid transparent;font-size:12.5px;cursor:pointer}',
+    '.zj-liste li:hover{background:var(--nuit-3)}',
+    '.zj-liste li.sel{border-color:var(--frontale)}',
+    '.zj-liste li.vide{display:block;cursor:default;color:var(--creme-faible);font-size:12.5px}',
+    '.zj-liste .zj-p{width:13px;height:13px;border-radius:3px;box-shadow:0 0 0 2px rgba(0,0,0,.35)}',
+    '.zj-liste .zj-i{display:flex;flex-direction:column;line-height:1.3;min-width:0}',
+    '.zj-liste .zj-i small{font-family:"Roboto Mono",monospace;font-size:10.5px;color:var(--creme-faible)}',
+    '.zj-vis{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--creme-dim);cursor:pointer;margin:0 0 6px}',
+    '#modale-zj label.zj-ch,#modale-zjw label.zj-ch{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--creme-dim)}',
+    '#modale-zj input[type=text],#modale-zj textarea,#modale-zjw input[type=text]{font:inherit;font-size:13px;background:var(--nuit);color:var(--creme);border:1px solid var(--trait-fort);border-radius:3px;padding:5px 7px;width:100%;box-sizing:border-box}',
+    '#modale-zj textarea{height:auto;min-height:70px;resize:vertical}',
+    '#modale-zj .zj-grille{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}',
+    '#modale-zj .zj-mat{width:100%;border-collapse:collapse}',
+    '#modale-zj .zj-mat td{padding:2px 4px 2px 0}',
+    '#modale-zj .zj-mat td.q{width:90px}',
+    '#modale-zj .zj-mat td.x{width:34px}',
+    '#modale-zj .zj-auto{font-size:12.5px;color:var(--creme-dim);line-height:1.5;margin:0;padding-left:18px}',
+    '@media (max-width:560px){#modale-zj .zj-grille{grid-template-columns:1fr}}'
+  ].join('\n');
+  document.head.appendChild(s);
+})();
+
+/* ---------------- géométrie ---------------- */
+function zjPoly(z){ return z.pts.map(function(p){ return [X(p[1]),Y(p[0])]; }); }
+function zjDedans(P,x,y){
+  var d=false, i, j;
+  for(i=0,j=P.length-1;i<P.length;j=i++){
+    var a=P[i], b=P[j];
+    if(((a[1]>y)!==(b[1]>y)) && (x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])) d=!d;
+  }
+  return d;
+}
+function zjContient(z,la,lo){ return zjDedans(zjPoly(z),X(lo),Y(la)); }
+function zjCarre(la,lo,cote){
+  var dla=cote/2/EQ_MLAT, dlo=cote/2/EQ_MLON;
+  return [[la+dla,lo-dlo],[la+dla,lo+dlo],[la-dla,lo+dlo],[la-dla,lo-dlo]];
+}
+function zjSurface(z){
+  var s=0, n=z.pts.length, i;
+  for(i=0;i<n;i++){ var a=z.pts[i], b=z.pts[(i+1)%n]; s+=mX(a[1])*mZ(b[0])-mX(b[1])*mZ(a[0]); }
+  return Math.abs(s/2);
+}
+function zjNomLibre(){
+  var pris={};
+  ZJ.forEach(function(z){ pris[z.nom.toLowerCase()]=1; });
+  for(var i=0;i<26;i++){ var n='Zone '+String.fromCharCode(65+i); if(!pris[n.toLowerCase()]) return n; }
+  return 'Zone '+(ZJ.length+1);
+}
+function zjCouleurLibre(){
+  var prises={};
+  ZJ.forEach(function(z){ prises[z.couleur.toUpperCase()]=1; });
+  for(var i=0;i<ZJ_PALETTE.length;i++) if(!prises[ZJ_PALETTE[i].toUpperCase()]) return ZJ_PALETTE[i];
+  return ZJ_PALETTE[ZJ.length%ZJ_PALETTE.length];
+}
+/* encre lisible sur la couleur de la zone */
+function zjEncre(hex){
+  var n=parseInt(String(hex).slice(1),16), r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  return (0.299*r+0.587*g+0.114*b)>165 ? '#0B1019' : '#FFFFFF';
+}
+
+/* ---------------- dessin sur la carte ---------------- */
+function dessinerZJ(){
+  [gZJ,gZJT,gZJE].forEach(function(g){ while(g.firstChild) g.removeChild(g.firstChild); });
+  elsZJ=[];
+  if(SELZ && ZJ.indexOf(SELZ)<0) SELZ=null;
+  if(!ZJ_VIS){ SELZ=null; majOutilsZJ(); return; }
+  var edite=!window.CONSULTATION;
+  ZJ.forEach(function(z){
+    var P=zjPoly(z), d=P.map(function(p,i){ return (i?'L':'M')+p[0].toFixed(2)+' '+p[1].toFixed(2); }).join('')+'Z';
+    var sel=(z===SELZ), pale=(ZJ_FOCUS && z!==ZJ_FOCUS), fort=(sel || z===ZJ_FOCUS);
+    gZJ.appendChild(el('path',{d:d, fill:'none', stroke:'#0B1019', 'stroke-opacity':pale?0.25:0.55, 'stroke-width':fort?6:4.6,
+      'stroke-linejoin':'round', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'}));
+    var p=el('path',{d:d, fill:z.couleur, 'fill-opacity':pale?0.06:(sel?0.27:0.19), stroke:z.couleur, 'stroke-opacity':pale?0.55:1,
+      'stroke-width':fort?3.2:2.2, 'stroke-linejoin':'round', 'vector-effect':'non-scaling-stroke',
+      'pointer-events':edite?'visiblePainted':'none', style:edite?('cursor:'+(sel?'move':'pointer')):''});
+    p.__zj=z;
+    if(edite){ var tt=el('title',{}); tt.textContent=z.nom+(sel?' : glisse pour déplacer la zone.':' : clic pour la modifier.'); p.appendChild(tt); }
+    gZJ.appendChild(p);
+    /* étiquette au-dessus du coin le plus haut */
+    var h=0; P.forEach(function(q,i){ if(q[1]<P[h][1]) h=i; });
+    var txt=z.nom.toUpperCase(), lg=Math.max(40,txt.length*7.4+16);
+    var g=el('g',{opacity:pale?0.6:1});
+    g.appendChild(el('rect',{x:(-lg/2).toFixed(1), y:-29, width:lg.toFixed(1), height:20, rx:4, fill:z.couleur, stroke:'#0B1019','stroke-width':1.6}));
+    var t=el('text',{x:0, y:-14.6, 'text-anchor':'middle', 'font-family':'Oswald, Arial Narrow, sans-serif', 'font-size':12.5, 'font-weight':600,
+      'letter-spacing':0.6, fill:zjEncre(z.couleur)});
+    t.textContent=txt; g.appendChild(t);
+    gZJT.appendChild(g);
+    elsZJ.push({g:g, x:P[h][0], y:P[h][1]});
+  });
+  /* poignées de la zone choisie : coins, et « + » au milieu des côtés */
+  if(SELZ && edite){
+    var z=SELZ, P=zjPoly(z), n=P.length, i;
+    for(i=0;i<n;i++){
+      var a=P[i], b=P[(i+1)%n];
+      var gm=el('g',{style:'cursor:copy'});
+      gm.appendChild(el('circle',{cx:0, cy:0, r:10, fill:'transparent'}));
+      gm.appendChild(el('circle',{cx:0, cy:0, r:5.5, fill:z.couleur, 'fill-opacity':0.9, stroke:'#FFFFFF', 'stroke-width':1.4}));
+      gm.appendChild(el('path',{d:'M-3 0H3M0 -3V3', stroke:zjEncre(z.couleur), 'stroke-width':1.5, 'pointer-events':'none'}));
+      var tm=el('title',{}); tm.textContent='Tire pour ajouter un coin ici'; gm.appendChild(tm);
+      gm.__zjm={z:z, i:i};
+      gZJE.appendChild(gm);
+      elsZJ.push({g:gm, x:(a[0]+b[0])/2, y:(a[1]+b[1])/2});
+    }
+    for(i=0;i<n;i++){
+      var gc=el('g',{style:'cursor:grab'});
+      gc.appendChild(el('circle',{cx:0, cy:0, r:12, fill:'transparent'}));
+      gc.appendChild(el('circle',{cx:0, cy:0, r:7, fill:'#FFFFFF', stroke:z.couleur, 'stroke-width':3}));
+      var tc=el('title',{}); tc.textContent='Tire pour déplacer ce coin · double-clic ou clic droit pour l’enlever'; gc.appendChild(tc);
+      gc.__zjv={z:z, i:i};
+      gZJE.appendChild(gc);
+      elsZJ.push({g:gc, x:P[i][0], y:P[i][1]});
+    }
+  }
+  placerZJ();
+  majOutilsZJ();
+}
+function placerZJ(){
+  var inv=TAILLE/k;
+  for(var i=0;i<elsZJ.length;i++) elsZJ[i].g.setAttribute('transform','translate('+elsZJ[i].x.toFixed(2)+','+elsZJ[i].y.toFixed(2)+') scale('+inv+')');
+}
+dessinerMarqueurs=(function(orig){ return function(){ orig(); placerZJ(); }; })(dessinerMarqueurs);
+redessinerCarte=(function(orig){ return function(){ orig(); dessinerZJ(); }; })(redessinerCarte);
+
+/* ---------------- ce que contient une zone ---------------- */
+function zjHoraires(){
+  var t0=minutesDe(RUES_HOR.depart), aT=allureMin(RUES_HOR.tete), aD=allureMin(RUES_HOR.dernier);
+  if(isNaN(t0) || isNaN(aT) || isNaN(aD)) return null;
+  return {t0:t0, aT:aT, aD:aD,
+    entree:function(d,a){ return Math.floor(t0+d*a+1e-9); },
+    sortie:function(d,a){ return Math.ceil(t0+d*a-1e-9); }};
+}
+function zjBilan(z,anc){
+  var P=zjPoly(z), b={jal:[], bornes:[], depart:false, arrivee:false, poses:0, ancrages:0, rub:0, veh:{}, pois:[], passages:[], surface:Math.round(zjSurface(z))};
+  function ded(la,lo){ return zjDedans(P,X(lo),Y(la)); }
+  JAL.forEach(function(j,i){ if(ded(j.la,j.lo)) b.jal.push({n:i+1, j:j}); });
+  var total=CUM.length ? CUM[CUM.length-1] : 0, km, d;
+  for(km=1;km*1000<=total;km++){ var q=pointADistance(km*1000); if(zjDedans(P,q.x,q.y)) b.bornes.push(km); }
+  if(POLY.length>1){
+    b.depart=zjDedans(P,px[POLY[0]],py[POLY[0]]);
+    b.arrivee=zjDedans(P,px[POLY[POLY.length-1]],py[POLY[POLY.length-1]]);
+  }
+  (BAR||[]).forEach(function(x){ if(ded(x.la,x.lo)) b.poses++; });
+  (anc||ancragesRubalise()).forEach(function(x){ if(ded(x.la,x.lo)) b.ancrages++; });
+  (RUB||[]).forEach(function(r){
+    for(var i=1;i<r.pts.length;i++){
+      var a=r.pts[i-1], c=r.pts[i], L=metresEntre(a,c), n=Math.max(1,Math.ceil(L)), s;
+      for(s=0;s<n;s++){ var f=(s+0.5)/n; if(ded(a[0]+(c[0]-a[0])*f, a[1]+(c[1]-a[1])*f)) b.rub+=L/n; }
+    }
+  });
+  b.rub=Math.round(b.rub);
+  (VEH||[]).forEach(function(v){ if(ded(v.la,v.lo)) b.veh[v.t]=(b.veh[v.t]||0)+1; });
+  if(typeof POIS!=='undefined') POIS.forEach(function(p){ if(ded(p.la,p.lo)) b.pois.push(p.t); });
+  /* passages du parcours dans la zone : échantillon tous les 5 m, trous de moins de 30 m bouchés */
+  var cur=null;
+  for(d=0;d<=total+4;d+=5){
+    var dd=Math.min(d,total), q2=pointADistance(dd);
+    if(!zjDedans(P,q2.x,q2.y)) continue;
+    if(cur && dd-cur.d1<=30) cur.d1=dd;
+    else { cur={d0:dd, d1:dd}; b.passages.push(cur); }
+  }
+  var H=zjHoraires();
+  if(H && b.passages.length){
+    b.premier=H.entree(b.passages[0].d0,H.aT);
+    b.dernier=H.sortie(b.passages[b.passages.length-1].d1,H.aD);
+  }
+  return b;
+}
+function zjResume(b){
+  var t=[];
+  t.push(b.jal.length ? b.jal.length+' jalonneur'+(b.jal.length>1?'s':'')+' (n° '+b.jal.map(function(x){ return x.n; }).join(', ')+')' : 'aucun jalonneur');
+  var nb=b.poses+b.ancrages;
+  if(nb) t.push(nb+' barrière'+(nb>1?'s':''));
+  if(b.rub) t.push(b.rub+' m de rubalise');
+  if(b.bornes.length) t.push('km '+b.bornes.join(', '));
+  if(b.depart) t.push('départ');
+  if(b.arrivee) t.push('arrivée');
+  if(b.premier!==undefined) t.push('coureurs '+heureH(b.premier)+' → '+heureH(b.dernier));
+  else if(!b.passages.length) t.push('hors du parcours');
+  return t.join(' · ');
+}
+
+/* ---------------- sélection, pose et outils ---------------- */
+var outilsZJ=document.createElement('div');
+outilsZJ.id='zj-outils'; outilsZJ.hidden=true;
+document.getElementById('mapwrap').appendChild(outilsZJ);
+function zjChoisir(z){
+  if(z && SELC) selectionnerC(null);
+  SELZ=z||null;
+  outilsZJ.__z=undefined;
+  dessinerZJ();
+  zjListePlusTard();
+}
+selectionnerC=(function(orig){ return function(s){ if(s && SELZ){ SELZ=null; dessinerZJ(); zjListePlusTard(); } orig(s); }; })(selectionnerC);
+function majOutilsZJ(){
+  var z=SELZ;
+  if(!z || window.CONSULTATION){ outilsZJ.hidden=true; outilsZJ.__z=undefined; return; }
+  if(outilsZJ.__z!==z){
+    outilsZJ.__z=z;
+    outilsZJ.innerHTML='<div class="l"><input type="text" data-c="nom" aria-label="Nom de la zone" title="Nom de la zone">'+
+      '<input type="color" data-c="coul" title="Couleur de la zone"><button data-a="fermer" title="Désélectionner (Échap)">✕</button></div>'+
+      '<div class="zj-stats"></div>'+
+      '<div class="l"><button data-a="fiche" class="fort">📝 Fiche de la zone</button><button data-a="cadrer" title="Centrer la carte sur la zone">⤢ Cadrer</button>'+
+      '<button data-a="carre" title="Revenir à un carré de 100 m × 100 m au même endroit">□ Carré 100 m</button>'+
+      '<button data-a="suppr" class="danger">Supprimer</button></div>'+
+      '<small>Tire un coin pour changer la forme · tire un « + » pour ajouter un coin · double-clic ou clic droit sur un coin pour l’enlever · tire l’intérieur pour déplacer la zone.</small>';
+    outilsZJ.querySelector('[data-c="nom"]').value=z.nom;
+    outilsZJ.querySelector('[data-c="coul"]').value=z.couleur.toLowerCase();
+  }
+  outilsZJ.hidden=false;
+  zjStatsPlusTard();
+}
+var zjAttStats=null;
+function zjStatsPlusTard(){
+  if(zjAttStats) return;
+  zjAttStats=setTimeout(function(){
+    zjAttStats=null;
+    var z=SELZ, s=outilsZJ.querySelector('.zj-stats');
+    if(!z || !s) return;
+    var b=zjBilan(z);
+    s.textContent=zjResume(b)+' · '+(b.surface>=10000 ? (b.surface/10000).toFixed(2).replace('.',',')+' ha' : b.surface+' m²')+'.';
+  },60);
+}
+outilsZJ.addEventListener('input',function(ev){
+  var z=SELZ, c=ev.target.dataset.c;
+  if(!z || !c) return;
+  if(c==='nom'){ z.nom=ev.target.value; }
+  else if(c==='coul' && /^#[0-9a-fA-F]{6}$/.test(ev.target.value)) z.couleur=ev.target.value.toUpperCase();
+  var sauve=outilsZJ.__z; dessinerZJ(); outilsZJ.__z=sauve;
+  zjModifiee();
+});
+outilsZJ.addEventListener('change',function(ev){ if(ev.target.dataset.c==='nom' && SELZ && !SELZ.nom.trim()){ SELZ.nom=zjNomLibre(); ev.target.value=SELZ.nom; dessinerZJ(); zjModifiee(); } });
+outilsZJ.addEventListener('click',function(ev){
+  var b=ev.target.closest ? ev.target.closest('button') : null;
+  if(!b || !SELZ) return;
+  var a=b.dataset.a, z=SELZ;
+  if(a==='fermer') zjChoisir(null);
+  else if(a==='fiche') ouvrirFicheZJ(z);
+  else if(a==='cadrer') zjCadrer(z);
+  else if(a==='carre'){
+    var sx=0, sy=0;
+    z.pts.forEach(function(p){ sx+=p[0]; sy+=p[1]; });
+    z.pts=zjCarre(sx/z.pts.length, sy/z.pts.length, ZJ_COTE);
+    dessinerZJ(); zjModifiee();
+  }
+  else if(a==='suppr'){
+    if(!b.classList.contains('confirme')){
+      b.classList.add('confirme'); b.textContent='Confirmer ?';
+      setTimeout(function(){ if(b.isConnected){ b.classList.remove('confirme'); b.textContent='Supprimer'; } },4000);
+      return;
+    }
+    zjSupprimer(z);
+  }
+});
+function zjSupprimer(z){
+  var i=ZJ.indexOf(z);
+  if(i<0) return;
+  ZJ.splice(i,1);
+  if(SELZ===z) SELZ=null;
+  dessinerZJ(); zjModifiee();
+  dire(z.nom+' supprimée. Ctrl+Z pour annuler.','');
+}
+function zjCadrer(z){
+  var P=zjPoly(z), x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
+  P.forEach(function(p){ if(p[0]<x0)x0=p[0]; if(p[0]>x1)x1=p[0]; if(p[1]<y0)y0=p[1]; if(p[1]>y1)y1=p[1]; });
+  var w=Math.max(x1-x0,8)*2.2, h=Math.max(y1-y0,8)*2.2;
+  k=Math.max(1,Math.min(64,Math.min(VBW/w,VBH/h)));
+  tx=VBW/2-((x0+x1)/2)*k; ty=VBH/2-((y0+y1)/2)*k;
+  contraindre(); majTransform();
+}
+function zjModifiee(){
+  marquerModifie();
+  memoriserEquip();
+  zjListePlusTard();
+  if(SELZ) zjStatsPlusTard();
+}
+function zjAjouter(la,lo){
+  var z={nom:zjNomLibre(), couleur:zjCouleurLibre(), pts:zjCarre(la,lo,ZJ_COTE), chef:'', tel:'', notes:'', mat:[]};
+  ZJ.push(z);
+  if(!ZJ_VIS) zjVisible(true);
+  zjChoisir(z);
+  zjModifiee();
+  dire(z.nom+' ajoutée (carré de '+ZJ_COTE+' m). Tire ses coins pour l’ajuster, « Fiche de la zone » pour le chef de zone et le matériel.','ok');
+  return z;
+}
+function lancerPoseZJ(){
+  poseJalon=false; majPose();
+  POSE_CARTE=null; POSE_ZJ=true; majPoseCarte();
+  dire('Clique sur la carte au centre de la future zone. Échap pour annuler.','');
+}
+majPoseCarte=(function(orig){
+  return function(){
+    if(poseJalon || POSE_CARTE) POSE_ZJ=false;
+    orig();
+    if(POSE_ZJ){
+      document.body.classList.add('pose-jalon');
+      var m=document.querySelector('.bar .menu[data-m="ajout"]');
+      if(m) m.classList.add('actif');
+    }
+  };
+})(majPoseCarte);
+svg.addEventListener('pointerdown',function(ev){
+  zjIgnorer=false;
+  zjBas={x:ev.clientX, y:ev.clientY, z:(ev.target && ev.target.__zj) || null};
+  if(!POSE_ZJ || ev.button!==0) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  zjIgnorer=true;
+  POSE_ZJ=false; majPoseCarte();
+  var w=toWorld(ev);
+  zjAjouter(versLat(w.y),versLon(w.x));
+},true);
+svg.addEventListener('click',function(ev){
+  if(zjIgnorer){ zjIgnorer=false; return; }
+  if(!zjBas || Math.hypot(ev.clientX-zjBas.x,ev.clientY-zjBas.y)>4) return;
+  if(zjBas.z && !window.CONSULTATION){ if(zjBas.z!==SELZ) zjChoisir(zjBas.z); return; }
+  if(SELZ) zjChoisir(null);
+});
+
+/* glisser : un coin, un « + » (nouveau coin) ou toute la zone */
+function zjCible(ev){
+  var n=ev.target;
+  while(n && n!==gZJE){ if(n.__zjv || n.__zjm) return n; n=n.parentNode; }
+  return null;
+}
+gZJE.addEventListener('pointerdown',function(ev){
+  var n=zjCible(ev);
+  if(!n || window.CONSULTATION || poseJalon) return;
+  ev.preventDefault(); ev.stopPropagation();
+  zjIgnorer=true;
+  if(ev.button!==0) return;
+  var z=(n.__zjv||n.__zjm).z;
+  if(n.__zjv){
+    var i=n.__zjv.i, t=Date.now();
+    if(zjDbl.z===z && zjDbl.i===i && t-zjDbl.t<420){ zjDbl={z:null,i:-1,t:0}; zjRetirerCoin(z,i); return; }
+    zjDbl={z:z, i:i, t:t};
+    gliZ={z:z, mode:'coin', i:i, bouge:false, id:ev.pointerId, x0:ev.clientX, y0:ev.clientY};
+  } else {
+    var j=n.__zjm.i, a=z.pts[j], b=z.pts[(j+1)%z.pts.length];
+    z.pts.splice(j+1,0,[(a[0]+b[0])/2,(a[1]+b[1])/2]);
+    gliZ={z:z, mode:'coin', i:j+1, bouge:true, id:ev.pointerId, x0:ev.clientX, y0:ev.clientY};
+    dessinerZJ();
+  }
+  try{ svg.setPointerCapture(ev.pointerId); }catch(e){}
+});
+gZJE.addEventListener('contextmenu',function(ev){
+  var n=zjCible(ev);
+  if(!n) return;
+  ev.preventDefault(); ev.stopPropagation();
+  if(n.__zjv) zjRetirerCoin(n.__zjv.z,n.__zjv.i);
+});
+gZJ.addEventListener('pointerdown',function(ev){
+  var z=ev.target && ev.target.__zj;
+  if(!z || z!==SELZ || ev.button!==0 || window.CONSULTATION || poseJalon) return;
+  ev.preventDefault(); ev.stopPropagation();
+  zjIgnorer=true;
+  var w=toWorld(ev);
+  gliZ={z:z, mode:'tout', la0:versLat(w.y), lo0:versLon(w.x), avant:z.pts.map(function(p){ return p.slice(); }),
+    bouge:false, id:ev.pointerId, x0:ev.clientX, y0:ev.clientY};
+  try{ svg.setPointerCapture(ev.pointerId); }catch(e){}
+});
+svg.addEventListener('pointermove',function(ev){
+  var g=gliZ;
+  if(!g || g.id!==ev.pointerId) return;
+  if(!g.bouge && Math.hypot(ev.clientX-g.x0,ev.clientY-g.y0)<3) return;
+  g.bouge=true;
+  var w=toWorld(ev), la=versLat(w.y), lo=versLon(w.x);
+  if(g.mode==='coin') g.z.pts[g.i]=[la,lo];
+  else g.z.pts=g.avant.map(function(p){ return [p[0]+la-g.la0, p[1]+lo-g.lo0]; });
+  dessinerZJ();
+});
+function finGliZ(ev){
+  var g=gliZ;
+  if(!g || g.id!==ev.pointerId) return;
+  gliZ=null;
+  try{ svg.releasePointerCapture(ev.pointerId); }catch(e){}
+  if(g.bouge) zjModifiee();
+}
+svg.addEventListener('pointerup',finGliZ);
+svg.addEventListener('pointercancel',finGliZ);
+function zjRetirerCoin(z,i){
+  if(z.pts.length<=3){ dire('Une zone garde au moins trois coins.','err'); return; }
+  z.pts.splice(i,1);
+  dessinerZJ(); zjModifiee();
+  dire('Coin retiré.','');
+}
+document.addEventListener('keydown',function(ev){
+  if(document.body.classList.contains('en-3d')) return;
+  var t=ev.target;
+  if(t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.tagName==='SELECT')) return;
+  if(ev.key==='Escape'){
+    if(POSE_ZJ){ POSE_ZJ=false; majPoseCarte(); dire('Pose de la zone annulée.',''); }
+    else if(SELZ && !document.querySelector('.modale:not([hidden])')) zjChoisir(null);
+  } else if((ev.key==='Delete' || ev.key==='Backspace') && SELZ && !SELC){ ev.preventDefault(); zjSupprimer(SELZ); }
+});
+/* dans les champs des zones, les raccourcis de la carte (Ctrl+Z, P…) ne s'appliquent pas */
+window.addEventListener('keydown',function(ev){
+  var t=ev.target;
+  if(ev.key==='Escape' || !t || !t.closest || !(t.tagName==='INPUT' || t.tagName==='TEXTAREA')) return;
+  if(t.closest('#zj-outils,#modale-zj,#modale-zjw')) ev.stopPropagation();
+},true);
+
+/* ---------------- afficher ou masquer les zones ---------------- */
+function zjVisible(v){
+  ZJ_VIS=!!v;
+  try{ localStorage.setItem('corrida-zones-visibles',ZJ_VIS?'1':'0'); }catch(e){}
+  Array.prototype.slice.call(document.querySelectorAll('input.zj-vis-cb,#img-cases input[data-cle="zonesJal"]')).forEach(function(c){ c.checked=ZJ_VIS; });
+  if(!ZJ_VIS) SELZ=null;
+  dessinerZJ(); zjListePlusTard();
+  if(typeof apercuPlusTard==='function'){ var mi=document.getElementById('modale-image'); if(mi && !mi.hidden) apercuPlusTard(); }
+}
+function zjCaseVisible(){
+  var lab=document.createElement('label');
+  lab.className='zj-vis';
+  var c=document.createElement('input');
+  c.type='checkbox'; c.className='zj-vis-cb'; c.checked=ZJ_VIS;
+  c.addEventListener('change',function(){ zjVisible(c.checked); });
+  lab.appendChild(c); lab.appendChild(document.createTextNode('Afficher les zones'));
+  lab.title='Zones de jalonnement, sur la carte et sur l’image PNG';
+  return lab;
+}
+(function(){
+  var cq=document.querySelector('.bar .calques');
+  if(!cq) return;
+  var d=document.createElement('div');
+  d.className='calque';
+  var lab=zjCaseVisible();
+  lab.style.cssText='margin:0;text-transform:none;letter-spacing:0;font-family:inherit;font-size:12.5px;color:var(--creme)';
+  d.appendChild(lab);
+  cq.appendChild(d);
+})();
+/* image PNG : la même case que la carte */
+IMG_SECTIONS.forEach(function(sec){
+  if(sec[0]==='Dispositif') sec[1].splice(sec[1].length-2,0,['zonesJal','Zones de jalonnement']);
+});
+Object.defineProperty(IMG_CHOIX,'zonesJal',{enumerable:true, configurable:true,
+  get:function(){ return ZJ_VIS; }, set:function(v){ if(!!v!==ZJ_VIS) zjVisible(v); }});
+imageParcoursSVG=(function(orig){
+  return function(ch){
+    var s=SELZ, gl=gliZ;
+    SELZ=null; gliZ=null;
+    try{ return orig(ch); }
+    finally{ SELZ=(s && ZJ.indexOf(s)>=0) ? s : null; gliZ=gl; dessinerZJ(); }
+  };
+})(imageParcoursSVG);
+
+/* ---------------- panneau : liste des zones ---------------- */
+var blocZJ=document.createElement('div');
+blocZJ.className='bloc';
+blocZJ.innerHTML='<h2>Zones de jalonnement <span class="compte" id="n-zj"></span></h2>';
+blocZJ.appendChild(zjCaseVisible());
+(function(){
+  if(!window.CONSULTATION){
+    var l=document.createElement('div'); l.className='l-parcours';
+    var b1=document.createElement('button'); b1.type='button'; b1.textContent='＋ Ajouter une zone'; b1.title='Puis clic sur la carte : carré de 100 m × 100 m';
+    b1.onclick=lancerPoseZJ;
+    var b2=document.createElement('button'); b2.type='button'; b2.textContent='📄 Récapitulatif (Word)'; b2.title='Une page par zone : carte, jalonneurs, matériel';
+    b2.onclick=function(){ ouvrirWordZJ(); };
+    l.appendChild(b1); l.appendChild(b2);
+    blocZJ.appendChild(l);
+  }
+  var ul=document.createElement('ul'); ul.className='zj-liste'; ul.id='liste-zj';
+  blocZJ.appendChild(ul);
+  var cr=document.createElement('p'); cr.className='credit';
+  cr.textContent='Chaque parcours a ses zones. Clic sur une zone pour la modifier ; ses jalonneurs, barrières, rubalise et bornes kilométriques sont comptés d’après leur position.';
+  blocZJ.appendChild(cr);
+  var ref=document.getElementById('resume-equip'), bloc=ref && ref.closest ? ref.closest('.bloc') : null;
+  if(bloc && bloc.parentNode) bloc.parentNode.insertBefore(blocZJ,bloc.nextSibling);
+  else { var side=document.querySelector('aside.side'); if(side) side.appendChild(blocZJ); }
+})();
+var zjAttListe=null;
+function zjListePlusTard(){
+  if(zjAttListe) return;
+  zjAttListe=setTimeout(function(){ zjAttListe=null; majListeZJ(); },80);
+}
+function majListeZJ(){
+  var ul=document.getElementById('liste-zj'), n=document.getElementById('n-zj');
+  if(n) n.textContent=ZJ.length || '';
+  if(!ul) return;
+  ul.innerHTML='';
+  if(!ZJ.length){
+    var v=document.createElement('li'); v.className='vide';
+    v.textContent=window.CONSULTATION ? 'Aucune zone.' : 'Aucune zone : « Ajouter une zone » puis clic sur la carte.';
+    ul.appendChild(v); return;
+  }
+  var anc=ancragesRubalise();
+  ZJ.forEach(function(z){
+    var b=zjBilan(z,anc), li=document.createElement('li');
+    if(z===SELZ) li.className='sel';
+    var p=document.createElement('i'); p.className='zj-p'; p.style.background=z.couleur;
+    var inf=document.createElement('span'); inf.className='zj-i';
+    var nm=document.createElement('b'); nm.textContent=z.nom+(z.chef ? ' · '+z.chef : '');
+    var st=document.createElement('small'); st.textContent=zjResume(b);
+    inf.appendChild(nm); inf.appendChild(st);
+    li.appendChild(p); li.appendChild(inf);
+    if(!window.CONSULTATION){
+      var bf=document.createElement('button'); bf.className='mini'; bf.type='button'; bf.textContent='Fiche';
+      bf.onclick=function(ev){ ev.stopPropagation(); ouvrirFicheZJ(z); };
+      li.appendChild(bf);
+    } else li.appendChild(document.createElement('span'));
+    li.onclick=function(){
+      if(!ZJ_VIS) zjVisible(true);
+      if(!window.CONSULTATION) zjChoisir(z);
+      zjCadrer(z);
+    };
+    ul.appendChild(li);
+  });
+}
+majJalons=(function(orig){ return function(){ orig(); zjListePlusTard(); if(SELZ) zjStatsPlusTard(); }; })(majJalons);
+majEquip=(function(orig){ return function(){ orig(); zjListePlusTard(); if(SELZ) zjStatsPlusTard(); }; })(majEquip);
+signaler3D=(function(orig){ return function(t){ if(t==='route') zjListePlusTard(); orig(t); }; })(signaler3D);
+
+/* ---------------- fiche de la zone ---------------- */
+var ZJ_SUGGESTIONS=['Panneau kilométrique','Panneau « Route barrée »','Panneau « Déviation »','Panneau « Attention coureurs »',
+  'Cône de signalisation','Barrière Vauban','Rouleau de rubalise','Gilet haute visibilité','Lampe torche','Bâton lumineux',
+  'Sifflet','Drapeau de signalisation','Talkie-walkie','Projecteur','Groupe électrogène','Trousse de premiers secours',
+  'Couverture de survie','Extincteur','Table','Chaise','Sac poubelle'];
+function ouvrirFicheZJ(z){
+  if(!z) return;
+  var m=document.getElementById('modale-zj');
+  if(!m){
+    m=document.createElement('div');
+    m.className='modale'; m.id='modale-zj'; m.hidden=true;
+    m.innerHTML='<div class="modale-in" style="width:min(720px,100%)"><h2>Fiche de la zone</h2>'+
+      '<div class="zj-grille">'+
+      '<label class="zj-ch">Nom de la zone<input type="text" data-f="nom"></label>'+
+      '<label class="zj-ch">Couleur<input type="color" data-f="couleur" style="width:60px;height:30px;padding:0;border:1px solid var(--trait-fort);background:none;cursor:pointer"></label>'+
+      '<label class="zj-ch">Chef de zone<input type="text" data-f="chef" placeholder="Grade, nom"></label>'+
+      '<label class="zj-ch">Téléphone ou indicatif radio<input type="text" data-f="tel" placeholder="06 …"></label></div>'+
+      '<label class="zj-ch">Consignes particulières<textarea data-f="notes" rows="4" placeholder="Accès des secours, riverains, point de regroupement, horaire de mise en place…"></textarea></label>'+
+      '<div><div class="menu-titre" style="margin-bottom:4px">Matériel particulier</div>'+
+      '<p class="mode" style="margin:0 0 6px">Panneaux kilométriques, barrières, rubalise et équipements posés dans la zone sont comptés tout seuls. Ajoute ici le reste (choix proposés ou texte libre).</p>'+
+      '<table class="zj-mat"><tbody></tbody></table>'+
+      '<button type="button" data-a="plus" style="margin-top:6px">＋ Ajouter du matériel</button></div>'+
+      '<div><div class="menu-titre" style="margin-bottom:4px">Dans la zone (calculé d’après la carte)</div><ul class="zj-auto"></ul></div>'+
+      '<datalist id="zj-sugg">'+ZJ_SUGGESTIONS.map(function(s){ return '<option value="'+esc(s)+'">'; }).join('')+'</datalist>'+
+      '<div class="modale-actions"><button type="button" data-a="ok" class="primaire">Fermer</button><button type="button" data-a="cadrer">Voir sur la carte</button></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click',function(ev){
+      if(ev.target===m){ m.hidden=true; return; }
+      var b=ev.target.closest ? ev.target.closest('button') : null;
+      if(!b) return;
+      var zz=m.__z;
+      if(b.dataset.a==='ok') m.hidden=true;
+      else if(b.dataset.a==='cadrer'){ m.hidden=true; if(zz){ zjChoisir(zz); zjCadrer(zz); } }
+      else if(b.dataset.a==='plus' && zz){ zz.mat.push(['','1']); remplirMatZJ(m); var ins=m.querySelectorAll('.zj-mat input[data-m="0"]'); if(ins.length) ins[ins.length-1].focus(); }
+      else if(b.dataset.a==='retirer' && zz){ zz.mat.splice(+b.dataset.i,1); remplirMatZJ(m); zjModifiee(); }
+    });
+    m.addEventListener('input',function(ev){
+      var zz=m.__z, t=ev.target;
+      if(!zz) return;
+      if(t.dataset.f){
+        if(t.dataset.f==='couleur'){ if(/^#[0-9a-fA-F]{6}$/.test(t.value)) zz.couleur=t.value.toUpperCase(); }
+        else zz[t.dataset.f]=t.value;
+        if(t.dataset.f==='nom') m.querySelector('h2').textContent='Fiche · '+(zz.nom||'zone');
+        outilsZJ.__z=undefined; dessinerZJ();
+      } else if(t.dataset.m!==undefined){
+        var r=zz.mat[+t.dataset.r];
+        if(r) r[+t.dataset.m]=t.value;
+      } else return;
+      zjModifiee();
+    });
+    document.addEventListener('keydown',function(ev){ if(ev.key==='Escape' && !m.hidden) m.hidden=true; });
+  }
+  m.__z=z;
+  m.querySelector('h2').textContent='Fiche · '+z.nom;
+  ['nom','chef','tel','notes'].forEach(function(f){ m.querySelector('[data-f="'+f+'"]').value=z[f]||''; });
+  m.querySelector('[data-f="couleur"]').value=z.couleur.toLowerCase();
+  remplirMatZJ(m);
+  var b=zjBilan(z), ul=m.querySelector('.zj-auto'), lignes=[];
+  lignes.push(b.jal.length ? b.jal.length+' jalonneur'+(b.jal.length>1?'s':'')+' : n° '+b.jal.map(function(x){ return x.n; }).join(', ') : 'Aucun jalonneur dans la zone');
+  if(b.bornes.length) lignes.push('Panneau'+(b.bornes.length>1?'x':'')+' kilométrique'+(b.bornes.length>1?'s':'')+' : km '+b.bornes.join(', '));
+  if(b.poses+b.ancrages) lignes.push((b.poses+b.ancrages)+' barrière'+(b.poses+b.ancrages>1?'s':'')+' municipale'+(b.poses+b.ancrages>1?'s':'')+(b.ancrages ? ' (dont '+b.ancrages+' d’ancrage de rubalise)' : ''));
+  if(b.rub) lignes.push(b.rub+' m de rubalise');
+  Object.keys(b.veh).forEach(function(t){ lignes.push(b.veh[t]+' × '+((VEH_TYPES[t] && VEH_TYPES[t].nom) || t)); });
+  if(b.depart) lignes.push('Départ de la course');
+  if(b.arrivee) lignes.push('Arrivée de la course');
+  if(b.pois.length) lignes.push('Points de la ville : '+b.pois.join(', '));
+  if(b.premier!==undefined) lignes.push('Coureurs dans la zone de '+heureH(b.premier)+' (premier) à '+heureH(b.dernier)+' (dernier), départ '+RUES_HOR.depart);
+  ul.innerHTML=lignes.map(function(l){ return '<li>'+esc(l)+'</li>'; }).join('');
+  m.hidden=false;
+}
+function remplirMatZJ(m){
+  var zz=m.__z, tb=m.querySelector('.zj-mat tbody');
+  tb.innerHTML='';
+  if(!zz.mat.length){ tb.innerHTML='<tr><td class="mode" style="color:var(--creme-faible);font-size:12.5px">Aucun matériel ajouté.</td></tr>'; return; }
+  zz.mat.forEach(function(r,i){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td><input type="text" list="zj-sugg" data-r="'+i+'" data-m="0" placeholder="Matériel"></td>'+
+      '<td class="q"><input type="text" data-r="'+i+'" data-m="1" placeholder="Qté"></td>'+
+      '<td class="x"><button type="button" class="mini" data-a="retirer" data-i="'+i+'" title="Retirer cette ligne">✕</button></td>';
+    tr.querySelector('[data-m="0"]').value=r[0];
+    tr.querySelector('[data-m="1"]').value=r[1];
+    tb.appendChild(tr);
+  });
+}
+
+/* ---------------- boutons des menus ---------------- */
+setTimeout(function(){
+  if(window.CONSULTATION) return;
+  var pa=document.querySelector('.bar .menu[data-m="ajout"] .menu-pop');
+  if(pa){
+    var sp=document.createElement('div'); sp.className='menu-sep';
+    var t=document.createElement('div'); t.className='menu-titre'; t.textContent='Zones';
+    var b=document.createElement('button'); b.type='button'; b.textContent='🟦 Zone de jalonnement';
+    b.title='Clic ensuite sur la carte : carré de 100 m × 100 m à ajuster';
+    b.onclick=lancerPoseZJ;
+    pa.appendChild(sp); pa.appendChild(t); pa.appendChild(b);
+  }
+  var pf=document.querySelector('.bar .menu[data-m="fichier"] .menu-pop');
+  if(pf){
+    var bw=document.createElement('button'); bw.type='button'; bw.id='b-zj-word';
+    bw.textContent='Récapitulatif des zones (Word)';
+    bw.title='Une page par zone : carte centrée, jalonneurs, matériel, horaires';
+    bw.onclick=function(){ ouvrirWordZJ(); };
+    var ref=document.getElementById('b-rues');
+    if(ref && ref.parentNode===pf) pf.insertBefore(bw,ref.nextSibling); else pf.appendChild(bw);
+  }
+},0);
+(function(){
+  var aide=document.querySelector('#modale-aide .modale-in');
+  if(!aide) return;
+  var p=document.createElement('p'); p.className='mode';
+  p.innerHTML='<b>Zones de jalonnement</b> : <b>Ajouter › Zone de jalonnement</b> puis clic sur la carte pose un carré de 100 m. Clic sur une zone pour la choisir : tire ses coins, tire un « + » pour ajouter un coin, double-clic ou clic droit sur un coin pour l’enlever, tire l’intérieur pour la déplacer. <b>Afficher les zones</b> (Calques) vaut pour la carte et l’image PNG. <b>Fichier › Récapitulatif des zones (Word)</b> : une page par zone.';
+  var act=aide.querySelector('.modale-actions');
+  aide.insertBefore(p,act||null);
+})();
+
+/* ---------------- récapitulatif Word ---------------- */
+var ZJ_RUES=null;
+var ZJ_WORD={fond:'dessin', dotation:'Gilet haute visibilité, lampe', synthese:true};
+(function(){
+  try{
+    var s=JSON.parse(localStorage.getItem('corrida-zones-word')||'{}');
+    if(['dessin','sombre','plan','sat'].indexOf(s.fond)>=0) ZJ_WORD.fond=s.fond;
+    if(typeof s.dotation==='string') ZJ_WORD.dotation=s.dotation;
+    if(typeof s.synthese==='boolean') ZJ_WORD.synthese=s.synthese;
+  }catch(e){}
+})();
+function retenirWordZJ(){ try{ localStorage.setItem('corrida-zones-word',JSON.stringify(ZJ_WORD)); }catch(e){} }
+/* nom de la voie au droit d'un jalonneur ; « angle A / B » à un carrefour */
+function zjEmplacement(la,lo){
+  var R=chargerRues();
+  if(!R.seg.length) return '';
+  var p=rueEnMetres(la,lo), parNom={};
+  R.seg.forEach(function(s){
+    var d=ecartSegment(p[0],p[1],s).d;
+    if(d>40) return;
+    var nm=nomVoie(s);
+    if(parNom[nm]===undefined || d<parNom[nm]) parNom[nm]=d;
+  });
+  var l=Object.keys(parNom).map(function(n){ return {n:n, d:parNom[n]+(/sans nom/.test(n)?12:0)}; }).sort(function(a,b){ return a.d-b.d; });
+  function joli(n){ n=n.replace(/\s*\(section sans nom\)$/,'').replace(/'/g,'’'); return n.charAt(0).toUpperCase()+n.slice(1); }
+  var emp=dansEmprise(p[0],p[1],R);
+  if(!l.length) return emp ? 'Emprise militaire (ENSOA)' : '';
+  var t=joli(l[0].n);
+  function min1(s){ return s.replace(/^./,function(c){ return c.toLowerCase(); }); }
+  if(l[1] && l[1].d<18 && !/sans nom/.test(l[1].n)) t='Angle '+min1(t)+' / '+min1(joli(l[1].n));
+  if(emp) t+=' (ENSOA)';
+  return t;
+}
+/* consignes d'un jalonneur, passage par passage */
+function zjConsignes(j){
+  var P=passagesJalon(j), base=orientationJalon(j), ip2=indexP2(j,P), out=[];
+  if(!P.length) P=[kmDuJalon(j).km*1000];
+  P.forEach(function(d,i){
+    var br=base.bras;
+    if(i===ip2 && j.p2){ var o=orientationAu(j,d,j.p2.az,j.p2.bras,true); br=o.bras; }
+    out.push({d:d, bras:br});
+  });
+  return out;
+}
+function zjCadreImage(z,R){
+  var P=zjPoly(z), x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
+  P.forEach(function(p){ if(p[0]<x0)x0=p[0]; if(p[0]>x1)x1=p[0]; if(p[1]<y0)y0=p[1]; if(p[1]>y1)y1=p[1]; });
+  var mpu=metresParUnite(), cx=(x0+x1)/2, cy=(y0+y1)/2;
+  var w=Math.max((x1-x0)*1.5,(y1-y0)*1.5*R,230/mpu), h=w/R;
+  return [cx-w/2, cy-h/2, cx+w/2, cy+h/2];
+}
+function zjCadreGeneral(){
+  var x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity, i;
+  function pr(x,y){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
+  for(i=0;i<POLY.length;i++) pr(px[POLY[i]],py[POLY[i]]);
+  ZJ.forEach(function(z){ zjPoly(z).forEach(function(p){ pr(p[0],p[1]); }); });
+  var mx=(x1-x0)*0.05+4, my=(y1-y0)*0.05+4;
+  return [x0-mx, y0-my, x1+mx, y1+my];
+}
+/* Vue resserrée : les rues de la carte sont des traits de largeur fixe à l'écran
+   (des fils à ce zoom) et le contour des bâtiments est en unités de carte (trop
+   épais). On donne aux rues leur largeur réelle, blanches bordées sur fond
+   clair, et on affine les contours. */
+var ZJ_ROUTES={'#242D3C':2.2, '#283341':1.4, '#2E3B4D':6.5, '#42536F':9};
+function zjRetoucheFond(clair,cadre){
+  return function(c,kk,mpu){
+    var V=c.querySelector('#vecteur');
+    if(!V) return;
+    var bordures=[];
+    Array.prototype.slice.call(V.querySelectorAll('g[stroke]')).forEach(function(g){
+      var m=ZJ_ROUTES[(g.getAttribute('stroke')||'').toUpperCase()];
+      if(!m) return;
+      var par=g.parentNode, da=g.getAttribute('stroke-dasharray');
+      var w=Math.max(m/mpu,(+g.getAttribute('stroke-width')||1)/kk);
+      par.removeAttribute('vector-effect'); g.removeAttribute('vector-effect');
+      g.setAttribute('stroke-width',w.toFixed(4));
+      g.setAttribute('stroke-linejoin','round');
+      if(da){ g.setAttribute('stroke-dasharray',(1.6/mpu).toFixed(4)+' '+(1.2/mpu).toFixed(4)); return; }
+      g.setAttribute('stroke-linecap','round');
+      if(clair){
+        var b=g.cloneNode(true);
+        b.setAttribute('stroke','#B7AD99'); b.setAttribute('stroke-width',(w+1.1/mpu).toFixed(4));
+        bordures.push([par,b]);
+        g.setAttribute('stroke','#FFFFFF');
+      }
+    });
+    bordures.forEach(function(x){ x[0].insertBefore(x[1],x[0].firstChild); });
+    Array.prototype.slice.call(V.querySelectorAll('path[stroke="#5B6884"]')).forEach(function(p){ p.setAttribute('stroke-width',(1.2/kk).toFixed(4)); });
+    /* tracé un peu plus épais sur une vue aussi resserrée */
+    ['c-trace','c-halo'].forEach(function(id){
+      var g=c.querySelector('#'+id);
+      if(g) Array.prototype.slice.call(g.querySelectorAll('[stroke-width]')).forEach(function(p){ p.setAttribute('stroke-width',(+p.getAttribute('stroke-width')*1.6).toFixed(2)); });
+    });
+    if(cadre) zjNomsRues(V,kk,cadre,clair);
+  };
+}
+/* noms des rues le long de chaque voie nommée qui traverse le cadre */
+var ZJ_VOIES=null;
+function zjVoies(){
+  if(ZJ_VOIES) return ZJ_VOIES;
+  ZJ_VOIES=[];
+  var e=document.getElementById('d-rues'), txt=e ? e.textContent : '';
+  txt.split('\n').forEach(function(li){
+    var c=li.split('\t');
+    if(c.length<4 || c[0]!=='v' || !c[1] || !c[3]) return;
+    var pts=c[3].split(' ').map(function(p){
+      var q=p.split(','), la=RUES_ORIG.la+(+q[1]/10)/RUES_ORIG.ky, lo=RUES_ORIG.lo+(+q[0]/10)/RUES_ORIG.kx;
+      return [X(lo),Y(la)];
+    });
+    if(pts.length>1) ZJ_VOIES.push({nom:c[1].replace(/'/g,'’'), pts:pts});
+  });
+  return ZJ_VOIES;
+}
+function zjNomsRues(V,kk,cadre,clair){
+  var g=el('g',{'font-family':'Arial, Helvetica, sans-serif','font-size':(12.5/kk).toFixed(4),'font-style':'italic',
+    fill:clair?'#4A4234':'#C9CED4', stroke:clair?'#FFFFFF':'#0B1019','stroke-width':(3/kk).toFixed(4),'paint-order':'stroke','stroke-linejoin':'round'});
+  var m=(cadre[2]-cadre[0])*0.04, x0=cadre[0]+m, x1=cadre[2]-m, y0=cadre[1]+m, y1=cadre[3]-m, faits={};
+  function dedans(p){ return p[0]>=x0 && p[0]<=x1 && p[1]>=y0 && p[1]<=y1; }
+  zjVoies().forEach(function(v){
+    /* le plus long tronçon droit de la voie à l'intérieur du cadre */
+    var best=null, i;
+    for(i=1;i<v.pts.length;i++){
+      var a=v.pts[i-1], b=v.pts[i];
+      if(!dedans(a) || !dedans(b)) continue;
+      var L=Math.hypot(b[0]-a[0],b[1]-a[1]);
+      if(!best || L>best.L) best={a:a, b:b, L:L};
+    }
+    if(!best || faits[v.nom]) return;
+    var larg=v.nom.length*6.6/kk;
+    if(best.L<larg*1.05) return;
+    faits[v.nom]=1;
+    var ang=Math.atan2(best.b[1]-best.a[1],best.b[0]-best.a[0])*180/Math.PI;
+    if(ang>90) ang-=180; else if(ang<-90) ang+=180;
+    var cx=(best.a[0]+best.b[0])/2, cy=(best.a[1]+best.b[1])/2;
+    var t=el('text',{x:cx.toFixed(3), y:cy.toFixed(3), 'text-anchor':'middle', 'dominant-baseline':'central',
+      transform:'rotate('+ang.toFixed(1)+' '+cx.toFixed(3)+' '+cy.toFixed(3)+')'});
+    t.textContent=v.nom;
+    g.appendChild(t);
+  });
+  V.appendChild(g);
+}
+function zjChoixImage(cadre,focus){
+  var f=ZJ_WORD.fond;
+  return {fRues:true, fBati:true, fVeg:true, fEau:true, fEmprise:true, fRail:true, fNoms:true,
+    plan:false, sat:(f==='sat'), trace:true, halo:true, fleches:true, km:true, da:true, autres:false,
+    jal:true, jalNum:true, bar:true, rub:true, mat:true, veh:true, pol:true, zones:true, pois:false, piste:false,
+    cTitre:false, cChiffres:false, cEchelle:true, cNord:true,
+    clair:(f==='dessin' || f==='plan'), dessin:(f==='dessin'), couleur:'', cadre:cadre,
+    retouche:(focus && (f==='dessin' || f==='sombre')) ? zjRetoucheFond(f==='dessin',cadre) : null};
+}
+/* peinture d'un SVG en JPEG (plus léger que le PNG dans le document) */
+function zjPeindre(svgTxt,L,H,largeur){
+  return new Promise(function(ok,rate){
+    var url=URL.createObjectURL(new Blob([svgTxt],{type:'image/svg+xml;charset=utf-8'})), im=new Image();
+    im.onload=function(){
+      try{
+        var cv=document.createElement('canvas');
+        cv.width=Math.round(largeur); cv.height=Math.round(largeur*H/L);
+        var cx=cv.getContext('2d');
+        cx.fillStyle='#FFFFFF'; cx.fillRect(0,0,cv.width,cv.height);
+        cx.drawImage(im,0,0,cv.width,cv.height);
+        cv.toBlob(function(b){
+          URL.revokeObjectURL(url);
+          if(!b){ rate(new Error('image trop grande pour ce navigateur')); return; }
+          b.arrayBuffer().then(function(ab){ ok({data:new Uint8Array(ab), l:cv.width, h:cv.height}); },rate);
+        },'image/jpeg',0.9);
+      }catch(e){ URL.revokeObjectURL(url); rate(e); }
+    };
+    im.onerror=function(){ URL.revokeObjectURL(url); rate(new Error('dessin illisible')); };
+    im.src=url;
+  });
+}
+/* image d'une zone (focus) ou de l'ensemble (focus null) */
+function zjImage(z,largeur){
+  var vis=ZJ_VIS, sel=SELZ;
+  ZJ_VIS=true; ZJ_FOCUS=z||null; SELZ=null;
+  var r;
+  try{ r=imageParcoursSVG(zjChoixImage(z ? zjCadreImage(z,1.9) : zjCadreGeneral(), z)); }
+  finally{ ZJ_VIS=vis; ZJ_FOCUS=null; SELZ=(sel && ZJ.indexOf(sel)>=0) ? sel : null; dessinerZJ(); }
+  return zjPeindre(r.txt,r.L,r.H,largeur);
+}
+function docxZJ(images){
+  var H=zjHoraires();
+  if(!H) throw new Error('heure ou allure illisible (écrire 19:00, 3:00, 12:00)');
+  var ENCRE='1A2433', GRIS='5A6579', OR='8A5510', VERT='215158', FOND='EDEFE9', LARGEUR=9638;
+  function e(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function run(t,o){ o=o||{};
+    var rp='<w:rFonts w:ascii="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'+(o.b?'<w:b/><w:bCs/>':'')+(o.i?'<w:i/><w:iCs/>':'')+(o.caps?'<w:caps/>':'')+
+      '<w:color w:val="'+(o.c||ENCRE)+'"/>'+(o.esp?'<w:spacing w:val="'+o.esp+'"/>':'')+'<w:sz w:val="'+(o.sz||20)+'"/><w:szCs w:val="'+(o.sz||20)+'"/>';
+    return String(t).split('\n').map(function(l,i){ return '<w:r><w:rPr>'+rp+'</w:rPr>'+(i?'<w:br/>':'')+'<w:t xml:space="preserve">'+e(l)+'</w:t></w:r>'; }).join('');
+  }
+  function para(runs,o){ o=o||{};
+    return '<w:p><w:pPr>'+(o.saut?'<w:pageBreakBefore/>':'')+(o.garder?'<w:keepNext/>':'')+(o.bord||'')+(o.shd?'<w:shd w:val="clear" w:color="auto" w:fill="'+o.shd+'"/>':'')+
+      (o.tabs||'')+'<w:spacing w:before="'+(o.av||0)+'" w:after="'+(o.ap||0)+'" w:line="'+(o.ligne||240)+'" w:lineRule="auto"/>'+(o.ind||'')+(o.jc?'<w:jc w:val="'+o.jc+'"/>':'')+'</w:pPr>'+runs+'</w:p>'; }
+  function cell(w,contenu,fond,o){ o=o||{};
+    return '<w:tc><w:tcPr><w:tcW w:w="'+w+'" w:type="dxa"/>'+(o.span?'<w:gridSpan w:val="'+o.span+'"/>':'')+(fond?'<w:shd w:val="clear" w:color="auto" w:fill="'+fond+'"/>':'')+
+      '<w:tcMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tcMar><w:vAlign w:val="'+(o.va||'center')+'"/></w:tcPr>'+contenu+'</w:tc>'; }
+  function tableau(larg,entetes,lignes){
+    var x='<w:tbl><w:tblPr><w:tblW w:w="'+LARGEUR+'" w:type="dxa"/><w:tblBorders>'+
+      ['top','left','bottom','right','insideH','insideV'].map(function(b){ return '<w:'+b+' w:val="single" w:sz="4" w:space="0" w:color="C8CCC4"/>'; }).join('')+
+      '</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="10" w:type="dxa"/><w:right w:w="10" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'+
+      larg.map(function(w){ return '<w:gridCol w:w="'+w+'"/>'; }).join('')+'</w:tblGrid>';
+    x+='<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>'+entetes.map(function(h,i){ return cell(larg[i],para(run(h,{b:true,caps:true,c:GRIS,esp:12,sz:15}),{jc:(i===0?'center':null)}),FOND); }).join('')+'</w:tr>';
+    lignes.forEach(function(l){ x+='<w:tr><w:trPr><w:cantSplit/></w:trPr>'+l.map(function(c,i){ return cell(larg[i],c.x,c.fond||null,{va:c.va}); }).join('')+'</w:tr>'; });
+    return x+'</w:tbl>';
+  }
+  var idImg=0, rels=[], medias=[];
+  function image(im,largCm,hautMax){
+    idImg++;
+    var nom='media/image'+idImg+'.jpeg', rid='rIdImg'+idImg;
+    rels.push('<Relationship Id="'+rid+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="'+nom+'"/>');
+    medias.push({nom:'word/'+nom, data:im.data});
+    var cx=Math.round(largCm*360000), cy=Math.round(cx*im.h/im.l), mx=Math.round(hautMax*360000);
+    if(cy>mx){ cx=Math.round(cx*mx/cy); cy=mx; }
+    return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="'+cx+'" cy="'+cy+'"/><wp:docPr id="'+idImg+'" name="Carte '+idImg+'"/>'+
+      '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'+
+      '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'+
+      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="'+idImg+'" name="carte'+idImg+'.jpeg"/><pic:cNvPicPr/></pic:nvPicPr>'+
+      '<pic:blipFill><a:blip r:embed="'+rid+'"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'+
+      '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+cx+'" cy="'+cy+'"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'+
+      '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  }
+  function hex(c){ return String(c).replace('#','').toUpperCase(); }
+  function kmTxt(d){ return (d/1000).toFixed(2).replace('.',','); }
+  function titreSection(t){ return para(run(t,{b:true,caps:true,c:GRIS,esp:14,sz:17}),{av:200,ap:70,garder:true}); }
+  function ligneVide(){ return para('',{bord:'<w:pBdr><w:bottom w:val="dotted" w:sz="6" w:space="1" w:color="A9AFA4"/></w:pBdr>',av:220}); }
+
+  var total=CUM.length ? CUM[CUM.length-1] : 0, nomP=nomParcours();
+  var anc=ancragesRubalise(), bilans=ZJ.map(function(z){ return zjBilan(z,anc); });
+  var dotation=ZJ_WORD.dotation.split(/[,;\n]/).map(function(s){ s=s.trim(); return s.charAt(0).toUpperCase()+s.slice(1); }).filter(Boolean);
+  var corps='', iImg=0;
+  var sousTitre='Parcours '+nomP+' · '+kmTxt(total)+' km · départ '+hEsp(H.t0)+' · premier coureur à '+allureTxt(RUES_HOR.tete)+', dernier à '+allureTxt(RUES_HOR.dernier);
+
+  /* ----- page de synthèse ----- */
+  if(ZJ_WORD.synthese){
+    corps+=para(run('Corrida 2027 · zones de jalonnement',{b:true,sz:36}),{ap:40})+
+      para(run(sousTitre,{c:GRIS}),{ap:120});
+    corps+=para(image(images[iImg++],17,12.6),{jc:'center',ap:120});
+    var lg=[1500,2150,2350,1150,1150,1338], lignesS=[], tJ=0, tB=0, tR=0;
+    ZJ.forEach(function(z,i){
+      var b=bilans[i], nb=b.poses+b.ancrages;
+      tJ+=b.jal.length; tB+=nb; tR+=b.rub;
+      lignesS.push([
+        {x:para(run(z.nom,{b:true,c:zjEncre(z.couleur)==='#FFFFFF'?'FFFFFF':'0B1019'})),fond:hex(z.couleur)},
+        {x:para(run(z.chef||'…',{c:z.chef?ENCRE:GRIS})+(z.tel?run('\n'+z.tel,{c:GRIS,sz:17}):''))},
+        {x:para(run(b.jal.length ? b.jal.length+' : n° '+b.jal.map(function(x){ return x.n; }).join(', ') : '0',{sz:18}))},
+        {x:para(run(nb ? String(nb) : '–',{sz:18}),{jc:'center'})},
+        {x:para(run(b.rub ? b.rub+' m' : '–',{sz:18}),{jc:'center'})},
+        {x:para(run(b.premier!==undefined ? heureH(b.premier)+' → '+heureH(b.dernier) : 'hors parcours',{sz:18}),{jc:'center'})}
+      ]);
+    });
+    lignesS.push([
+      {x:para(run('Total',{b:true})),fond:FOND},{x:para(run(ZJ.length+' zone'+(ZJ.length>1?'s':''),{c:GRIS})),fond:FOND},
+      {x:para(run(tJ+' jalonneur'+(tJ>1?'s':''),{b:true,sz:18})),fond:FOND},{x:para(run(String(tB),{b:true,sz:18}),{jc:'center'}),fond:FOND},
+      {x:para(run(tR+' m',{b:true,sz:18}),{jc:'center'}),fond:FOND},{x:para(''),fond:FOND}]);
+    corps+=tableau(lg,['Zone','Chef de zone','Jalonneurs','Barrières','Rubalise','Coureurs'],lignesS);
+    /* contrôles : jalonneurs hors zone ou comptés deux fois */
+    var compte={};
+    bilans.forEach(function(b){ b.jal.forEach(function(x){ compte[x.n]=(compte[x.n]||0)+1; }); });
+    var hors=[], doubles=[];
+    JAL.forEach(function(j,i){ var c=compte[i+1]||0; if(!c) hors.push(i+1); else if(c>1) doubles.push(i+1); });
+    if(hors.length) corps+=para(run('Jalonneurs hors de toute zone : ',{b:true,c:'A33A2E'})+run('n° '+hors.join(', ')+'.',{c:'A33A2E'}),{av:140});
+    if(doubles.length) corps+=para(run('Jalonneurs comptés dans deux zones : ',{b:true,c:'A33A2E'})+run('n° '+doubles.join(', ')+'.',{c:'A33A2E'}),{av:60});
+    if(!hors.length && !doubles.length && JAL.length) corps+=para(run('Chaque jalonneur appartient à une seule zone.',{c:VERT}),{av:140});
+  }
+
+  /* ----- une page par zone ----- */
+  ZJ.forEach(function(z,iz){
+    var b=bilans[iz], encre=zjEncre(z.couleur)==='#FFFFFF'?'FFFFFF':'0B1019';
+    var premier=(iz>0 || ZJ_WORD.synthese);
+    corps+=para(run(z.nom.toUpperCase(),{b:true,sz:34,c:encre,esp:10})+'<w:r><w:tab/></w:r>'+run('Corrida 2027 · parcours '+nomP,{c:encre,sz:18}),
+      {saut:premier, shd:hex(z.couleur), tabs:'<w:tabs><w:tab w:val="right" w:pos="'+LARGEUR+'"/></w:tabs>', av:0, ap:80, ind:'<w:ind w:left="120" w:right="120"/>'});
+    corps+=para(run('Chef de zone : ',{b:true})+run(z.chef||'……………………………………',{c:z.chef?ENCRE:GRIS})+run('     Téléphone / radio : ',{b:true})+run(z.tel||'……………………………',{c:z.tel?ENCRE:GRIS}),{ap:100});
+    corps+=para(image(images[iImg++],17,9.4),{jc:'center',ap:40});
+    /* passage des coureurs */
+    corps+=titreSection('Passage des coureurs');
+    if(!b.passages.length) corps+=para(run('Le parcours ne traverse pas cette zone.',{i:true,c:GRIS}));
+    else b.passages.forEach(function(p,ip){
+      var voies=[];
+      if(ZJ_RUES) ZJ_RUES.forEach(function(r){
+        var ch=Math.min(r.fin,p.d1)-Math.max(r.debut,p.d0);
+        if(ch>=8 || (p.d1-p.d0<8 && ch>0)){
+          var n=r.nom==='@emprise' ? 'emprise militaire (ENSOA)' : r.nom.replace(/\s*\(section sans nom\)$/,'').replace(/'/g,'’');
+          if(voies.indexOf(n)<0) voies.push(n);
+        }
+      });
+      var t1=H.entree(p.d0,H.aT), t2=H.sortie(p.d1,H.aT), t3=H.entree(p.d0,H.aD), t4=H.sortie(p.d1,H.aD);
+      corps+=para(run((b.passages.length>1 ? 'Passage '+(ip+1)+' · ' : '')+'km '+kmTxt(p.d0)+' → '+kmTxt(p.d1)+' : ',{b:true})+
+        run('premier coureur '+heureH(t1)+' → '+heureH(t2),{c:OR,b:true})+run(' · ')+run('dernier coureur '+heureH(t3)+' → '+heureH(t4),{c:VERT,b:true})+
+        (voies.length ? run('\nVoies : '+voies.join(', '),{c:GRIS,sz:18}) : ''),{ap:50});
+    });
+    var rep=[];
+    if(b.depart) rep.push('départ de la course');
+    if(b.arrivee) rep.push('arrivée de la course');
+    if(b.pois.length) rep.push(b.pois.join(', '));
+    if(rep.length) corps+=para(run('Repères : ',{b:true})+run(rep.join(' · ')),{ap:40});
+    /* jalonneurs */
+    corps+=titreSection('Jalonneurs ('+b.jal.length+')');
+    if(!b.jal.length) corps+=para(run('Aucun jalonneur dans cette zone.',{i:true,c:GRIS}));
+    else {
+      var lj=[560,3050,2250,1778,2000];
+      corps+=tableau(lj,['N°','Emplacement','Consigne','1er → dernier coureur','Signaleur (nom, tél.)'],b.jal.map(function(x){
+        var j=x.j, C=zjConsignes(j), emp=zjEmplacement(j.la,j.lo);
+        var cons=C.map(function(c){ return (C.length>1 ? 'km '+kmTxt(c.d)+' : ' : '')+(ZJ_BRAS[c.bras]||'Bras tendu'); }).join('\n');
+        var hor=C.map(function(c){ return heureH(H.entree(c.d,H.aT))+' → '+heureH(H.sortie(c.d,H.aD)); }).join('\n');
+        return [
+          {x:para(run(String(x.n),{b:true,sz:22,c:j.niv==='r'?'B3261E':'B8651B'}),{jc:'center'})},
+          {x:para(run(emp||'Position GPS',{b:!!emp}))+para(run('km '+kmTxt(C[0].d)+' · '+j.la.toFixed(5)+', '+j.lo.toFixed(5),{c:GRIS,sz:16}))},
+          {x:para(run(cons,{sz:18}))+para(run(j.niv==='r'?'Indispensable':'Facultatif',{c:j.niv==='r'?'B3261E':'B8651B',sz:16}))},
+          {x:para(run(hor,{sz:18}),{jc:'center'})},
+          {x:para('')}
+        ];
+      }));
+    }
+    /* matériel */
+    corps+=titreSection('Matériel');
+    var lm=[], nbJ=b.jal.length, nb=b.poses+b.ancrages;
+    function lig(nom,q,det){ lm.push([{x:para(run(nom,{b:true,sz:19}))},{x:para(run(String(q),{b:true,sz:19}),{jc:'center'})},{x:para(run(det||'',{c:GRIS,sz:18}))}]); }
+    if(b.bornes.length) lig('Panneau'+(b.bornes.length>1?'x':'')+' kilométrique'+(b.bornes.length>1?'s':''),b.bornes.length,'km '+b.bornes.join(', '));
+    if(nb) lig('Barrières municipales',nb,b.ancrages ? (b.poses ? b.poses+' posée'+(b.poses>1?'s':'')+' + ' : '')+b.ancrages+' d’ancrage de rubalise' : '');
+    if(b.rub) lig('Rubalise',b.rub+' m','soit '+Math.max(1,Math.ceil(b.rub*1.1/ROULEAU_M))+' rouleau'+(Math.ceil(b.rub*1.1/ROULEAU_M)>1?'x':'')+' de '+ROULEAU_M+' m (10 % de marge)');
+    Object.keys(b.veh).forEach(function(t){ lig((VEH_TYPES[t] && VEH_TYPES[t].nom) || t,b.veh[t],''); });
+    if(nbJ) dotation.forEach(function(d){ lig(d,nbJ,'un par jalonneur'); });
+    z.mat.forEach(function(m){ if(m[0] || m[1]) lig(m[0]||'(sans nom)',m[1]||'',''); });
+    if(!lm.length) corps+=para(run('Aucun matériel particulier.',{i:true,c:GRIS}));
+    else corps+=tableau([4000,1100,4538],['Matériel','Quantité','Précisions'],lm);
+    /* consignes */
+    corps+=titreSection('Consignes particulières');
+    if(z.notes.trim()) z.notes.split('\n').forEach(function(l){ corps+=para(run(l),{ap:30}); });
+    else corps+=ligneVide()+ligneVide()+ligneVide();
+  });
+  corps+=para('');
+
+  var doc='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '+
+    'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '+
+    'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>'+corps+
+    '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="1134" w:bottom="794" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>'+
+    '</w:body></w:document>';
+  return zipStocke([
+    {nom:'[Content_Types].xml', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'+
+      '<Default Extension="jpeg" ContentType="image/jpeg"/>'+
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'},
+    {nom:'_rels/.rels', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
+    {nom:'word/_rels/document.xml.rels', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+rels.join('')+'</Relationships>'},
+    {nom:'word/document.xml', txt:doc}
+  ].concat(medias));
+}
+/* images puis document ; le navigateur respire entre deux cartes */
+function produireWordZJ(etat){
+  if(!ZJ.length) return Promise.reject(new Error('aucune zone sur ce parcours'));
+  if(!zjHoraires()) return Promise.reject(new Error('heure ou allure illisible (écrire 19:00, 3:00, 12:00)'));
+  var liste=(ZJ_WORD.synthese ? [null] : []).concat(ZJ), images=[], i=0;
+  /* voies empruntées, distances recalées sur celles du tracé (mesure un peu différente) */
+  try{
+    ZJ_RUES=ruesBrutes();
+    var fR=ZJ_RUES.length ? ZJ_RUES[ZJ_RUES.length-1].fin : 0, tot=CUM.length ? CUM[CUM.length-1] : 0;
+    if(fR>0 && tot>0) ZJ_RUES.forEach(function(r){ r.debut*=tot/fR; r.fin*=tot/fR; });
+  }catch(e){ ZJ_RUES=null; }
+  function suite(){
+    if(i>=liste.length) return Promise.resolve();
+    var z=liste[i];
+    if(etat) etat('Carte '+(i+1)+' sur '+liste.length+(z ? ' ('+z.nom+')' : ' (vue d’ensemble)')+'…');
+    return new Promise(function(r){ setTimeout(r,30); })
+      .then(function(){ return zjImage(z,z?1800:2000); })
+      .then(function(im){ images.push(im); i++; return suite(); });
+  }
+  return suite().then(function(){
+    if(etat) etat('Assemblage du document…');
+    try{ return docxZJ(images); } finally { ZJ_RUES=null; }
+  });
+}
+function ouvrirWordZJ(){
+  var m=document.getElementById('modale-zjw');
+  if(!m){
+    m=document.createElement('div');
+    m.className='modale'; m.id='modale-zjw'; m.hidden=true;
+    function champ(id,lib,aide){ return '<label class="mode" style="display:grid;grid-template-columns:200px 110px 1fr;align-items:center;gap:10px;margin:0">'+lib+
+      '<input id="'+id+'" type="text" style="width:100px"><span style="opacity:.75">'+aide+'</span></label>'; }
+    m.innerHTML='<div class="modale-in" style="width:min(660px,100%)"><h2>Récapitulatif des zones</h2>'+
+      '<p class="mode">Un document Word : une page de synthèse, puis une page par zone avec la carte centrée sur la zone, le passage des coureurs, les jalonneurs (emplacement, consigne, horaires, case pour le nom du signaleur), le matériel et les consignes.</p>'+
+      champ('zw-depart','Heure de départ','ex. 19:00')+
+      champ('zw-tete','Allure du premier coureur','min:s par km, ex. 3:00')+
+      champ('zw-dernier','Allure du dernier coureur','min:s par km, ex. 12:00')+
+      '<div class="mode" style="display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center"><span class="menu-titre" style="margin:0">Fond des cartes</span>'+
+      '<label><input type="radio" name="zw-fond" value="dessin"> Dessin clair</label><label><input type="radio" name="zw-fond" value="sombre"> Dessin sombre</label>'+
+      '<label><input type="radio" name="zw-fond" value="plan"> Plan OpenStreetMap</label><label><input type="radio" name="zw-fond" value="sat"> Satellite</label></div>'+
+      '<label class="zj-ch">Dotation de chaque jalonneur (séparer par des virgules, laisser vide pour ne rien compter)<input type="text" id="zw-dotation"></label>'+
+      '<label class="mode" style="display:flex;gap:8px;align-items:center;margin:0"><input type="checkbox" id="zw-synthese"> Page de synthèse (vue d’ensemble, tableau de toutes les zones, contrôle des jalonneurs hors zone)</label>'+
+      '<p class="mode" id="zw-etat"></p>'+
+      '<div class="modale-actions"><button id="zw-ok" class="primaire">Télécharger (.docx)</button><button id="zw-non">Fermer</button></div></div>';
+    document.body.appendChild(m);
+    var cles={depart:'zw-depart', tete:'zw-tete', dernier:'zw-dernier'};
+    Object.keys(cles).forEach(function(k2){
+      m.querySelector('#'+cles[k2]).addEventListener('input',function(){
+        RUES_HOR[k2]=this.value;
+        try{ localStorage.setItem('corrida-rues-horaires2',JSON.stringify(RUES_HOR)); }catch(e){}
+        zjListePlusTard();
+      });
+    });
+    Array.prototype.slice.call(m.querySelectorAll('input[name="zw-fond"]')).forEach(function(r){
+      r.addEventListener('change',function(){ if(r.checked){ ZJ_WORD.fond=r.value; retenirWordZJ(); } });
+    });
+    m.querySelector('#zw-dotation').addEventListener('input',function(){ ZJ_WORD.dotation=this.value; retenirWordZJ(); });
+    m.querySelector('#zw-synthese').addEventListener('change',function(){ ZJ_WORD.synthese=this.checked; retenirWordZJ(); });
+    m.addEventListener('click',function(ev){ if(ev.target===m && !m.__occupe) m.hidden=true; });
+    m.querySelector('#zw-non').onclick=function(){ m.hidden=true; };
+    document.addEventListener('keydown',function(ev){ if(ev.key==='Escape' && !m.hidden && !m.__occupe) m.hidden=true; });
+    m.querySelector('#zw-ok').onclick=function(){
+      var et=m.querySelector('#zw-etat'), bt=this;
+      if(m.__occupe) return;
+      m.__occupe=true; bt.disabled=true;
+      produireWordZJ(function(t){ et.textContent=t; }).then(function(b){
+        telechargerBlob('Corrida 2027 - zones de jalonnement - parcours '+(nomParcours()||'x')+'.docx',b);
+        et.textContent='Document Word téléchargé : '+ZJ.length+' zone'+(ZJ.length>1?'s':'')+', '+Math.round(b.size/1024)+' Ko.';
+        dire('Récapitulatif des zones du parcours '+nomParcours()+' téléchargé.','ok');
+      }).catch(function(e){ console.error(e); et.textContent='Document impossible à produire : '+e.message+'.'; })
+        .then(function(){ m.__occupe=false; bt.disabled=false; });
+    };
+    m.__cles=cles;
+  }
+  Object.keys(m.__cles).forEach(function(k2){ m.querySelector('#'+m.__cles[k2]).value=RUES_HOR[k2]; });
+  Array.prototype.slice.call(m.querySelectorAll('input[name="zw-fond"]')).forEach(function(r){ r.checked=(r.value===ZJ_WORD.fond); });
+  m.querySelector('#zw-dotation').value=ZJ_WORD.dotation;
+  m.querySelector('#zw-synthese').checked=ZJ_WORD.synthese;
+  m.querySelector('h2').textContent='Récapitulatif des zones · parcours '+nomParcours();
+  m.querySelector('#zw-etat').textContent=ZJ.length ? ZJ.length+' zone'+(ZJ.length>1?'s':'')+' sur ce parcours.' : 'Aucune zone sur ce parcours : Ajouter › Zone de jalonnement.';
+  m.hidden=false;
+}
+CARTE.zonesJalonnement=function(){ return ZJ; };
+zjRedessiner=function(){ SELZ=null; dessinerZJ(); zjListePlusTard(); };
+zjRedessiner();
 })();
 </script>
 <script>
