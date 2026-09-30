@@ -18043,7 +18043,7 @@ function etapeTerrains(){
    l'angle est le croisement des deux routes, l'axe du monument la
    bissectrice de l'angle. L'inscription est reculée juste assez pour que
    ses 16 m tiennent entre les deux trottoirs. */
-var MSO={coin:[-562.9,-206.8], voieA:[-582.7,-200.6], voieB:[-558.7,-276.3], recul:12.5, prof:8.5, h:1.3, texte:'AUX SOUS OFFICIERS'};
+var MSO={coin:[-562.9,-206.8], voieA:[-582.7,-200.6], voieB:[-558.7,-276.3], recul:12.5, prof:8.5, h:1.3, texte:'AUX SOUS OFFICIERS', rArc:20};
 /* un trait de lettre : boîte épaisse dans le plan vertical de l'inscription */
 function traitLettre(tas,O,R,N,u0,y0,u1,y1,sw,dep,ext,col){
   var du=u1-u0, dy=y1-y0, L=Math.hypot(du,dy)||1; du/=L; dy/=L;
@@ -18080,16 +18080,36 @@ var POLICE_MSO={
   ' ':{w:0.34, t:[]}
 };
 function largeurMSO(texte,H){ var l=0; for(var i=0;i<texte.length;i++) l+=POLICE_MSO[texte[i]].w+(i<texte.length-1?0.07:0); return l*H; }
-function ecrireMSO(tas,O,R,N,texte,H,dep,col){
-  var sw=0.21, x=-largeurMSO(texte,1)/2, i;
+/* L'inscription suit un arc de rayon Rarc (Nicolas, 30 sept. 2026) : le
+   milieu reste au bord du carrefour, les extrémités reculent vers la
+   butte. Chaque trait est posé dans le plan tangent à l'arc en son milieu
+   (traits de 1,3 m au plus : l'écart à l'arc reste sous le centimètre). */
+function arcMSO(O,R,N,Rarc){
+  var C=[O[0]-N[0]*Rarc, O[2]-N[2]*Rarc];
+  return {
+    /* point à l'abscisse curviligne u, décalé de n vers l'avant */
+    P:function(u,n){ var a=u/Rarc, c=Math.cos(a), s=Math.sin(a), r=Rarc+(n||0);
+      return [C[0]+(N[0]*c+R[0]*s)*r, C[1]+(N[2]*c+R[2]*s)*r]; },
+    /* repère tangent (R) et normal (N) en u */
+    rep:function(u){ var a=u/Rarc, c=Math.cos(a), s=Math.sin(a);
+      return {R:[-N[0]*s+R[0]*c,0,-N[2]*s+R[2]*c], N:[N[0]*c+R[0]*s,0,N[2]*c+R[2]*s]}; }
+  };
+}
+function ecrireMSO(tas,O,R,N,texte,H,dep,col,Rarc){
+  var sw=0.21, x=-largeurMSO(texte,1)/2, i, arc=Rarc?arcMSO(O,R,N,Rarc):null;
+  function trait(u0,y0,u1,y1,ext){
+    if(!arc){ traitLettre(tas,O,R,N,u0,y0,u1,y1,sw*H,dep,ext,col); return; }
+    var um=(u0+u1)/2, F=arc.rep(um), p=arc.P(um,0);
+    traitLettre(tas,[p[0]-F.R[0]*um,O[1],p[1]-F.R[2]*um],F.R,F.N,u0,y0,u1,y1,sw*H,dep,ext,col);
+  }
   for(i=0;i<texte.length;i++){
     var g=POLICE_MSO[texte[i]];
     g.t.forEach(function(t){
-      if(t[0]==='l'){ traitLettre(tas,O,R,N,(x+t[1])*H,t[2]*H,(x+t[3])*H,t[4]*H,sw*H,dep,sw*H/2,col); return; }
+      if(t[0]==='l'){ trait((x+t[1])*H,t[2]*H,(x+t[3])*H,t[4]*H,sw*H/2); return; }
       var n=Math.max(8,Math.round(Math.abs(t[6]-t[5])/15)), px=null, py=null;
       for(var k=0;k<=n;k++){
         var a=(t[5]+(t[6]-t[5])*k/n)*PI/180, ux=(x+t[1]+Math.cos(a)*t[3])*H, uy=(t[2]+Math.sin(a)*t[4])*H;
-        if(px!==null) traitLettre(tas,O,R,N,px,py,ux,uy,sw*H,dep,0.03,col);
+        if(px!==null) trait(px,py,ux,uy,0.03);
         px=ux; py=uy;
       }
     });
@@ -18111,11 +18131,15 @@ function etapeMonumentSO(){
   /* socle de l'inscription : une longue dalle blanche encastrée dans le sol.
      Son dessus est calé sur le point le plus haut du terrain sous elle, son
      pied sur le plus bas : elle ne flotte nulle part. */
-  var hmin=1e9, hmax=-1e9;
-  for(var su=-largeur/2-0.5;su<=largeur/2+0.5;su+=1) [-0.4,0.4].forEach(function(sn){ var p=Pl(su,sn), h=hauteur(p[0],p[1]); hmin=Math.min(hmin,h); hmax=Math.max(hmax,h); });
-  var sol=hmax+0.1;
-  boiteQuad(pierre,Pl(-largeur/2-0.45,-0.4),Pl(largeur/2+0.45,-0.4),Pl(largeur/2+0.45,0.4),Pl(-largeur/2-0.45,0.4),hmin-0.5,sol,blancO,blanc,1.2);
-  ecrireMSO(pierre,[bx,sol,bz],R,N,MSO.texte,MSO.h,0.32,blanc);
+  /* dalle et lettres suivent le même arc */
+  var arc=arcMSO([bx,0,bz],R,N,MSO.rArc), hmin=1e9, hmax=-1e9, dem=largeur/2+0.45;
+  for(var su=-dem;su<=dem+0.01;su+=0.5) [-0.4,0.4].forEach(function(sn){ var p=arc.P(su,sn), h=hauteur(p[0],p[1]); hmin=Math.min(hmin,h); hmax=Math.max(hmax,h); });
+  var sol=hmax+0.1, nPan=Math.ceil(2*dem/0.8);
+  for(var ip=0;ip<nPan;ip++){
+    var ua=-dem+2*dem*ip/nPan, ub=-dem+2*dem*(ip+1)/nPan;
+    boiteQuad(pierre,arc.P(ua,-0.4),arc.P(ub,-0.4),arc.P(ub,0.4),arc.P(ua,0.4),hmin-0.5,sol,blancO,blanc,1.2);
+  }
+  ecrireMSO(pierre,[bx,sol,bz],R,N,MSO.texte,MSO.h,0.32,blanc,MSO.rArc);
   /* la butte d'herbe sèche : 2,6 m de haut, 8 m de rayon, qui épouse le
      terrain et s'y raccorde au bord sans marche */
   var cx=bx+nx*MSO.prof, cz=bz+nz*MSO.prof, RB=8.0, HB=2.6, NR=10, NS=36;
@@ -18124,13 +18148,24 @@ function etapeMonumentSO(){
     var f=Math.pow(Math.cos(PI/2*r/RB),1.6);
     return [x,hauteur(x,z)-0.06+HB*f,z];
   }
-  var foin=teinte(0xc2ad72), vertF=teinte(0xa9a466), foinC=teinte(0xd0bc84);
-  for(var i=0;i<NR;i++) for(var j=0;j<NS;j++){
-    var A=butte(i,j), B=butte(i+1,j), C=butte(i+1,j+1), D=butte(i,j+1), nn=nrm(A,B,C);
-    if(nn[1]<0) nn=[-nn[0],-nn[1],-nn[2]];
-    var hh=alea(i*7+3,j*11+5), col=hh<0.3?vertF:(hh<0.7?foin:foinC);
-    t3(herbe,A,B,C,nn,col,2); t3(herbe,A,C,D,nn,col,2);
+  /* le gazon de la butte est celui d'alentour (Nicolas, 30 sept. 2026) : même
+     matériau que le terrain, mêmes coordonnées de texture, et la teinte de
+     chaque sommet reprise du terrain à cet endroit ; normales lissées */
+  var gB=new THREE.BufferGeometry(), posB=[], uvB=[], colB=[], idxB=[], i, j;
+  for(i=0;i<=NR;i++) for(j=0;j<NS;j++){
+    var pB=butte(i,j), cT=couleurTerrainEn(pB[0],pB[2]);
+    posB.push(pB[0],pB[1],pB[2]); uvB.push(pB[0]/9,pB[2]/9); colB.push(cT[0],cT[1],cT[2]);
   }
+  for(i=0;i<NR;i++) for(j=0;j<NS;j++){
+    var a0=i*NS+j, b0=(i+1)*NS+j, c0b=(i+1)*NS+(j+1)%NS, d0=i*NS+(j+1)%NS;
+    idxB.push(a0,c0b,b0, a0,d0,c0b);
+  }
+  gB.setAttribute('position',new THREE.Float32BufferAttribute(posB,3));
+  gB.setAttribute('uv',new THREE.Float32BufferAttribute(uvB,2));
+  gB.setAttribute('color',new THREE.Float32BufferAttribute(colB,3));
+  gB.setIndex(idxB); gB.computeVertexNormals();
+  /* le sommet est un seul point répété : sa normale est verticale */
+  var nB=gB.attributes.normal; for(j=0;j<NS;j++) nB.setXYZ(j,0,1,0);
   var top=butte(0,0)[1];
   /* la sculpture, à l'échelle des photos : le glaive culmine vers 9 m au-dessus de la route */
   var K=1.3;
@@ -18206,9 +18241,10 @@ function etapeMonumentSO(){
   var mb=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.85, metalness:0, emissive:0x2c2c2a});
   mb.name='monument blanc';
   ajouter(pierre,mb,true,true);
-  var mh=new THREE.MeshStandardMaterial({vertexColors:true, map:textureDe(faireBeton(),1,1), roughness:0.98, metalness:0});
-  mh.name='butte du monument';
-  ajouter(herbe,mh,true,true);
+  var mButte=new THREE.Mesh(gB,MAT.terrain||new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.97, metalness:0}));
+  mButte.name='butte du monument'; mButte.castShadow=true; mButte.receiveShadow=true;
+  monde.add(mButte);
+  MSO.mat=mb;
   ajouter(mats,MAT.zinc||MAT.deco,true,false);
   ajouter(drap,matDrapeauxMSO(),true,false);
   /* on ne traverse ni la butte ni l'inscription */
@@ -22483,4 +22519,221 @@ var _deplacerSel23b=deplacerSel;
 deplacerSel=function(s,dx,dz){ var L=liensBarrieres(s); _deplacerSel23b(s,dx,dz); suivreLiens(L); };
 var _tournerSel23b=tournerSel;
 tournerSel=function(delta){ var L=liensBarrieres(EQ.sel); _tournerSel23b(delta); suivreLiens(L); };
+
+/* ===== 25. monument aux sous-officiers de nuit, faisceaux adoucis, nuit plus claire ===== */
+/* Demandes de Nicolas (30 sept. 2026) :
+   - deux projecteurs de part et d'autre du monument, allumés la nuit ;
+   - le monument garde ses ombres et suit l'ambiance : son léger éclat
+     propre (qui le gardait blanc franc en plein jour) baisse au coucher et
+     s'éteint la nuit, où seuls les projecteurs le révèlent ;
+   - tous les faisceaux (frontales, lampadaires, projecteurs de la tribune
+     et du monument) ont un bord fondu au lieu d'une arête franche ;
+   - la nuit, d'une teinte plus claire. */
+
+/* ----- la teinte du terrain en un point (grille d'un sommet tous les 5 m) ----- */
+function couleurTerrainEn(x,z){
+  var C=(typeof meshTerrain!=='undefined' && meshTerrain) ? meshTerrain.geometry.attributes.color : null;
+  if(!C || C.count!==GROWS*GCOLS) return [0.33,0.36,0.155];
+  var fj=(x-XMIN)/PASX, fi=(ZMAX-z)/PASZ, j0=Math.max(0,Math.min(GCOLS-2,Math.floor(fj))), i0=Math.max(0,Math.min(GROWS-2,Math.floor(fi)));
+  var tj=Math.max(0,Math.min(1,fj-j0)), ti=Math.max(0,Math.min(1,fi-i0)), out=[0,0,0];
+  [[0,0,(1-ti)*(1-tj)],[0,1,(1-ti)*tj],[1,0,ti*(1-tj)],[1,1,ti*tj]].forEach(function(q){
+    var k=(i0+q[0])*GCOLS+j0+q[1];
+    out[0]+=C.getX(k)*q[2]; out[1]+=C.getY(k)*q[2]; out[2]+=C.getZ(k)*q[2];
+  });
+  return out;
+}
+
+/* ----- un faisceau au bord fondu ----- */
+/* Une surface additive vue par la tranche dessine une arête nette. On
+   atténue la lumière là où la surface est vue de biais (bord du cône) et,
+   si demandé, vers le bout du faisceau (uv.v qui tend vers 0). */
+function adoucirFaisceau(m,bout){
+  if(!m || m.userData.doux25) return m;
+  m.userData.doux25=true;
+  var ob=m.onBeforeCompile;
+  m.onBeforeCompile=function(sh){
+    if(ob) ob.call(this,sh);
+    sh.vertexShader=sh.vertexShader
+      .replace('#include <common>','#include <common>\nvarying vec3 vN25;\nvarying vec3 vV25;\nvarying float vL25;')
+      .replace('#include <project_vertex>','#include <project_vertex>\nvN25=normalize(normalMatrix*normal);\nvV25=-mvPosition.xyz;\n'+(bout?'vL25=uv.y;':'vL25=1.0;'));
+    var fin='float f25=abs(dot(normalize(vN25),normalize(vV25)));\nf25=smoothstep(0.0,0.75,f25);\n'+
+            (bout?'f25*=smoothstep(0.0,0.4,vL25);\n':'')+'outgoingLight*=f25;\ndiffuseColor.a*=f25;\n';
+    if(sh.fragmentShader.indexOf('#include <opaque_fragment>')>=0)
+      sh.fragmentShader=sh.fragmentShader.replace('#include <opaque_fragment>',fin+'#include <opaque_fragment>');
+    else sh.fragmentShader=sh.fragmentShader.replace('#include <output_fragment>',fin+'#include <output_fragment>');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vN25;\nvarying vec3 vV25;\nvarying float vL25;');
+  };
+  var ck=m.customProgramCacheKey;
+  m.customProgramCacheKey=function(){ return (ck?ck.call(this):'')+'|doux25'+(bout?'b':''); };
+  m.needsUpdate=true;
+  return m;
+}
+
+/* frontales : faisceau fondu sur les bords et au bout, tache au sol sans bord net */
+var _initFront25=initFrontales;
+initFrontales=function(){
+  var r=_initFront25.apply(this,arguments);
+  try{
+    adoucirFaisceau(FRONT.matFaisceau,true);
+    FRONT.spots.forEach(function(s){ s.penumbra=1; });
+  }catch(e){}
+  return r;
+};
+
+/* cônes des lampadaires : refaits avec un sommet par pan, chacun avec la
+   normale de son pan, pour que le bord du cône puisse s'effacer */
+var _cones25=etapeCones;
+etapeCones=function(){
+  var r=_cones25.apply(this,arguments);
+  try{
+    if(!NUIT14.cones || typeof lampes==='undefined') return r;
+    var seg=16, pos=[], col=[], nor=[];
+    lampes.forEach(function(L){
+      var x=L[0], y=L[1], z=L[2], ys=hauteur(x,z)+0.04, R=2.7, h=(y-0.12)-ys;
+      for(var i=0;i<seg;i++){
+        var a0=i/seg*2*PI, a1=(i+1)/seg*2*PI, am=(a0+a1)/2;
+        /* normale du pan : horizontale vers l'extérieur, un peu relevée */
+        var nx=Math.cos(am)*h, nz=Math.sin(am)*h, ny=R, ln=Math.hypot(nx,ny,nz);
+        pos.push(x,y-0.12,z, x+Math.cos(a0)*R,ys,z+Math.sin(a0)*R, x+Math.cos(a1)*R,ys,z+Math.sin(a1)*R);
+        col.push(0.1,0.078,0.046, 0,0,0, 0,0,0);
+        for(var k=0;k<3;k++) nor.push(nx/ln,ny/ln,nz/ln);
+      }
+    });
+    var g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+    g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));
+    NUIT14.cones.geometry.dispose(); NUIT14.cones.geometry=g;
+    adoucirFaisceau(NUIT14.cones.material,false);
+  }catch(e){ console.warn('cônes doux :',e); }
+  return r;
+};
+
+/* projecteurs de la tribune : chaque faisceau plat reçoit un profil en
+   cloche sur sa largeur (noir aux bords, plein au centre) */
+var _trico25=etapeTricolore;
+etapeTricolore=function(){
+  var r=_trico25.apply(this,arguments);
+  try{
+    var fa=null;
+    TRICOLORE.projos.children.forEach(function(o){ if(o.isMesh && o.material.vertexColors && o.material.blending===THREE.AdditiveBlending) fa=o; });
+    if(!fa) return r;
+    var P=fa.geometry.attributes.position, C=fa.geometry.attributes.color, nb=P.count/4, pos=[], col=[], idx=[];
+    var W=[0,0.35,0.8,1,0.8,0.35,0], nc=W.length;
+    function v(i){ return [P.getX(i),P.getY(i),P.getZ(i)]; }
+    function c(i){ return [C.getX(i),C.getY(i),C.getZ(i)]; }
+    function lerp(a,b,t){ return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]; }
+    for(var s=0;s<nb;s++){
+      var BL=v(s*4), BR=v(s*4+1), TR=v(s*4+2), TL=v(s*4+3), c0=c(s*4), c1=c(s*4+2), base=pos.length/3;
+      for(var k=0;k<nc;k++){
+        var t=k/(nc-1), b=lerp(BL,BR,t), h=lerp(TL,TR,t);
+        pos.push(b[0],b[1],b[2], h[0],h[1],h[2]);
+        col.push(c0[0]*W[k],c0[1]*W[k],c0[2]*W[k], c1[0]*W[k],c1[1]*W[k],c1[2]*W[k]);
+      }
+      for(k=0;k<nc-1;k++){ var a=base+k*2; idx.push(a,a+2,a+3, a,a+3,a+1); }
+    }
+    var g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+    g.setIndex(idx);
+    fa.geometry.dispose(); fa.geometry=g;
+  }catch(e){ console.warn('faisceaux tribune :',e); }
+  return r;
+};
+
+/* ----- deux projecteurs pour le monument aux sous-officiers ----- */
+/* Pas de vraies lampes (elles pèseraient sur tous les matériaux de la
+   ville) : leur lumière est calculée dans le seul shader du monument et
+   dans celui du terrain, avec l'angle de chaque face, donc avec ses ombres
+   propres : une face tournée vers le projecteur s'éclaire, l'autre reste
+   dans le noir. */
+var SPOT25={u:{uSpP:{value:[new THREE.Vector3(),new THREE.Vector3()]}, uSpD:{value:[new THREE.Vector3(0,-1,0),new THREE.Vector3(0,-1,0)]},
+  uSpI:{value:0}, uSpCol:{value:new THREE.Color(1.0,0.9,0.76)}, uSpC:{value:new THREE.Vector2(Math.cos(0.62),Math.cos(0.30))}},
+  grp:null, force:15};
+function eclairerParSpots25(m){
+  if(!m || m.userData.spot25) return;
+  m.userData.spot25=true;
+  var ob=m.onBeforeCompile;
+  m.onBeforeCompile=function(sh){
+    if(ob) ob.call(this,sh);
+    Object.keys(SPOT25.u).forEach(function(k){ sh.uniforms[k]=SPOT25.u[k]; });
+    sh.fragmentShader=sh.fragmentShader
+      .replace('#include <common>','#include <common>\nuniform vec3 uSpP[2];\nuniform vec3 uSpD[2];\nuniform float uSpI;\nuniform vec3 uSpCol;\nuniform vec2 uSpC;')
+      .replace('#include <lights_fragment_end>',[
+        '#include <lights_fragment_end>',
+        'if(uSpI>0.0){',
+        '  for(int s25=0;s25<2;s25++){',
+        '    vec3 lp25=(viewMatrix*vec4(uSpP[s25],1.0)).xyz;',
+        '    vec3 ld25=normalize((viewMatrix*vec4(uSpD[s25],0.0)).xyz);',
+        '    vec3 L25=lp25+vViewPosition; float d25=length(L25); L25/=max(d25,1e-3);',
+        '    float cone25=smoothstep(uSpC.x,uSpC.y,dot(-L25,ld25));',
+        '    float att25=uSpI/(1.0+d25*d25*0.012);',
+        '    reflectedLight.directDiffuse+=uSpCol*(att25*cone25*max(dot(normal,L25),0.0))*BRDF_Lambert(material.diffuseColor);',
+        '  }',
+        '}'].join('\n'));
+  };
+  var ck=m.customProgramCacheKey;
+  m.customProgramCacheKey=function(){ return (ck?ck.call(this):'')+'|spot25'; };
+  m.needsUpdate=true;
+}
+function etapeSpotsMSO(){
+  if(!MSO.pos || !MSO.ins) return;
+  var arc=arcMSO([MSO.ins[0],0,MSO.ins[1]],MSO.R,MSO.N,MSO.rArc), top=hauteur(MSO.pos[0],MSO.pos[1])+2.6;
+  var cible=new THREE.Vector3(MSO.pos[0],top+1.8,MSO.pos[1]);
+  var grp=new THREE.Group(), corps=new THREE.MeshStandardMaterial({color:0x23272d, roughness:0.55, metalness:0.5});
+  var verre=new THREE.MeshBasicMaterial({color:0xfff1d6});
+  var faisceau=adoucirFaisceau(new THREE.MeshBasicMaterial({color:0xffe9c8, transparent:true, opacity:0.035,
+    blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide}),true);
+  var geoF=new THREE.CylinderGeometry(0.12,3.4,1,24,1,true); geoF.translate(0,-0.5,0);
+  var bas=new THREE.Vector3(0,-1,0);
+  [-1,1].forEach(function(s,k){
+    var u=s*(MSO.largeur/2+1.2), p=arc.P(u,0.7), y=hauteur(p[0],p[1]);
+    var lampe=new THREE.Vector3(p[0],y+0.42,p[1]), dir=cible.clone().sub(lampe), L=dir.length(); dir.divideScalar(L);
+    SPOT25.u.uSpP.value[k].copy(lampe); SPOT25.u.uSpD.value[k].copy(dir);
+    /* le projecteur : un pied court, un boîtier tourné vers la sculpture, la vitre allumée */
+    var pied=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.05,0.3,8),corps); pied.position.set(p[0],y+0.15,p[1]); grp.add(pied);
+    var boite=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.26,0.3),corps);
+    boite.position.copy(lampe); boite.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir); grp.add(boite);
+    var vitre=new THREE.Mesh(new THREE.CircleGeometry(0.11,20),verre);
+    vitre.position.copy(lampe).addScaledVector(dir,0.152); vitre.quaternion.copy(boite.quaternion); grp.add(vitre);
+    var halo=spriteLueur(0xfff0d0,0.9); halo.position.copy(lampe).addScaledVector(dir,0.2); grp.add(halo);
+    /* le faisceau dans l'air, fondu sur les bords et vers le bout */
+    var f=new THREE.Mesh(geoF,faisceau);
+    f.position.copy(lampe).addScaledVector(dir,0.16);
+    f.quaternion.setFromUnitVectors(bas,dir); f.scale.set(1,L*0.95,1);
+    f.renderOrder=9; grp.add(f);
+  });
+  grp.name='projecteurs du monument';
+  SPOT25.grp=grp; monde.add(grp);
+  eclairerParSpots25(MSO.mat);
+  if(MAT.terrain) eclairerParSpots25(MAT.terrain);
+  ambiance25();
+}
+ETAPES.forEach(function(e,i){ if(e[0]==='Monument aux sous-officiers') ETAPES.splice(i+1,0,['Projecteurs du monument',function(){ try{ etapeSpotsMSO(); }catch(e){ console.warn('projecteurs monument :',e); } }]); });
+
+/* ----- l'ambiance : monument, projecteurs, nuit ----- */
+/* d'une teinte plus claire la nuit : exposition et ciel un peu relevés */
+var NUIT25={expo:1.2, hemi:1.4, env:1.25};
+var ECLAT25={midi:1, matin:0.8, soir:0.55, coucher:0.3};
+function ambiance25(){
+  if(MSO.mat) MSO.mat.emissiveIntensity=nuit?0:(ECLAT25[MOMENT.cle]!==undefined?ECLAT25[MOMENT.cle]:1);
+  SPOT25.u.uSpI.value=nuit?SPOT25.force:0;
+  if(SPOT25.grp){
+    SPOT25.grp.visible=true;
+    SPOT25.grp.children.forEach(function(o){ if(!(o.isMesh && o.material.isMeshStandardMaterial)) o.visible=!!nuit; });
+  }
+}
+var _ciel25=appliquerCiel;
+appliquerCiel=function(){
+  var r=_ciel25.apply(this,arguments);
+  try{
+    if(nuit && renderer && lumSol){
+      renderer.toneMappingExposure*=NUIT25.expo;
+      lumSol.intensity*=NUIT25.hemi;
+      if(scene) scene.environmentIntensity=(scene.environmentIntensity||0)*NUIT25.env;
+    }
+    ambiance25();
+  }catch(e){}
+  return r;
+};
 })();
