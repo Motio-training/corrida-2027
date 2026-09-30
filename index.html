@@ -211149,6 +211149,7 @@ function rubDepuisDonnees(f){
   var r={pts:pts};
   if(o.x) r.expl=true;
   if(Array.isArray(o.a) && o.a.length===pts.length) r.angs=o.a.map(function(a){ return (a===null || a===undefined) ? null : +a; });
+  else if(r.expl) r.angs=pts.map(function(){ return null; });
   return r;
 }
 function mesureRubalise(r){

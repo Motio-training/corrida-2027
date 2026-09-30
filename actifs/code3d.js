@@ -22239,10 +22239,16 @@ function selAncrageValide(s){
 }
 /* la rubalise devient « barrière par barrière » : ses ancrages actuels deviennent ses points */
 function ancrerParBarriere(r){
-  if(r.expl) return;
-  r.pts=(r._ancr||r.pts).map(function(q){ return [q[0],q[1]]; });
-  r.angs=r.pts.map(function(){ return null; });
-  r.expl=true;
+  if(!r.expl){
+    r.pts=(r._ancr||r.pts).map(function(q){ return [q[0],q[1]]; });
+    r.angs=null;
+    r.expl=true;
+  }
+  /* une rubalise rechargée (ou rétablie par Ctrl+Z) sans orientation propre n'a pas de liste : on la recrée */
+  if(!Array.isArray(r.angs) || r.angs.length!==r.pts.length){
+    var A=Array.isArray(r.angs) ? r.angs : [];
+    r.angs=r.pts.map(function(p,i){ return (A[i]===undefined) ? null : A[i]; });
+  }
 }
 /* Une même barrière peut tenir plusieurs points de rubalise : deux rangées
    qui se rejoignent, deux points d'une rangée à moins de 1,5 m, le début et
