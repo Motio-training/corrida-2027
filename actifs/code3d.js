@@ -2117,8 +2117,9 @@ function drapeau(cx,cz,ang,y){
 
 /* =================================================================
    Le parcours, lu en direct dans la carte.
-   Les portions parcourues deux fois sont écartées : chaque passage
-   roule à droite de son sens de marche, comme sur la carte.
+   Les portions parcourues deux fois sont écartées comme sur la carte :
+   sur une même ligne, chaque passage roule à droite de son sens de
+   marche ; dessinés séparément, chacun garde son côté.
 ================================================================= */
 var TRACE=[], CUMUL=[], LONGUEUR=0, groupeParcours=null;
 var DECALAGE=1.35;
@@ -2134,7 +2135,14 @@ function chargerTraceCarte(){
   var q=densifier(raw,4), X_=q.x, Z_=q.z, n=X_.length;
   var cm=new Float64Array(n);
   for(i=1;i<n;i++) cm[i]=cm[i-1]+Math.hypot(X_[i]-X_[i-1],Z_[i]-Z_[i-1]);
-  /* repérage des tronçons empruntés deux fois */
+  /* repérage des tronçons empruntés deux fois. Deux cas, comme sur la carte :
+     - les deux passages suivent exactement la même ligne : chacun se décale
+       à droite de son sens de marche ;
+     - ils ont été dessinés séparément, chacun sur un côté de la chaussée :
+       chacun garde le côté où il est dessiné, et ne s'écarte de l'autre que
+       s'ils sont à moins de deux décalages (sinon ils resteraient confondus
+       au sol). Avant, la règle de droite s'appliquait aussi dans ce cas et
+       inversait les côtés dessinés sur la carte (jalonneur 8 du parcours A). */
   var ns=n-1, flag=new Float32Array(ns), CELL=8, grille={};
   function cle(a,b){ return a+'_'+b; }
   for(i=0;i<ns;i++){
@@ -2146,8 +2154,8 @@ function chargerTraceCarte(){
     var ax=X_[i], az=Z_[i], bx=X_[i+1], bz=Z_[i+1];
     var dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz)||1; dx/=L; dz/=L;
     var mx2=(ax+bx)/2, mz2=(az+bz)/2, cmi=(cm[i]+cm[i+1])/2;
-    var gx=Math.floor(mx2/CELL), gz=Math.floor(mz2/CELL), trouve=false;
-    for(var a=-1;a<=1 && !trouve;a++) for(var b=-1;b<=1 && !trouve;b++){
+    var gx=Math.floor(mx2/CELL), gz=Math.floor(mz2/CELL), dMin=3.4, cote=0;
+    for(var a=-1;a<=1;a++) for(var b=-1;b<=1;b++){
       var lst=grille[cle(gx+a,gz+b)];
       if(!lst) continue;
       for(var s=0;s<lst.length;s++){
@@ -2158,14 +2166,21 @@ function chargerTraceCarte(){
         var tt=((mx2-X_[j])*ex+(mz2-Z_[j])*ez)/(El*El);
         if(tt<-0.2||tt>1.2) continue;
         tt=Math.max(0,Math.min(1,tt));
-        var qx=X_[j]+ex*tt, qz=Z_[j]+ez*tt;
-        if(Math.hypot(mx2-qx,mz2-qz)<3.4){ trouve=true; break; }
+        var qx=X_[j]+ex*tt, qz=Z_[j]+ez*tt, dq=Math.hypot(mx2-qx,mz2-qz);
+        /* l'autre passage : à droite (> 0) ou à gauche (< 0) de celui-ci */
+        if(dq<dMin){ dMin=dq; cote=(qx-mx2)*(-dz)+(qz-mz2)*dx; }
       }
     }
-    flag[i]=trouve?1:0;
+    /* décalage voulu, positif vers la droite du sens de marche */
+    if(dMin>=3.4) flag[i]=0;
+    else if(dMin<0.4) flag[i]=DECALAGE;
+    else flag[i]=(cote>0?-1:1)*Math.max(0,DECALAGE-dMin/2);
   }
   var f=new Float32Array(n);
-  for(i=0;i<n;i++) f[i]=Math.max(i>0?flag[i-1]:0, i<ns?flag[i]:0);
+  for(i=0;i<n;i++){
+    var fa=i>0?flag[i-1]:0, fb=i<ns?flag[i]:0;
+    f[i]=Math.abs(fa)>Math.abs(fb)?fa:fb;
+  }
   for(var passe=0;passe<4;passe++){
     var g=new Float32Array(n);
     for(i=0;i<n;i++) g[i]=0.25*f[Math.max(0,i-1)]+0.5*f[i]+0.25*f[Math.min(n-1,i+1)];
@@ -2175,7 +2190,7 @@ function chargerTraceCarte(){
   for(i=0;i<n;i++){
     var i0=Math.max(0,i-1), i1=Math.min(n-1,i+1);
     var ddx=X_[i1]-X_[i0], ddz=Z_[i1]-Z_[i0], LL=Math.hypot(ddx,ddz)||1;
-    var o=Math.min(1,f[i]*1.25)*DECALAGE;
+    var o=(f[i]<0?-1:1)*Math.min(DECALAGE,Math.abs(f[i])*1.25);
     TRACE.push([X_[i]-ddz/LL*o, Z_[i]+ddx/LL*o]);
   }
   CUMUL=[0];
