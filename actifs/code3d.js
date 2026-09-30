@@ -5376,7 +5376,7 @@ function etapeVoies(){
 var EXT=window.TROIS_EXT||{};
 var TEX_VIDE='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 /* un chemin d'essai est court ; une donnée base64 (JPEG = « /9j/… ») est longue */
-function estChemin(v){ return v.length<400 && /^(\/|https?:)/.test(v); }
+function estChemin(v){ return v.length<400 && /^(\/|https?:|blob:)/.test(v); }
 function actifURL(nom){
   var A=window.ACTIFS||{}, v=A[nom];
   if(v===undefined) return null;
@@ -22735,5 +22735,58 @@ appliquerCiel=function(){
     ambiance25();
   }catch(e){}
   return r;
+};
+/* ===== 26. ouverture rapide : la ville d'abord, le monde ensuite ===== */
+/* Les modèles arrivent en vrais fichiers (adresses blob:, voir le chargeur
+   de index.html). Les piétons, les coureurs d'ambiance et le chien sont
+   téléchargés en arrière-plan (ACTIFS_DIFFERES) : leurs deux étapes de
+   construction sont retirées de la mise en place et jouées juste après
+   l'ouverture de la vue. Tout ce qui les anime attend déjà qu'ils soient
+   prêts (VIE.pret, FOULE.pret), la ville se peuple donc d'elle-même. */
+if(window.ACTIFS_DIFFERES){
+  var DIFFERES24=[];
+  for(var i24=ETAPES.length-1;i24>=0;i24--){
+    if(ETAPES[i24][0]==='Piétons et gestes des jalonneurs' || ETAPES[i24][0]==='Coureurs et spectateurs'){ DIFFERES24.unshift(ETAPES[i24]); ETAPES.splice(i24,1); }
+  }
+  var lance24=false;
+  var _demarrerBoucle24=demarrerBoucle;
+  demarrerBoucle=function(){
+    _demarrerBoucle24();
+    if(!lance24 && construit){ lance24=true; setTimeout(peuplerVille24,300); }
+  };
+  var peuplerVille24=function(){
+    ACTIFS_DIFFERES.then(function(){
+      return DIFFERES24.reduce(function(p,e){
+        return p.then(function(){ return new Promise(function(ok){ setTimeout(ok,50); }); })
+                .then(function(){ return e[1](); })
+                .catch(function(err){ console.warn(e[0],err); });
+      },Promise.resolve());
+    }).then(function(){
+      /* le peloton formé avant l'arrivée des modèles était vide : il se reformera */
+      if(typeof PELOTON!=='undefined' && PELOTON.actif && !PELOTON.gens.length) PELOTON.actif=false;
+      /* sur iPhone, les avatars montés n'ont plus besoin de leur fichier */
+      if(SUR_IOS_3D){
+        var A=window.ACTIFS||{};
+        Object.keys(A).forEach(function(k){ var v=A[k]; if(typeof v==='string' && v.indexOf('blob:')===0 && /\.fbx$/i.test(k) && !/^Police_/i.test(k)){ URL.revokeObjectURL(v); delete A[k]; } });
+      }
+    });
+  };
+  /* le chien attend son modèle s'il n'est pas encore arrivé */
+  var _chien24=chargerModeleChien;
+  chargerModeleChien=function(){
+    if(window.ACTIFS && !ACTIFS['chien_berger.glb']) return ACTIFS_DIFFERES.then(function(){ return _chien24(); });
+    return _chien24();
+  };
+}
+/* une fois la ville bâtie, les photos et le ciel ne servent plus : on rend leur mémoire */
+var _libererActifs24=libererActifs;
+libererActifs=function(){
+  var A=window.ACTIFS||{}, n=0;
+  Object.keys(A).forEach(function(k){
+    var v=A[k];
+    if(typeof v!=='string' || v.indexOf('blob:')!==0) return;
+    if(/^(ph2?|hd)_/.test(k) || k==='ciel_jour.hdr'){ URL.revokeObjectURL(v); delete A[k]; n++; }
+  });
+  return _libererActifs24()+n;
 };
 })();
