@@ -210790,7 +210790,7 @@ function paquet(){
     waypoints:WP.map(function(n){ return [ +lat[n].toFixed(6), +lon[n].toFixed(6), estLibre(n)?1:0 ]; }),
     jalons:JAL.map(function(j){ return [ +j.la.toFixed(6), +j.lo.toFixed(6), j.niv, (j.az===undefined?null:Math.round(j.az)), (j.bras||null) ]; }),
     barrieres:(BAR||[]).map(function(b){ return [ +b.la.toFixed(6), +b.lo.toFixed(6), Math.round(b.ang)||0, b.g||0 ]; }),
-    rubalises:(RUB||[]).map(function(r){ var f=[]; r.pts.forEach(function(p){ f.push(+p[0].toFixed(6), +p[1].toFixed(6)); }); return f; }),
+    rubalises:(RUB||[]).map(rubVersDonnees),
     parcours:paquetParcours(),
     trace:POLY.map(function(n){ return [ +lat[n].toFixed(6), +lon[n].toFixed(6), +ele[n].toFixed(1) ]; })
   };
@@ -210958,10 +210958,7 @@ function chargerEtat(data,refRef){
     jalPret=true;
   } else if(!jalPret){ JAL=[]; }
   if(Array.isArray(data.barrieres)) BAR=data.barrieres.map(function(b){ var o={la:+b[0], lo:+b[1], ang:(+b[2]||0)}; if(+b[3]) o.g=+b[3]; return o; });
-  if(Array.isArray(data.rubalises)) RUB=data.rubalises.map(function(f){
-    var pts=[]; for(var i=0;i+1<f.length;i+=2) pts.push([+f[i],+f[i+1]]);
-    return {pts:pts};
-  }).filter(function(r){ return r.pts.length>=2; });
+  if(Array.isArray(data.rubalises)) RUB=data.rubalises.map(rubDepuisDonnees).filter(function(r){ return r.pts.length>=2; });
   majEquip();
   if(data.parcours) chargerParcours(data.parcours);
   tout();
@@ -211133,6 +211130,27 @@ var gEquip=el('g',{'class':'equip'});
 dyn.insertBefore(gEquip,gJal);
 
 function metresEntre(a,b){ return Math.hypot((b[1]-a[1])*EQ_MLON,(b[0]-a[0])*EQ_MLAT); }
+/* Enregistrement d'une rubalise : la liste plate [la,lo,la,lo…] comme avant ;
+   si elle est tenue barrière par barrière (points déplacés, orientés ou retirés
+   un à un dans la 3D), un objet {p:liste, x:1, a:[orientations]} */
+function rubVersDonnees(r){
+  var f=[];
+  r.pts.forEach(function(p){ f.push(+p[0].toFixed(6), +p[1].toFixed(6)); });
+  var angs=r.angs && r.angs.some(function(a){ return a!==null && a!==undefined; });
+  if(!r.expl && !angs) return f;
+  var o={p:f};
+  if(r.expl) o.x=1;
+  if(angs) o.a=r.angs.map(function(a){ return (a===null || a===undefined) ? null : Math.round(a); });
+  return o;
+}
+function rubDepuisDonnees(f){
+  var o=Array.isArray(f) ? {p:f} : (f||{}), F=o.p||[], pts=[];
+  for(var i=0;i+1<F.length;i+=2) pts.push([+F[i],+F[i+1]]);
+  var r={pts:pts};
+  if(o.x) r.expl=true;
+  if(Array.isArray(o.a) && o.a.length===pts.length) r.angs=o.a.map(function(a){ return (a===null || a===undefined) ? null : +a; });
+  return r;
+}
 function mesureRubalise(r){
   var L=0;
   for(var i=1;i<r.pts.length;i++) L+=metresEntre(r.pts[i-1],r.pts[i]);
@@ -211151,9 +211169,10 @@ function ancragesRubalise(){
   (RUB||[]).forEach(function(r){
     var P=r.pts, noeuds=[], i, s;
     for(i=0;i<P.length;i++){
-      if(i===0){ noeuds.push({la:P[0][0], lo:P[0][1], i0:0, i1:1}); continue; }
-      var d=metresEntre(P[i-1],P[i]), n=Math.max(1,Math.ceil(d/TRAVEE_RUBALISE));
-      for(s=1;s<=n;s++) noeuds.push({la:P[i-1][0]+(P[i][0]-P[i-1][0])*s/n, lo:P[i-1][1]+(P[i][1]-P[i-1][1])*s/n, i0:i-1, i1:i});
+      if(i===0){ noeuds.push({la:P[0][0], lo:P[0][1], i0:0, i1:1, p:0}); continue; }
+      /* rubalise « barrière par barrière » (r.expl) : chaque point est une barrière, sans ajout tous les 10 m */
+      var d=metresEntre(P[i-1],P[i]), n=r.expl ? 1 : Math.max(1,Math.ceil(d/TRAVEE_RUBALISE));
+      for(s=1;s<=n;s++) noeuds.push({la:P[i-1][0]+(P[i][0]-P[i-1][0])*s/n, lo:P[i-1][1]+(P[i][1]-P[i-1][1])*s/n, i0:i-1, i1:i, p:(s===n?i:-1)});
     }
     r._ancr=noeuds.map(function(nd){
       var f=proche(nd.la,nd.lo,fixes);
@@ -211163,6 +211182,8 @@ function ancragesRubalise(){
       var a=P[nd.i0], b=P[nd.i1];
       /* barrière dans l'axe de la rubalise (angle mesuré est → sud, comme dans la 3D) */
       var ang=Math.atan2(-(b[0]-a[0])*EQ_MLAT,(b[1]-a[1])*EQ_MLON)*180/Math.PI;
+      /* orientation choisie à la main pour cette barrière */
+      if(nd.p>=0 && r.angs && r.angs[nd.p]!==null && r.angs[nd.p]!==undefined) ang=r.angs[nd.p];
       var nb={la:nd.la, lo:nd.lo, ang:((Math.round(ang)%360)+360)%360};
       nouvelles.push(nb);
       return [nb.la,nb.lo];
@@ -211378,7 +211399,7 @@ function etatEquip(){
   return JSON.stringify({
     j:JAL.map(function(j){ return [j.la,j.lo,j.niv,(j.az===undefined?null:j.az),(j.bras||null)]; }),
     b:BAR.map(function(b){ return [b.la,b.lo,b.ang,b.g||0]; }),
-    r:RUB.map(function(r){ return r.pts; })
+    r:RUB.map(rubVersDonnees)
   });
 }
 function memoriserEquip(){
@@ -211402,7 +211423,7 @@ function restaurerEquip(s){
   try{
     JAL=o.j.map(function(j){ var x={la:j[0], lo:j[1], niv:j[2]}; if(j[3]!==null) x.az=j[3]; if(j[4]) x.bras=j[4]; return x; });
     BAR=o.b.map(function(b){ var x={la:b[0], lo:b[1], ang:b[2]}; if(b[3]) x.g=b[3]; return x; });
-    RUB=o.r.map(function(p){ return {pts:p}; });
+    RUB=o.r.map(rubDepuisDonnees);
     jalPret=true;
     majJalons(); majEquip(); marquerModifie();
   } finally { HISTEQ.restauration=false; }
@@ -211972,10 +211993,7 @@ CARTE.vehiculeModifie=function(){ majEquip(); marquerModifie(); };
 /* ---------------- autres parcours : tout ce qu'il faut pour la 3D ---------------- */
 function equipDe(d){
   var b=(d.barrieres||[]).map(function(x){ var o={la:+x[0], lo:+x[1], ang:(+x[2]||0)}; if(+x[3]) o.g=+x[3]; return o; });
-  var r=(d.rubalises||[]).map(function(f){
-    var pts=[]; for(var i=0;i+1<f.length;i+=2) pts.push([+f[i],+f[i+1]]);
-    return {pts:pts};
-  }).filter(function(x){ return x.pts.length>=2; });
+  var r=(d.rubalises||[]).map(rubDepuisDonnees).filter(function(x){ return x.pts.length>=2; });
   var sb=BAR, sr=RUB, anc=[];
   BAR=b; RUB=r;
   try{ anc=ancragesRubalise(); } finally { BAR=sb; RUB=sr; }

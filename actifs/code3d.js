@@ -22205,4 +22205,178 @@ window.ESPACE3D.obstacles=function(){
   OBST22.liste.forEach(function(o){ if(o.t===1) n.segments++; else n.blocs++; });
   return n;
 };
+
+/* ===== 23. une barrière d'ancrage de rubalise, seule ===== */
+/* Un clic sur une barrière qui tient de la rubalise sélectionne toute la
+   rangée (la rubalise et ses barrières) ; un second clic sur l'une de ses
+   barrières la sélectionne seule. On peut alors la tirer, la tourner ou la
+   supprimer, et la rubalise suit :
+   · déplacée ou tournée, la rubalise reste nouée dessus ;
+   · supprimée, la rubalise se tend entre les barrières voisines ;
+   · supprimée au bout, le dernier tronçon de rubalise disparaît avec elle.
+   Dès la première retouche, la rubalise est tenue « barrière par barrière » :
+   chaque ancrage devient un point de la rubalise (r.expl) et l'on n'en ajoute
+   plus automatiquement tous les 10 m ; l'orientation choisie est gardée
+   point par point (r.angs). Tout est enregistré avec le tracé. */
+function indexAncrage(r,a){
+  var A=r._ancr||[];
+  for(var k=0;k<A.length;k++) if(Math.abs(A[k][0]-a.la)<1e-7 && Math.abs(A[k][1]-a.lo)<1e-7) return k;
+  return -1;
+}
+/* la barrière d'ancrage posée au point k de la rubalise */
+function barriereAncrage(r,k){
+  var q=(r._ancr||[])[k];
+  if(!q) return null;
+  var L=EQ.ancrages||[];
+  for(var i=0;i<L.length;i++) if(Math.abs(L[i].la-q[0])<1e-7 && Math.abs(L[i].lo-q[1])<1e-7) return L[i];
+  return null;
+}
+function selAncrageValide(s){
+  if(!s || s.type!=='a' || CARTE.equip().rubalises.indexOf(s.r)<0 || s.k<0 || s.k>=(s.r._ancr||[]).length) return false;
+  var b=barriereAncrage(s.r,s.k);
+  if(b) s.o=b;
+  return !!b;
+}
+/* la rubalise devient « barrière par barrière » : ses ancrages actuels deviennent ses points */
+function ancrerParBarriere(r){
+  if(r.expl) return;
+  r.pts=(r._ancr||r.pts).map(function(q){ return [q[0],q[1]]; });
+  r.angs=r.pts.map(function(){ return null; });
+  r.expl=true;
+}
+var _selDepuisInstance23=selDepuisInstance;
+selDepuisInstance=function(id){
+  var s=_selDepuisInstance23(id);
+  if(!s || s.type!=='r') return s;
+  var L=CARTE.equip().barrieres, a=(EQ.ancrages||[])[id-L.length];
+  /* la rangée est déjà sélectionnée (ou l'une de ses barrières) : on prend cette barrière seule */
+  if(a && EQ.sel && ((EQ.sel.type==='r' && EQ.sel.o===s.o) || (EQ.sel.type==='a' && EQ.sel.r===s.o))){
+    var k=indexAncrage(s.o,a);
+    if(k>=0){
+      if(EQ.sel.type==='a' && EQ.sel.k===k) return EQ.sel;
+      return {type:'a', o:a, r:s.o, k:k};
+    }
+  }
+  return s;
+};
+var _centreSel23=centreSel;
+centreSel=function(s){
+  if(s && s.type==='a'){ var q=s.r._ancr[s.k]; return {x:pX(q[1]), z:pZ(q[0])}; }
+  return _centreSel23(s);
+};
+var _orientationSel23=orientationSel;
+orientationSel=function(s){
+  s=s||EQ.sel;
+  if(s && s.type==='a'){ var b=barriereAncrage(s.r,s.k); return b ? ((Math.round(b.ang)%360)+360)%360 : 0; }
+  return _orientationSel23(s);
+};
+var _tournerSel23=tournerSel;
+tournerSel=function(delta){
+  var s=EQ.sel;
+  if(!s || s.type!=='a'){ _tournerSel23(delta); return; }
+  if(!delta) return;
+  var ang=orientationSel(s);
+  ancrerParBarriere(s.r);
+  s.r.angs[s.k]=((Math.round(ang+delta)%360)+360)%360;
+  CARTE.equipModifie();
+};
+var _deplacerSel23=deplacerSel;
+deplacerSel=function(s,dx,dz){
+  if(!s || s.type!=='a'){ _deplacerSel23(s,dx,dz); return; }
+  var q=s.r._ancr[s.k], x=pX(q[1])+dx, z=pZ(q[0])+dz;
+  ancrerParBarriere(s.r);
+  s.r.pts[s.k]=[laDeZ(z),loDeX(x)];
+  CARTE.equipModifie();
+};
+/* aperçu doré : la barrière et la rubalise tendue vers ses voisines */
+var _apercuDeplacement23=apercuDeplacement;
+apercuDeplacement=function(s,dx,dz){
+  if(!s || s.type!=='a'){ _apercuDeplacement23(s,dx,dz); return; }
+  initApercu();
+  var N=s.r._noeuds||[], k=s.k, arr=EQ.ligne.geometry.attributes.position.array, j=0, pts=[];
+  if(k>0) pts.push(N[k-1]);
+  pts.push([N[k][0]+dx,N[k][1]+dz]);
+  if(k<N.length-1) pts.push(N[k+1]);
+  pts.forEach(function(p){ arr[j++]=p[0]; arr[j++]=hauteurSol(p[0],p[1])+EQ_HAUT; arr[j++]=p[1]; });
+  EQ.ligne.geometry.attributes.position.needsUpdate=true;
+  EQ.ligne.geometry.setDrawRange(0,pts.length);
+  EQ.ligne.geometry.computeBoundingSphere();
+  EQ.ghost.setMatrixAt(0,matriceBarriere(N[k][0]+dx,N[k][1]+dz,orientationSel(s)));
+  EQ.ghost.count=1; EQ.ghost.instanceMatrix.needsUpdate=true;
+};
+var _majSurlignage23=majSurlignage;
+majSurlignage=function(){
+  if(!EQ.sel || EQ.sel.type!=='a'){ _majSurlignage23(); return; }
+  var s=EQ.sel; EQ.sel=null; _majSurlignage23(); EQ.sel=s;
+  var N=s.r._noeuds||[], n=N[s.k];
+  if(!n) return;
+  var m=new THREE.Mesh(new THREE.RingGeometry(1.25*0.8,1.25,32),EQ.matAnneau||(EQ.matAnneau=new THREE.MeshBasicMaterial({color:0xF2B33D, transparent:true, opacity:0.95, depthWrite:false, side:THREE.DoubleSide})));
+  m.rotation.x=-PI/2; m.position.set(n[0],hauteurSol(n[0],n[1])+0.05,n[1]); m.renderOrder=7;
+  EQ.anneaux.add(m);
+  /* les autres points de la rangée, en petit */
+  N.forEach(function(p,i){ if(i===s.k) return; var r=new THREE.Mesh(new THREE.RingGeometry(0.2,0.26,20),EQ.matAnneau); r.rotation.x=-PI/2; r.position.set(p[0],hauteurSol(p[0],p[1])+0.05,p[1]); r.renderOrder=7; EQ.anneaux.add(r); });
+};
+var _majPanneauEquip23=majPanneauEquip;
+majPanneauEquip=function(){
+  var s=EQ.sel;
+  if(EQ.mode || !s || s.type!=='a'){ _majPanneauEquip23(); return; }
+  var p=panneauEquip(), N=(s.r._ancr||[]).length, bout=(s.k===0 || s.k===N-1);
+  var h='<div class="e3-eq-tete"><b>🚧 Barrière de la rubalise</b><button class="e3-x" data-a="fermer" title="Fermer (Échap)">✕</button></div>'+
+    '<p>Barrière '+(s.k+1)+' sur '+N+(bout?' (au bout de la rubalise)':'')+'. Tire-la, tourne-la : la rubalise reste nouée dessus.</p>'+
+    '<div class="e3-jp-lbl">Orientation <span id="e3-eq-azv"></span></div>'+
+    '<div class="e3-eq-ligne e3-eq-az"><button data-a="rg" title="Tourner de 15° vers la gauche">⟲ 15°</button>'+
+    '<input type="range" id="e3-eq-az" min="0" max="359" step="1" aria-label="Orientation">'+
+    '<button data-a="rd" title="Tourner de 15° vers la droite">15° ⟳</button><button data-a="r90" title="Tourner d’un quart de tour">⟂</button></div>'+
+    '<div class="e3-eq-ligne"><button data-a="rangee">Toute la rangée</button><button data-a="suppr" class="e3-danger">Supprimer (Suppr)</button></div>'+
+    '<p class="e3-discret">'+(bout ? 'Supprimée, elle part avec le dernier tronçon de rubalise.' : 'Supprimée, la rubalise se tend entre les deux barrières voisines.')+' Tout est reporté sur la carte.</p>';
+  if(p.__h!==h){ p.innerHTML=h; p.__h=h; }
+  p.hidden=false;
+  var geo=(orientationSel()+90)%360, az=$e('e3-eq-az'), azv=$e('e3-eq-azv');
+  if(az && document.activeElement!==az) az.value=geo;
+  if(azv) azv.textContent=geo+'° '+pointCardinal(geo);
+};
+var _actionEquip23=actionEquip;
+actionEquip=function(a){
+  if(a==='rangee' && EQ.sel && EQ.sel.type==='a'){ selectionnerEquip({type:'r', o:EQ.sel.r}); return; }
+  _actionEquip23(a);
+};
+var _supprimerSelEquip23=supprimerSelEquip;
+supprimerSelEquip=function(){
+  var s=EQ.sel;
+  if(!s || s.type!=='a'){ _supprimerSelEquip23(); return; }
+  var r=s.r, N=r._noeuds||[], k=s.k, bout=(k===0 || k===N.length-1), L=0;
+  if(bout && N.length>1){ var v=N[k===0?1:k-1]; L=Math.hypot(v[0]-N[k][0],v[1]-N[k][1]); }
+  else if(N.length>2) L=Math.hypot(N[k+1][0]-N[k-1][0],N[k+1][1]-N[k-1][1]);
+  deselectionnerEquip();
+  ancrerParBarriere(r);
+  r.pts.splice(k,1); r.angs.splice(k,1);
+  if(r.pts.length<2){ CARTE.supprimerRubalise(r); dire('Barrière supprimée avec la dernière portion de rubalise.'); return; }
+  CARTE.equipModifie();
+  selectionnerEquip({type:'r', o:r});
+  dire(bout ? 'Barrière du bout supprimée avec son tronçon de rubalise ('+L.toFixed(1).replace('.',',')+' m).'
+            : 'Barrière supprimée : la rubalise est tendue entre les deux voisines ('+L.toFixed(1).replace('.',',')+' m).');
+};
+/* après chaque reconstruction, la barrière choisie reste sélectionnée si elle existe encore */
+var _reconstruireEquip23=reconstruireEquip;
+reconstruireEquip=function(){
+  var s=(EQ.sel && EQ.sel.type==='a') ? EQ.sel : null;
+  if(s) EQ.sel=null;
+  _reconstruireEquip23();
+  if(s){
+    if(selAncrageValide(s)){ EQ.sel=s; majSurlignage(); majPanneauEquip(); }
+    else if(CARTE.equip().rubalises.indexOf(s.r)>=0){ EQ.sel={type:'r', o:s.r}; majSurlignage(); majPanneauEquip(); }
+    else deselectionnerEquip();
+  }
+};
+/* survol : l'anneau blanc sous la seule barrière visée */
+var _majSurvol23=majSurvol;
+majSurvol=function(h){
+  if(!h || h.type!=='a'){ _majSurvol23(h); return; }
+  var n=(h.r._noeuds||[])[h.k];
+  if(!n){ _majSurvol23(null); return; }
+  var cle=h.r._ancr[h.k];
+  if(SURVOL.o===cle) return;
+  _majSurvol23({type:'b', o:{_x:n[0], _z:n[1]}});
+  SURVOL.o=cle;
+};
 })();
