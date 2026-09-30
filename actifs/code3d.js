@@ -22379,4 +22379,40 @@ majSurvol=function(h){
   _majSurvol23({type:'b', o:{_x:n[0], _z:n[1]}});
   SURVOL.o=cle;
 };
+
+/* ===== 24. la sono se tait quand « Jeunes Chefs » joue ===== */
+/* La sono du départ et de l'arrivée (124 battements par minute) portait à
+   380 m, et la 3D s'ouvre au départ : sous la musique, sa grosse caisse et
+   son charleston faisaient un « tic » régulier qui ne tombait jamais sur le
+   temps de Jeunes Chefs (140). Deux musiques à la fois, c'est une de trop :
+   tant que la musique joue, la sono se tait et ne planifie plus rien ; elle
+   revient, en fondu, si l'on coupe la musique. Même partition et mêmes
+   timbres qu'avant, mais chaque frappe part de zéro en 3 ms au lieu d'un
+   départ sec. */
+planifierSono=function(){
+  var S=SON14.sono, c=SON14.ctx, bpm=124, pas=60/bpm/2, now=c.currentTime;
+  if(musiqueActive()){ S.suivant=0; return; }
+  if(S.suivant<now) S.suivant=now+0.05;
+  var basse=[55,55,65.4,55,49,49,58.3,49,43.7,43.7,52,43.7,49,49,61.7,49];
+  while(S.suivant<now+0.5){
+    var t=S.suivant, k=S.pas%16;
+    if(k%2===0){
+      var o=c.createOscillator(), g=c.createGain();
+      o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(42,t+0.12);
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.5,t+0.003); g.gain.exponentialRampToValueAtTime(0.0003,t+0.2);
+      o.connect(g); g.connect(S.f); o.start(t); o.stop(t+0.22);
+    } else bruitBref(t,'highpass',7000,0.7,0.12,0.04,S.f);
+    var ob=c.createOscillator(), gb=c.createGain();
+    ob.type='sawtooth'; ob.frequency.value=basse[k]*2;
+    gb.gain.setValueAtTime(0,t); gb.gain.linearRampToValueAtTime(0.09,t+0.003); gb.gain.exponentialRampToValueAtTime(0.0003,t+pas*0.9);
+    ob.connect(gb); gb.connect(S.f); ob.start(t); ob.stop(t+pas);
+    S.suivant+=pas; S.pas++;
+  }
+};
+var _majSons24=majSons;
+majSons=function(dt){
+  _majSons24(dt);
+  var c=SON14.ctx, S=SON14.sono;
+  if(c && S && c.state==='running' && musiqueActive()) S.g.gain.setTargetAtTime(0,c.currentTime,0.15);
+};
 })();
