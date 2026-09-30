@@ -21708,4 +21708,501 @@ construireChemins=function(){
 };
 var _equipArr=reconstruireEquip;
 reconstruireEquip=function(){ var r=_equipArr.apply(this,arguments); if(VIE.chemins) VIE.chemins=null; return r; };
+
+/* ===== 22. rubalise, barrières et véhicules infranchissables ; des coureurs plus vrais ===== */
+/* À pied, on butait sur les murs, le sol et la rivière, mais on passait au
+   travers de la rubalise, des barrières et des véhicules : ils bloquent
+   désormais de la même façon, on glisse le long. Si l'on se retrouve dedans
+   (téléporté, posé par un clic), on peut toujours en sortir.
+   Les coureurs, ceux du peloton comme ceux qu'on croise : chacun court dans
+   sa file, sur le tracé, et en change en douceur ; il se cale derrière un
+   plus lent ou le double par le côté libre, garde ses distances, serre à
+   l'intérieur des virages sans que son décalage le fasse reculer. Chacun a
+   sa taille, sa longueur de foulée et la cadence qui va avec. */
+
+/* ----- les obstacles minces, autour du coureur ----- */
+var OBST22={liste:[], cx:1e9, cz:1e9, t:0, ver:0, verVu:-1, rJ:0.36, pas:0.3};
+function obstRect22(L,M,bb){
+  var P=[];
+  [[bb[0],bb[2]],[bb[1],bb[2]],[bb[1],bb[3]],[bb[0],bb[3]]].forEach(function(q){
+    P.push(M[0]*q[0]+M[8]*q[1]+M[12], M[2]*q[0]+M[10]*q[1]+M[14]);
+  });
+  L.push({t:2,p:P,r:0});
+}
+function distSeg22(x,z,ax,az,bx,bz){
+  var dx=bx-ax, dz=bz-az, L2=dx*dx+dz*dz||1e-9, u=Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/L2));
+  return Math.hypot(ax+dx*u-x,az+dz*u-z);
+}
+function distObst22(o,x,z){
+  if(o.t===1) return distSeg22(x,z,o.ax,o.az,o.bx,o.bz)-o.r;
+  if(dansPoly(o.p,x,z)) return -1;
+  var P=o.p, n=P.length/2, m=1e9;
+  for(var i=0;i<n;i++){ var j=(i+1)%n; m=Math.min(m,distSeg22(x,z,P[i*2],P[i*2+1],P[j*2],P[j*2+1])); }
+  return m-o.r;
+}
+/* boîte d'un objet posé, dans son propre repère (une fois par objet) */
+function boiteLocale22(o){
+  if(o.userData.bb22) return o.userData.bb22;
+  var p=o.position.clone(), r=o.rotation.clone();
+  o.position.set(0,0,0); o.rotation.set(0,0,0); o.updateMatrixWorld(true);
+  var b=new THREE.Box3().setFromObject(o);
+  o.position.copy(p); o.rotation.copy(r); o.updateMatrixWorld(true);
+  if(b.isEmpty()) return null;
+  return (o.userData.bb22=[b.min.x,b.max.x,b.min.z,b.max.z]);
+}
+function construireObst22(cx,cz){
+  var L=[], R=16;
+  function pres(x,z,m){ return Math.hypot(x-cx,z-cz)<R+(m||0); }
+  try{
+    var E=CARTE.equip();
+    E.barrieres.concat(EQ.ancrages||[]).forEach(function(b){
+      if(b._x===undefined || !pres(b._x,b._z,1)) return;
+      var a=b.ang*PI/180, ux=Math.cos(a)*0.99, uz=Math.sin(a)*0.99;
+      L.push({t:1,ax:b._x-ux,az:b._z-uz,bx:b._x+ux,bz:b._z+uz,r:0.24});
+    });
+    E.rubalises.forEach(function(r){
+      var N=r._noeuds||noeudsRubalise(r);
+      for(var i=1;i<N.length;i++){
+        if(distSeg22(cx,cz,N[i-1][0],N[i-1][1],N[i][0],N[i][1])>R) continue;
+        L.push({t:1,ax:N[i-1][0],az:N[i-1][1],bx:N[i][0],bz:N[i][1],r:0.05});
+      }
+    });
+  }catch(e){}
+  /* véhicules et matériel posés ; on passe sous les arches et sous les tentes */
+  try{
+    VM.objs.forEach(function(o,v){
+      if(!v || /^arche|^tente/.test(v.t||'') || !pres(o.position.x,o.position.z,6)) return;
+      var bb=boiteLocale22(o);
+      if(bb){ o.updateMatrixWorld(true); obstRect22(L,o.matrixWorld.elements,bb); }
+    });
+  }catch(e){}
+  /* voitures garées affichées autour de la caméra */
+  try{
+    VOIT.ims.forEach(function(im){
+      if(!im.count) return;
+      if(!im.geometry.boundingBox) im.geometry.computeBoundingBox();
+      var g=im.geometry.boundingBox, bb=[g.min.x,g.max.x,g.min.z,g.max.z], A=im.instanceMatrix.array;
+      for(var i=0;i<im.count;i++){
+        var o=i*16;
+        if(pres(A[o+12],A[o+14],4)) obstRect22(L,A.subarray(o,o+16),bb);
+      }
+    });
+  }catch(e){}
+  OBST22.liste=L; OBST22.cx=cx; OBST22.cz=cz;
+}
+/* côté d'une ligne mince où se trouve (x,z) : >0, <0, ou 0 hors de sa longueur */
+function cote22(o,x,z){
+  var dx=o.bx-o.ax, dz=o.bz-o.az, L2=dx*dx+dz*dz||1e-9, u=((x-o.ax)*dx+(z-o.az)*dz)/L2;
+  if(u<-0.02 || u>1.02) return 0;
+  return (x-o.ax)*dz-(z-o.az)*dx;
+}
+/* l'obstacle que heurte le pas de la position actuelle du joueur vers (x,z), ou null */
+function heurte22(x,z){
+  var now=performance.now();
+  if(Math.hypot(J.x-OBST22.cx,J.z-OBST22.cz)>5 || now-OBST22.t>400 || OBST22.ver!==OBST22.verVu){
+    OBST22.t=now; OBST22.verVu=OBST22.ver; construireObst22(J.x,J.z);
+  }
+  var R=OBST22.rJ, L=OBST22.liste;
+  for(var i=0;i<L.length;i++){
+    var o=L[i], dn=distObst22(o,x,z);
+    if(dn>=R) continue;
+    /* on ne passe jamais d'un côté à l'autre d'une rubalise ou d'une barrière */
+    if(o.t===1){ var c0=cote22(o,J.x,J.z), c1=cote22(o,x,z); if(c0*c1<0) return o; }
+    /* déjà dedans : on laisse sortir, pas s'enfoncer */
+    var dc=distObst22(o,J.x,J.z);
+    if(dc>=R || dn<dc-1e-4) return o;
+  }
+  return null;
+}
+/* direction du bord de l'obstacle le plus proche de (x,z), pour glisser le long */
+function bord22(o,x,z){
+  if(o.t===1){ var l=Math.hypot(o.bx-o.ax,o.bz-o.az)||1; return [(o.bx-o.ax)/l,(o.bz-o.az)/l]; }
+  var P=o.p, n=P.length/2, m=1e9, t=[1,0];
+  for(var i=0;i<n;i++){
+    var j=(i+1)%n, d=distSeg22(x,z,P[i*2],P[i*2+1],P[j*2],P[j*2+1]);
+    if(d<m){ m=d; var ex=P[j*2]-P[i*2], ez=P[j*2+1]-P[i*2+1], l=Math.hypot(ex,ez)||1; t=[ex/l,ez/l]; }
+  }
+  return t;
+}
+var OBST22_H=null;
+function libreJ22(x,z){
+  OBST22_H=null;
+  if(!libre(x,z)) return false;
+  if(!collisions) return true;
+  OBST22_H=heurte22(x,z);
+  return !OBST22_H;
+}
+/* pas de 30 cm au plus : la rubalise est trop mince pour des pas de 80 cm.
+   Contre un obstacle, on glisse le long de son bord, puis selon les axes. */
+deplacer=function(dx,dz){
+  var n=Math.max(1,Math.ceil(Math.hypot(dx,dz)/OBST22.pas));
+  dx/=n; dz/=n;
+  for(var i=0;i<n;i++){
+    if(libreJ22(J.x+dx,J.z+dz)){ J.x+=dx; J.z+=dz; continue; }
+    if(OBST22_H){
+      var t=bord22(OBST22_H,J.x,J.z), p=dx*t[0]+dz*t[1];
+      if(Math.abs(p)>1e-4 && libreJ22(J.x+t[0]*p,J.z+t[1]*p)){ J.x+=t[0]*p; J.z+=t[1]*p; continue; }
+    }
+    if(libreJ22(J.x+dx,J.z)) J.x+=dx;
+    else if(libreJ22(J.x,J.z+dz)) J.z+=dz;
+    else break;
+  }
+};
+var _equip22=reconstruireEquip;
+reconstruireEquip=function(){ var r=_equip22.apply(this,arguments); OBST22.ver++; return r; };
+var _veh22=majVehicules3D;
+majVehicules3D=function(){ var r=_veh22.apply(this,arguments); OBST22.ver++; return r; };
+
+/* ----- le couloir des coureurs reste sur la chaussée, le trottoir ou le chemin ----- */
+/* Sur une rue, on ne sort pas de la chaussée et de ses trottoirs ; ailleurs
+   (chemin, piste, parc), on reste à 1,7 m de l'axe au plus. */
+var LAT22={route:1.7, chemin:1.7};
+function praticable22(x,z){ return surChaussee(x,z,LAT22.route) || dansPlace(x,z,0); }
+var _largeur22=largeurCouloir;
+largeurCouloir=function(i){
+  var D=COULOIR.D;
+  if(D[i*2]>=0) return;
+  _largeur22(i);
+  try{
+    var d=Math.min(LONGUEUR,i*COULOIR.pas), p=pointArrondi(d), cap=capArrondi(d), nx=-Math.sin(cap), nz=Math.cos(cap);
+    var surRue=surChaussee(p[0],p[1],0.3) || dansPlace(p[0],p[1],0);
+    for(var k=0;k<2;k++){
+      var s=k?1:-1, w=D[i*2+k];
+      if(!surRue) w=Math.min(w,LAT22.chemin);
+      else for(var o=0.25;o<=w+0.45;o+=0.25){
+        if(!praticable22(p[0]+nx*o*s,p[1]+nz*o*s)){ w=Math.min(w,Math.max(0.6,o-0.45)); break; }
+      }
+      D[i*2+k]=w;
+    }
+  }catch(e){}
+};
+if(COULOIR.D) COULOIR.D.fill(-1);
+
+/* ----- la foulée de chacun ----- */
+/* L'amplitude des cuisses, des genoux et des bras est dosée autour de la
+   pose moyenne de l'animation : une foulée plus ample couvre plus de
+   terrain à chaque pas, donc à même vitesse la cadence baisse. La vitesse
+   d'animation se déduit de la vitesse, de la taille et de l'amplitude :
+   les pieds ne glissent pas. */
+var FOULEE22={moy:null, os:['Bip01_L_Thigh','Bip01_R_Thigh','Bip01_L_Calf','Bip01_R_Calf',
+  'Bip01_L_UpperArm','Bip01_R_UpperArm','Bip01_L_Forearm','Bip01_R_Forearm'], vRef:3.4};
+function moyennesFoulee22(){
+  if(FOULEE22.moy || !FOULE.run) return FOULEE22.moy;
+  var M={};
+  FOULE.run.tracks.forEach(function(t){
+    var k=t.name.lastIndexOf('.'), os=t.name.slice(0,k), pr=t.name.slice(k+1);
+    os=os.slice(os.lastIndexOf('/')+1);
+    if(pr!=='quaternion' || FOULEE22.os.indexOf(os)<0) return;
+    var V=t.values, s=[0,0,0,0];
+    for(var i=0;i<V.length;i+=4){
+      var sg=(V[i]*V[0]+V[i+1]*V[1]+V[i+2]*V[2]+V[i+3]*V[3])<0?-1:1;
+      for(var c=0;c<4;c++) s[c]+=V[i+c]*sg;
+    }
+    M[os]=new THREE.Quaternion(s[0],s[1],s[2],s[3]).normalize();
+  });
+  FOULEE22.moy=M;
+  return M;
+}
+var _qF22=new THREE.Quaternion();
+function appliquerFoulee22(c){
+  var M=moyennesFoulee22();
+  if(!M) return;
+  var B=c.rig.g.userData.os||(c.rig.g.userData.os=osAvatar(c.rig.g));
+  FOULEE22.os.forEach(function(n){
+    var o=B[n], m=M[n];
+    if(!o || !m) return;
+    var k=n.indexOf('Thigh')>0 ? c.ampV : n.indexOf('Calf')>0 ? 1+(c.ampV-1)*0.6 : c.bras;
+    _qF22.copy(o.quaternion);
+    o.quaternion.slerpQuaternions(m,_qF22,k);
+  });
+}
+/* le tempérament d'un coureur, tiré une fois */
+function temperament22(c){
+  c.taille=0.95+Math.random()*0.10;
+  c.amp=0.90+Math.random()*0.20;
+  c.bras=0.82+Math.random()*0.36;
+  c.esp=1.1+Math.random()*0.8;
+  c.tFile=2+Math.random()*8;
+  c.vl=0; c.x=undefined; c.y=undefined; c.tDouble=0; c.lf=undefined;
+  c.rig.g.scale.setScalar(c.taille);
+}
+
+/* ----- conduite sur le tracé ----- */
+var PEL_LAT22=2.6;
+/* virage : plus il est serré, moins on s'écarte du côté intérieur
+   (au-delà, le décalage ferait reculer le coureur) */
+/* courbure du tracé arrondi (rad/m), tous les mètres, calculée une fois */
+var COURB22={ref:null, k:null};
+function courbureEn22(d){
+  if(COURB22.ref!==ARRONDI || !COURB22.k){
+    COURB22.ref=ARRONDI; COURB22.k=new Float32Array(Math.ceil(LONGUEUR)+2).fill(NaN);
+  }
+  var i=Math.max(0,Math.min(COURB22.k.length-1,Math.round(d)));
+  if(isNaN(COURB22.k[i])){ var dd=Math.max(2,Math.min(LONGUEUR-2,i)); COURB22.k[i]=ecartAngle(capArrondi(dd+2)-capArrondi(dd-2))/4; }
+  return COURB22.k[i];
+}
+function courbure22(d){
+  var best=0;
+  for(var k=0;k<3;k++){ var c=courbureEn22(d+k*2.5); if(Math.abs(c)>Math.abs(best)) best=c; }
+  return best;
+}
+/* mètres parcourus au sol pour un mètre le long du tracé, à l'écart l */
+function echelleSol22(d,l){
+  var dd=Math.max(0.5,Math.min(LONGUEUR-0.5,d));
+  if(d>LONGUEUR) return 1;
+  var a=pointArrondi(dd-0.5), b=pointArrondi(dd+0.5), f=Math.hypot(b[0]-a[0],b[1]-a[1]);
+  /* le point décalé de l suit P(d)+l·n(d) : sa vitesse est |f − l·dcap/dd| */
+  return Math.max(0.3,Math.min(2.5,Math.abs(f-courbureEn22(dd)*l)));
+}
+/* Place à gauche (négatif) et à droite de l'axe. Un rétrécissement plus loin
+   compte déjà, relâché de ce qu'on a le temps de rattraper par un pas de
+   côté tranquille (VLAT22) : la borne ne bouge jamais plus vite que lui,
+   le coureur n'est jamais rabattu d'un coup. */
+var VLAT22=0.45;
+function bornes22(c){
+  var dd=Math.max(0,Math.min(LONGUEUR,c.d)), g=PEL_LAT22, r=PEL_LAT22;
+  if(COULOIR.I){
+    var P=COULOIR.pas, D=COULOIR.D, n=D.length/2-1, i0=Math.floor(dd/P), v=Math.max(1.2,c.v||0);
+    for(var i=Math.max(0,i0-2);i<=Math.min(n,i0+36);i++){
+      if(D[i*2]<0) largeurCouloir(i);
+      var relache=Math.max(0,i*P-dd)/v*VLAT22;
+      g=Math.min(g,D[i*2]+relache); r=Math.min(r,D[i*2+1]+relache);
+    }
+  }
+  g=-g;
+  for(var k=0;k<4;k++){
+    var e=k*2.5, cb=courbure22(dd+e), relache2=e/Math.max(1.2,c.v||0)*VLAT22;
+    if(cb>0.02) r=Math.min(r,0.55/cb+relache2); else if(cb<-0.02) g=Math.max(g,-0.55/-cb-relache2);
+  }
+  if(g>r){ var m=(g+r)/2; g=r=m; }
+  return [g,r];
+}
+/* instantané de tous ceux qui courent sur le tracé, joueur compris */
+function coureursSurTrace22(){
+  var A=[];
+  PELOTON.gens.forEach(function(c){ if(c.l!==undefined) A.push({c:c,d:c.d,l:c.l,v:c.v}); });
+  FOULE.coureurs.forEach(function(c){ if(c.l!==undefined) A.push({c:c,d:c.d,l:c.l,v:c.v}); });
+  if(auto) A.push({c:null,d:dAuto,l:0,v:J.v||0,joueur:true});
+  else if(J.ecart!==undefined && J.ecart<3 && J.d!==undefined){
+    var p=pointArrondi(J.d), cap=capArrondi(J.d);
+    A.push({c:null,d:J.d,l:(J.x-p[0])*-Math.sin(cap)+(J.z-p[1])*Math.cos(cap),v:J.v||0,joueur:true});
+  }
+  return A;
+}
+function libreEn22(A,c,d,l){
+  for(var i=0;i<A.length;i++){
+    var o=A[i];
+    if(o.c===c) continue;
+    var ed=o.d-d;
+    if(ed>-1.6 && ed<3.2 && Math.abs(o.l-l)<0.8) return false;
+  }
+  return true;
+}
+function conduire22(c,dt,vVoulu,A,accel){
+  var B=bornes22(c), g=B[0], r=B[1];
+  /* sa file : une fraction de la largeur libre, qu'il change de temps en temps */
+  if(c.lf===undefined) c.lf=Math.max(-1,Math.min(1,c.l>=0?c.l/(r||1):-c.l/(-g||1)));
+  c.tFile-=dt;
+  if(c.tFile<=0){ c.tFile=5+Math.random()*10; c.lf=Math.max(-1,Math.min(1,c.lf+(Math.random()*2-1)*0.8)); }
+  var lt=c.lf>=0 ? c.lf*r : -c.lf*g;
+  /* celui qui est devant, dans la même file */
+  /* en virage, l'écart le long du tracé se resserre à l'intérieur : on compte en mètres réels */
+  var dev=null, devL=0, dmin=1e9, rep=0, gene=1e9, echSol=echelleSol22(c.d,c.l);
+  for(var i=0;i<A.length;i++){
+    var o=A[i];
+    if(o.c===c) continue;
+    var ed=(o.d-c.d)*echSol, el=c.l-o.l;
+    if(ed>0 && ed<5 && Math.abs(el)<0.8 && ed<dmin){ dmin=ed; dev=o; devL=Math.abs(el); }
+    /* au coude à coude, on s'écarte un peu */
+    if(Math.abs(ed)<1.2 && Math.abs(el)<0.85) rep+=(el>=0?1:-1)*(0.85-Math.abs(el))*1.6;
+    /* épaule contre épaule sans place pour s'écarter : celui qui est un peu derrière lève le pied */
+    if(ed>0 && ed<1.0 && Math.abs(el)<0.7 && Math.hypot(ed,el)<0.9) gene=Math.min(gene,o.v-0.4*(0.9-Math.hypot(ed,el))/0.9-0.1);
+  }
+  var v=Math.min(vVoulu,Math.max(0,gene));
+  if(dev){
+    /* plus rapide que lui : on le double par le côté libre, sinon on se cale derrière */
+    if(c.tDouble<=0 && (vVoulu>dev.v+0.08 || dev.joueur) && dmin<3.5){
+      var cotes=(dev.l>0)?[-1,1]:[1,-1];
+      for(var k=0;k<2;k++){
+        var cand=dev.l+cotes[k]*0.9;
+        if(cand<g-0.05 || cand>r+0.05) continue;
+        if(libreEn22(A,c,c.d+1,cand)){ c.lDouble=cand; c.tDouble=2.2+Math.random()*1.2; break; }
+      }
+    }
+    /* on ne freine que pour ce qui reste dans sa file : pendant l'écart, de moins en moins */
+    var recouvre=Math.max(0,Math.min(1,(0.8-devL)/0.35));
+    v=Math.min(v,v+(dev.v+(dmin-c.esp)*0.9-v)*recouvre);
+    if(dmin<0.7 && devL<0.5) v=Math.min(v,dev.v*0.9);
+  }
+  if(c.tDouble>0){ c.tDouble-=dt; lt=c.lDouble; }
+  lt=Math.max(g,Math.min(r,lt));
+  /* latéral : doux, 0,6 m/s au plus */
+  var vlC=Math.max(-0.6,Math.min(0.6,(lt-c.l)*0.9+rep));
+  c.vl+=Math.max(-1.4*dt,Math.min(1.4*dt,vlC-c.vl));
+  c.l+=c.vl*dt;
+  /* la borne suit le rétrécissement à venir : jamais au-delà du premier obstacle, ni hors de la chaussée */
+  var gm=g-0.05, rm=r+0.05;
+  if(c.l<gm){ c.l=gm; if(c.vl<0) c.vl=0; }
+  if(c.l>rm){ c.l=rm; if(c.vl>0) c.vl=0; }
+  /* longitudinal : on accélère en douceur, on freine plus sec */
+  var a=v-c.v;
+  c.v+=a>0 ? Math.min(a,(accel||0.9)*dt) : Math.max(a,-3.0*dt);
+  if(c.v<0) c.v=0;
+  /* la vitesse est celle des jambes, au sol : à l'extérieur d'un virage on a plus de
+     chemin à faire (on perd un peu de terrain), à l'intérieur moins */
+  c.d+=c.v*dt/echelleSol22(c.d,c.l);
+}
+function hauteurFoulee22(x,z,cap,e){
+  var ux=Math.cos(cap), uz=Math.sin(cap), s=0;
+  for(var k=-2;k<=2;k++) s+=hauteurSol(x+ux*k*0.45,z+uz*k*0.45,e);
+  return s/5;
+}
+function poser22(c,dt){
+  var dd=Math.max(0,Math.min(LONGUEUR,c.d)), p=pointEtendu(Math.max(0,c.d)), cap=capArrondi(dd);
+  /* la normale du tracé à cet endroit précis, pas celle d'il y a un instant */
+  var x=p[0]-Math.sin(cap)*c.l, z=p[1]+Math.cos(cap)*c.l, g=c.rig.g;
+  /* le corps regarde là où il va */
+  if(c.x!==undefined && dt>0){
+    var mx=x-c.x, mz=z-c.z;
+    if(mx*mx+mz*mz>1e-6) c.cap+=ecartAngle(Math.atan2(mz,mx)-c.cap)*Math.min(1,dt*7);
+  } else c.cap=cap;
+  c.x=x; c.z=z;
+  var h=hauteurFoulee22(x,z,c.cap,Math.abs(c.l));
+  if(c.y===undefined || Math.abs(h-c.y)>1.5) c.y=h; else c.y+=(h-c.y)*Math.min(1,dt*9);
+  g.position.set(x,c.y,z);
+  g.rotation.y=-c.cap;
+  /* plus lent, foulée plus courte : la cadence baisse moins vite que la vitesse */
+  c.ampV=c.amp*Math.max(0.72,Math.min(1.2,Math.pow(Math.max(0.1,c.v)/FOULEE22.vRef,0.6)));
+  c.act.timeScale=Math.max(0,c.v)/(FOULEE22.vRef*c.taille*c.ampV);
+  c.rig.mix.update(dt);
+  appliquerFoulee22(c);
+  /* le bruit des pas suit la cadence de l'animation (deux pas par cycle) */
+  if(FOULE.run) c.cad14=Math.max(1.5,2*c.act.timeScale/FOULE.run.duration);
+}
+
+/* ----- le peloton ----- */
+formerPeloton=function(){
+  libererPeloton(); PELOTON.premier=null;
+  var noms=Object.keys(FOULE.modeles);
+  if(!noms.length || !FOULE.run) return;
+  var tirage=noms.slice().sort(function(){ return Math.random()-0.5; }), Z=PEL_ZONE, pris=[[0,0]];
+  for(var i=0;i<10;i++){
+    var rig=prendreRig(PELOTON.rigs,tirage[i%tirage.length],creerRigCoureur,12);
+    if(!rig) continue;
+    rig.mix.stopAllAction();
+    var a=rig.mix.clipAction(FOULE.run);
+    a.reset().play(); a.time=Math.random()*FOULE.run.duration;
+    var c={rig:rig, act:a, d:dAuto, l:0, v:Math.max(J.v||0,VITESSE), dv:0, dvC:0, tDv:2+Math.random()*8,
+           cap:capArrondi(Math.max(0,dAuto)), libre:false};
+    temperament22(c);
+    /* une place libre dans la zone, en quinconce */
+    var o=0, lf=0, ok=false;
+    for(var essai=0;essai<30 && !ok;essai++){
+      o=Z.ar+Math.random()*(Z.av-Z.ar); lf=Math.random()*2-1;
+      var B=bornes22({d:dAuto+o,v:0}), l=lf>=0?lf*B[1]:-lf*B[0];
+      ok=pris.every(function(q,k){ return Math.hypot((q[0]-o)*0.8,q[1]-l)>(k===0?1.9:1.35); });
+    }
+    var B2=bornes22({d:dAuto+o,v:0});
+    c.d=dAuto+o; c.lf=lf; c.l=lf>=0?lf*B2[1]:-lf*B2[0];
+    pris.push([o,c.l]);
+    PELOTON.gens.push(c);
+    rig.libre=false; rig.g.visible=true;
+  }
+};
+majPeloton=function(dt){
+  if(!FOULE.pret || !LONGUEUR) return;
+  var veut=PELOTON.voulu && auto && VUE!=='jal';
+  if(veut && !PELOTON.actif){ PELOTON.actif=true; formerPeloton(); }
+  if(!veut && PELOTON.actif){ PELOTON.actif=false; PELOTON.gens.forEach(function(c){ c.libre=true; c.v0=c.v; }); }
+  if(!PELOTON.gens.length) return;
+  if(!PELOTON.voulu){ libererPeloton(); return; }
+  PELOTON.t+=dt;
+  /* allure au sol du joueur : la visite guidée coupe les virages, le groupe suit ce rythme */
+  var Z=PEL_ZONE, vJ=auto?(J.v||0)*echelleSol22(dAuto,0):0, A=coureursSurTrace22();
+  PELOTON.gens.forEach(function(c){
+    var v, acc=0.9;
+    if(c.libre) v=c.v0||c.v;
+    else {
+      /* chacun son allure du moment, un peu plus vite ou un peu moins que le joueur */
+      c.tDv-=dt;
+      if(c.tDv<=0){ c.tDv=6+Math.random()*10; c.dvC=(Math.random()*2-1)*0.32; }
+      c.dv+=Math.max(-0.07*dt,Math.min(0.07*dt,c.dvC-c.dv));
+      var o=c.d-dAuto;
+      v=vJ+c.dv;
+      /* on reste dans le groupe : retour doux vers la zone */
+      if(o>Z.av) v-=(o-Z.av)*0.45;
+      if(o<Z.ar) v+=(Z.ar-o)*0.45;
+      if(o<Z.ar-3 || o>Z.av+3) acc=3;
+      /* juste devant le joueur, dans sa file : on lui laisse le passage */
+      if(o>-0.5 && o<3 && Math.abs(c.l)<0.9){
+        v=Math.max(v,vJ+0.35);
+        if(c.tDouble<=0){ var B=bornes22(c); c.lDouble=c.l>=0?Math.min(B[1],1.1):Math.max(B[0],-1.1); c.tDouble=1.5; }
+      }
+      /* après la ligne, on continue en trottinant */
+      if(c.d>LONGUEUR) v=Math.min(v,Math.max(2.3,3.8-(c.d-LONGUEUR)*0.12));
+    }
+    conduire22(c,dt,Math.max(0,v),A,acc);
+    /* garde-fou : jamais sur le joueur */
+    if(auto){
+      var dj=Math.hypot((c.d-dAuto)*0.8,c.l);
+      if(dj<1.25) c.l+=(c.l>=0?1:-1)*(1.25-dj)*Math.min(1,dt*6);
+    }
+  });
+  PELOTON.gens=PELOTON.gens.filter(function(c){
+    if(c.libre && (c.d>LONGUEUR-2 || Math.abs(c.d-(J.d||0))>90)){ liberer2(c); return false; }
+    poser22(c,dt);
+    if(c.d>LONGUEUR && !PELOTON.premier) PELOTON.premier=c;
+    if(c===PELOTON.premier){ var kb=Math.min(1,(c.d-LONGUEUR)/2.2); leverBras(c.rig.g,kb*kb*(3-2*kb)); }
+    return true;
+  });
+  var ombre=QUAL().ombre>0, cx=camera.position.x, cz=camera.position.z;
+  PELOTON.gens.map(function(c){ return [Math.hypot(c.rig.g.position.x-cx,c.rig.g.position.z-cz),c]; })
+    .sort(function(a,b){ return a[0]-b[0]; })
+    .forEach(function(e,i){ var s=ombre && i<4; e[1].rig.meshes.forEach(function(m){ m.castShadow=s; }); });
+};
+window.ESPACE3D.peloton=function(){
+  return {voulu:PELOTON.voulu, actif:PELOTON.actif, coureurs:PELOTON.gens.length,
+          places:PELOTON.gens.map(function(c){ return {o:+(c.d-dAuto).toFixed(1), l:+c.l.toFixed(2), v:+c.v.toFixed(2),
+            taille:+c.taille.toFixed(2), foulee:+c.amp.toFixed(2), pasMin:Math.round((c.cad14||0)*60)}; })};
+};
+
+/* ----- les coureurs qu'on croise ----- */
+var _nouveauC22=nouveauCoureur;
+nouveauCoureur=function(d0){
+  var n=FOULE.coureurs.length;
+  _nouveauC22(d0);
+  for(var i=n;i<FOULE.coureurs.length;i++){
+    var c=FOULE.coureurs[i];
+    c.v0=c.v; c.l=Math.max(-2,Math.min(2,c.lat||0));
+    temperament22(c);
+  }
+};
+majCoureurs=function(dt){
+  if(!FOULE.pret || !LONGUEUR || !camera) return;
+  var loin=(J.ecart!==undefined && J.ecart>250);
+  var N=loin?0:NB_COUREURS[PERF.qualite], d0=J.d||0;
+  var pel=(typeof PELOTON!=='undefined' && PELOTON.actif);
+  if(pel) N=0;
+  FOULE.coureurs=FOULE.coureurs.filter(function(c){
+    var ok=c.d<LONGUEUR-3 && Math.abs(c.d-d0)<(pel?45:270);
+    if(!ok) liberer2(c);
+    return ok;
+  });
+  if(!pel) while(FOULE.coureurs.length>N) liberer2(FOULE.coureurs.pop());
+  for(var k=0;k<2 && FOULE.coureurs.length<N;k++) nouveauCoureur(d0);
+  if(FOULE.coureurs.length>=N) FOULE.plein=true;
+  var ombre=QUAL().ombre>0, A=coureursSurTrace22();
+  FOULE.coureurs.forEach(function(c){
+    if(c.taille===undefined){ c.v0=c.v; c.l=c.lat||0; temperament22(c); }
+    conduire22(c,dt,c.v0,A,0.7);
+    poser22(c,dt);
+    c.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
+  });
+};
+window.ESPACE3D.obstacles=function(){
+  construireObst22(J.x,J.z);
+  var n={segments:0,blocs:0};
+  OBST22.liste.forEach(function(o){ if(o.t===1) n.segments++; else n.blocs++; });
+  return n;
+};
 })();
