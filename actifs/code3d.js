@@ -22244,17 +22244,41 @@ function ancrerParBarriere(r){
   r.angs=r.pts.map(function(){ return null; });
   r.expl=true;
 }
+/* Une même barrière peut tenir plusieurs points de rubalise : deux rangées
+   qui se rejoignent, deux points d'une rangée à moins de 1,5 m, le début et
+   la fin d'une rangée refermée, ou une barrière posée à la main. On agit
+   donc toujours sur tous les points noués à la barrière. */
+function liensAncrage(la,lo){
+  var L=[];
+  CARTE.equip().rubalises.forEach(function(r){
+    (r._ancr||[]).forEach(function(q,k){ if(Math.abs(q[0]-la)<1e-7 && Math.abs(q[1]-lo)<1e-7) L.push([r,k]); });
+  });
+  return L;
+}
+/* retire les points noués ; une rubalise réduite à un point disparaît. Renvoie les rubalises supprimées */
+function retirerLiens(L){
+  var R=CARTE.equip().rubalises, par=new Map(), vides=[];
+  L.forEach(function(x){ ancrerParBarriere(x[0]); if(!par.has(x[0])) par.set(x[0],[]); if(par.get(x[0]).indexOf(x[1])<0) par.get(x[0]).push(x[1]); });
+  par.forEach(function(ks,r){
+    ks.sort(function(a,b){ return b-a; }).forEach(function(k){ r.pts.splice(k,1); r.angs.splice(k,1); });
+    if(r.pts.length<2){ var i=R.indexOf(r); if(i>=0) R.splice(i,1); vides.push(r); }
+  });
+  CARTE.equipModifie();
+  return vides;
+}
 var _selDepuisInstance23=selDepuisInstance;
 selDepuisInstance=function(id){
   var s=_selDepuisInstance23(id);
   if(!s || s.type!=='r') return s;
   var L=CARTE.equip().barrieres, a=(EQ.ancrages||[])[id-L.length];
-  /* la rangée est déjà sélectionnée (ou l'une de ses barrières) : on prend cette barrière seule */
-  if(a && EQ.sel && ((EQ.sel.type==='r' && EQ.sel.o===s.o) || (EQ.sel.type==='a' && EQ.sel.r===s.o))){
-    var k=indexAncrage(s.o,a);
+  /* la rangée est déjà sélectionnée (ou l'une de ses barrières) : on prend cette barrière seule,
+     même si elle tient aussi une autre rangée */
+  var sr=EQ.sel ? (EQ.sel.type==='r' ? EQ.sel.o : (EQ.sel.type==='a' ? EQ.sel.r : null)) : null;
+  if(a && sr){
+    var k=indexAncrage(sr,a);
     if(k>=0){
       if(EQ.sel.type==='a' && EQ.sel.k===k) return EQ.sel;
-      return {type:'a', o:a, r:s.o, k:k};
+      return {type:'a', o:a, r:sr, k:k};
     }
   }
   return s;
@@ -22275,17 +22299,17 @@ tournerSel=function(delta){
   var s=EQ.sel;
   if(!s || s.type!=='a'){ _tournerSel23(delta); return; }
   if(!delta) return;
-  var ang=orientationSel(s);
-  ancrerParBarriere(s.r);
-  s.r.angs[s.k]=((Math.round(ang+delta)%360)+360)%360;
+  var ang=((Math.round(orientationSel(s)+delta)%360)+360)%360, q=s.r._ancr[s.k], L=liensAncrage(q[0],q[1]);
+  L.forEach(function(x){ ancrerParBarriere(x[0]); });
+  L.forEach(function(x){ x[0].angs[x[1]]=ang; });
   CARTE.equipModifie();
 };
 var _deplacerSel23=deplacerSel;
 deplacerSel=function(s,dx,dz){
   if(!s || s.type!=='a'){ _deplacerSel23(s,dx,dz); return; }
-  var q=s.r._ancr[s.k], x=pX(q[1])+dx, z=pZ(q[0])+dz;
-  ancrerParBarriere(s.r);
-  s.r.pts[s.k]=[laDeZ(z),loDeX(x)];
+  var q=s.r._ancr[s.k], x=pX(q[1])+dx, z=pZ(q[0])+dz, L=liensAncrage(q[0],q[1]);
+  L.forEach(function(y){ ancrerParBarriere(y[0]); });
+  L.forEach(function(y){ y[0].pts[y[1]]=[laDeZ(z),loDeX(x)]; });
   CARTE.equipModifie();
 };
 /* aperçu doré : la barrière et la rubalise tendue vers ses voisines */
@@ -22343,15 +22367,21 @@ actionEquip=function(a){
 var _supprimerSelEquip23=supprimerSelEquip;
 supprimerSelEquip=function(){
   var s=EQ.sel;
-  if(!s || s.type!=='a'){ _supprimerSelEquip23(); return; }
-  var r=s.r, N=r._noeuds||[], k=s.k, bout=(k===0 || k===N.length-1), L=0;
+  if(!s || s.type!=='a'){
+    /* barrière posée à la main qui tient de la rubalise : les points noués partent avec elle */
+    var liens=[];
+    if(s && (s.type==='b' || s.type==='g' || s.type==='m')) elementsSel(s).forEach(function(b){ liens=liens.concat(liensAncrage(b.la,b.lo)); });
+    liens.forEach(function(x){ ancrerParBarriere(x[0]); });
+    _supprimerSelEquip23();
+    if(liens.length) retirerLiens(liens);
+    return;
+  }
+  var r=s.r, N=r._noeuds||[], k=s.k, bout=(k===0 || k===N.length-1), L=0, q=r._ancr[k];
   if(bout && N.length>1){ var v=N[k===0?1:k-1]; L=Math.hypot(v[0]-N[k][0],v[1]-N[k][1]); }
   else if(N.length>2) L=Math.hypot(N[k+1][0]-N[k-1][0],N[k+1][1]-N[k-1][1]);
   deselectionnerEquip();
-  ancrerParBarriere(r);
-  r.pts.splice(k,1); r.angs.splice(k,1);
-  if(r.pts.length<2){ CARTE.supprimerRubalise(r); dire('Barrière supprimée avec la dernière portion de rubalise.'); return; }
-  CARTE.equipModifie();
+  var vides=retirerLiens(liensAncrage(q[0],q[1]));
+  if(vides.indexOf(r)>=0){ dire('Barrière supprimée avec la dernière portion de rubalise.'); return; }
   selectionnerEquip({type:'r', o:r});
   dire(bout ? 'Barrière du bout supprimée avec son tronçon de rubalise ('+L.toFixed(1).replace('.',',')+' m).'
             : 'Barrière supprimée : la rubalise est tendue entre les deux voisines ('+L.toFixed(1).replace('.',',')+' m).');
@@ -22415,4 +22445,21 @@ majSons=function(dt){
   var c=SON14.ctx, S=SON14.sono;
   if(c && S && c.state==='running' && musiqueActive()) S.g.gain.setTargetAtTime(0,c.currentTime,0.15);
 };
+/* une barrière posée à la main qui tient de la rubalise l'emmène quand on la
+   déplace, ou qu'on tourne sa rangée */
+function liensBarrieres(s){
+  var L=[];
+  if(s && (s.type==='b' || s.type==='g' || s.type==='m')) elementsSel(s).forEach(function(b){ liensAncrage(b.la,b.lo).forEach(function(x){ L.push([x[0],x[1],b]); }); });
+  L.forEach(function(x){ ancrerParBarriere(x[0]); });
+  return L;
+}
+function suivreLiens(L){
+  if(!L.length) return;
+  L.forEach(function(x){ x[0].pts[x[1]]=[x[2].la,x[2].lo]; });
+  CARTE.equipModifie();
+}
+var _deplacerSel23b=deplacerSel;
+deplacerSel=function(s,dx,dz){ var L=liensBarrieres(s); _deplacerSel23b(s,dx,dz); suivreLiens(L); };
+var _tournerSel23b=tournerSel;
+tournerSel=function(delta){ var L=liensBarrieres(EQ.sel); _tournerSel23b(delta); suivreLiens(L); };
 })();
