@@ -179,9 +179,12 @@ function tube(tas,ax,ay,az,bx,by,bz,r0,r1,seg,col,capA,capB){
     ca.push([ax+nx*r0, ay+ny*r0, az+nz*r0]);
     cb.push([bx+nx*r1, by+ny*r1, bz+nz*r1]);
   }
+  /* sens direct vu de l'extérieur : sinon le moteur efface la face qui
+     nous regarde et montre l'intérieur de la face opposée, éclairée à
+     contre-jour (flèche de l'abbatiale, poing du monument, Nicolas 1er oct. 2026) */
   for(i=0;i<seg;i++){
-    tas.triN(ca[i],cb[i],cb[i+1], nn[i],nn[i],nn[i+1], [i/seg,0,i/seg,1,(i+1)/seg,1], col);
-    tas.triN(ca[i],cb[i+1],ca[i+1], nn[i],nn[i+1],nn[i+1], [i/seg,0,(i+1)/seg,1,(i+1)/seg,0], col);
+    tas.triN(ca[i],cb[i+1],cb[i], nn[i],nn[i+1],nn[i], [i/seg,0,(i+1)/seg,1,i/seg,1], col);
+    tas.triN(ca[i],ca[i+1],cb[i+1], nn[i],nn[i+1],nn[i+1], [i/seg,0,(i+1)/seg,0,(i+1)/seg,1], col);
   }
   if(capA) for(i=0;i<seg;i++)
     tas.tri(ax,ay,az, ca[i+1][0],ca[i+1][1],ca[i+1][2], ca[i][0],ca[i][1],ca[i][2], -ux,-uy,-uz, [0.5,0.5,1,0,0,0], col);
@@ -198,8 +201,8 @@ function boule(tas,cx,cy,cz,r,ky,seg,col){
   }
   for(var j=0;j<an;j++) for(var i=0;i<seg;i++){
     var a=P(i,j), b=P(i+1,j), c=P(i+1,j+1), d=P(i,j+1);
-    tas.triN(a.p,c.p,b.p, a.n,c.n,b.n, [0,0,1,1,1,0], col);
-    tas.triN(a.p,d.p,c.p, a.n,d.n,c.n, [0,0,0,1,1,1], col);
+    tas.triN(a.p,b.p,c.p, a.n,b.n,c.n, [0,0,1,0,1,1], col);
+    tas.triN(a.p,c.p,d.p, a.n,c.n,d.n, [0,0,1,1,0,1], col);
   }
 }
 /* boîte verticale sur un quadrilatère au sol (ordre à aire positive) */
@@ -15350,7 +15353,7 @@ function distSegDev(x,z,ax,az,bx,bz){
 /* Le mur de la vitrine : le plus proche du commerce parmi ceux qui sortent
    du bâtiment, ne touchent pas un voisin et donnent sur une chaussée. Le
    bâtiment qui contient le point d'OSM passe devant ses voisins. */
-function murDevanture(x,z,I,sansRue){
+function murDevanture(x,z,I,sansRue,sauf){
   var best=null, B=GEO.bats;
   for(var i=0;i<B.length;i++){
     var b=B[i], p=b.p, n=p.length/2;
@@ -15368,6 +15371,8 @@ function murDevanture(x,z,I,sansRue){
         if(!sansRue && !routeProche(I,mx+nx*4,mz+nz*4,14)) continue;
         var d=distSegDev(x,z,ax,az,bx,bz)+(dedans?0:4);
         if(d>24 || (best && d>=best.d)) continue;
+        /* un mur déjà couvert de vitrines (clé dans le sens de sa normale) */
+        if(sauf && sauf[(s===1?[ax,az,bx,bz]:[bx,bz,ax,az]).map(function(v){ return v.toFixed(1); }).join(",")]) continue;
         /* le mur est parcouru de façon que sa normale sortante soit (uz, -ux) */
         best=(s===1)?{d:d, ax:ax, az:az, bx:bx, bz:bz, L:L}:{d:d, ax:bx, az:bz, bx:ax, bz:az, L:L};
       }
@@ -15423,30 +15428,54 @@ function poserDevantures(){
     }
     var T=TYPES_DEV[genre]||TYPES_DEV._, Mq=MARQUES_DEV[marque]||null, Ph=null;
     for(var f=0;f<DEV_PHOTOS.length;f++) if(DEV_PHOTOS[f].nom===nom){ Ph=DEV_PHOTOS[f]; break; }
-    /* une grande surface donne sur son parking, pas sur une rue */
-    var M=murDevanture(x,z,I)||murDevanture(x,z,I,true);
-    if(!M){ DEV.ecartes.push((nom||genre)+' (pas de mur sur rue)'); return; }
     var h=hashDev(nom+genre+la);
     var texte=(Ph&&Ph.texte)||(Mq?Mq.t:(nom||T.t)), sous='';
     if(!Mq && !Ph && nom && T.t && nom.toUpperCase().indexOf(T.t.split(' ')[0])<0 && T.t.length<14) sous=T.t.toLowerCase();
     if(!texte){ DEV.ecartes.push(genre+' (sans nom)'); return; }
     var fond=(Ph&&Ph.fond)||(Mq?Mq.fond:T.fond), encre=(Ph&&Ph.encre)||(Mq?Mq.encre:T.encre);
     var cadreHex=(Ph&&Ph.cadre)||(Mq?Mq.cadre:T.cadres[h%T.cadres.length]);
-    /* la place sur le mur : centrée sur le commerce, sans chevaucher un voisin */
-    var lv=Math.min((Mq&&Mq.l)||T.l||5, M.L-0.6);
-    if(lv<1.8){ DEV.ecartes.push(texte+' (mur trop court)'); return; }
-    var t0=((x-M.ax)*M.ux+(z-M.az)*M.uz);
-    var s0=Math.max(0.3,Math.min(M.L-0.3-lv,t0-lv/2)), s1=s0+lv;
-    var cle=M.ax.toFixed(1)+','+M.az.toFixed(1)+','+M.bx.toFixed(1)+','+M.bz.toFixed(1);
-    var deja=murs[cle]||(murs[cle]=[]);
-    for(var q=0;q<deja.length;q++){
-      var o=deja[q];
-      if(s0<o[1]+0.3 && s1>o[0]-0.3){
-        if(o[1]+0.3+lv<=M.L-0.3){ s0=o[1]+0.3; s1=s0+lv; }
-        else if(o[0]-0.3-lv>=0.3){ s1=o[0]-0.3; s0=s1-lv; }
-        else { DEV.ecartes.push(texte+' (mur déjà pris)'); return; }
+    /* Le mur le plus proche, ou, s'il est déjà couvert de vitrines, le
+       suivant : rue Chalon, une façade sur rue en porte souvent deux. */
+    var sauf={}, M=null, lv, t0, s0, s1, deja, cle, raison='pas de mur sur rue';
+    for(var essai=0;essai<4;essai++){
+      /* une grande surface donne sur son parking, pas sur une rue ; une
+         boutique dont les murs sur rue sont pris ne passe pas derrière */
+      M=murDevanture(x,z,I,false,sauf)||(essai===0?murDevanture(x,z,I,true,sauf):null);
+      if(!M) break;
+      cle=M.ax.toFixed(1)+','+M.az.toFixed(1)+','+M.bx.toFixed(1)+','+M.bz.toFixed(1);
+      /* la place sur le mur : centrée sur le commerce, sans chevaucher un voisin */
+      lv=Math.min((Mq&&Mq.l)||T.l||5, M.L-0.6);
+      if(lv<1.8){ raison='mur trop court'; sauf[cle]=1; M=null; continue; }
+      t0=((x-M.ax)*M.ux+(z-M.az)*M.uz);
+      s0=Math.max(0.3,Math.min(M.L-0.3-lv,t0-lv/2)); s1=s0+lv;
+      deja=murs[cle]||[];
+      var chevauche=function(){ for(var q=0;q<deja.length;q++) if(s0<deja[q][1]+0.3 && s1>deja[q][0]-0.3) return true; return false; };
+      for(var q=0;q<deja.length;q++){
+        var o=deja[q];
+        if(s0<o[1]+0.3 && s1>o[0]-0.3){
+          if(o[1]+0.3+lv<=M.L-0.3){ s0=o[1]+0.3; s1=s0+lv; }
+          else if(o[0]-0.3-lv>=0.3){ s1=o[0]-0.3; s0=s1-lv; }
+          else { s0=-1; break; }
+        }
       }
+      /* Rue Chalon, les boutiques n'ont que 3 ou 4 m de façade : faute de
+         place, la vitrine se resserre dans le plus grand creux qui reste,
+         la plus proche du commerce à largeur égale. */
+      if(s0<0 || chevauche()){
+        var bornes=[[-0.3,0.3]].concat(deja.slice().sort(function(a,b){ return a[0]-b[0]; })).concat([[M.L-0.3,M.L+0.3]]), mieux=null;
+        for(var g2=0;g2<bornes.length-1;g2++){
+          var a0=bornes[g2][1]+0.3, a1=bornes[g2+1][0]-0.3, lg=Math.min(lv,a1-a0);
+          if(lg<2.6) continue;
+          var c0=Math.max(a0,Math.min(a1-lg,t0-lg/2));
+          if(!mieux || lg>mieux[2]+0.01 || (Math.abs(lg-mieux[2])<0.01 && Math.abs(c0+lg/2-t0)<Math.abs(mieux[0]+mieux[2]/2-t0))) mieux=[c0,c0+lg,lg];
+        }
+        if(!mieux){ raison='mur déjà pris'; sauf[cle]=1; M=null; continue; }
+        s0=mieux[0]; s1=mieux[1]; lv=mieux[2];
+      }
+      break;
     }
+    if(!M){ DEV.ecartes.push(texte+' ('+raison+')'); return; }
+    deja=murs[cle]||(murs[cle]=[]);
     deja.push([s0,s1]);
     var cadre=teinte(parseInt(cadreHex.slice(1),16)), sombre=assombrir(cadre,0.72);
     var mx=M.ax+M.ux*(s0+s1)/2+M.nx*0.6, mz=M.az+M.uz*(s0+s1)/2+M.nz*0.6;
@@ -22789,4 +22818,52 @@ libererActifs=function(){
   });
   return _libererActifs24()+n;
 };
+
+/* ===== 27. monument blanc lisible à contre-jour, commerces du parcours ===== */
+/* Le monument aux sous-officiers : un blanc de peinture minérale plutôt
+   qu'un blanc pur, et plus d'éclat propre. La face à l'ombre se lit
+   enfin comme une ombre (Nicolas, 1er oct. 2026). */
+var _ambiance27=ambiance25;
+ambiance25=function(){
+  _ambiance27();
+  if(MSO.mat){ MSO.mat.emissive.setHex(0x000000); MSO.mat.color.setScalar(0.8); }
+};
+/* Les commerces que OpenStreetMap ignore, relevés dans le répertoire
+   SIRENE (INSEE, établissements actifs, adresse géolocalisée) à moins de
+   30 m du parcours, enseigne vérifiée quand deux sociétés partagent une
+   adresse. Le point géolocalisé tombe souvent au fond de la parcelle :
+   il est ramené à 4 m de l'axe de sa rue (OSM), du même côté (pairs et
+   impairs vérifiés rue Châlon). À confirmer sur place. */
+TYPES_DEV.jewelry={t:'BIJOUTERIE', fond:'#1c1c1e', encre:'#d9b45a', cadres:['#1c1c1e','#3a2a24']};
+TYPES_DEV.interior_decoration={t:'DÉCORATION', fond:'#efe9df', encre:'#4a3a2c', cadres:['#4a3a2c','#7a8a7a']};
+TYPES_DEV.tourism={t:'OFFICE DE TOURISME', fond:'#1f4e79', encre:'#ffffff', cadres:['#1f4e79']};
+TYPES_DEV.hearing_aids={t:'AUDITION', fond:'#ffffff', encre:'#0a6aa8', cadres:['#0a6aa8','#d9dde2']};
+TYPES_DEV.tattoo={t:'TATOUAGE', fond:'#141414', encre:'#e9e2d6', cadres:['#141414','#5a1f2b']};
+[
+  [46.4129043,-0.2053972,"Mag Presse","tobacco",""],
+  [46.4128599,-0.2053897,"T.M. d'Or","jewelry",""],
+  [46.4129622,-0.2055150,"Rue de la Paix Immobilier","estate_agent",""],
+  [46.4129098,-0.2055051,"Unéo","insurance",""],
+  [46.4128049,-0.2054853,"Mosaïque","shoes",""],
+  [46.4127376,-0.2053674,"La Maison de Vladi","interior_decoration",""],
+  [46.4127129,-0.2053617,"Saint Maix' Coiff'","hairdresser",""],
+  [46.4126725,-0.2054579,"Mido Hair","hairdresser",""],
+  [46.4124786,-0.2053964,"L'Oasis","fast_food",""],
+  [46.4123942,-0.2052618,"Teranga Bowl","fast_food",""],
+  [46.4130809,-0.2055668,"Office de Tourisme","tourism",""],
+  [46.4128892,-0.2057836,"Barber Shop Style","hairdresser",""],
+  [46.4113485,-0.2026773,"Karuso","hairdresser",""],
+  [46.4114068,-0.2033188,"Maison Bagnard","florist",""],
+  [46.4114647,-0.2035854,"Speed Queen","laundry",""],
+  [46.4128530,-0.2068463,"La Taverne","tobacco",""],
+  [46.4131170,-0.2062140,"L'Escale de l'Avenue","restaurant",""],
+  [46.4130647,-0.2063908,"Clain Vision","optician",""],
+  [46.4122796,-0.2089202,"Solusons","hearing_aids",""],
+  [46.4129766,-0.2064230,"Chrono Pizz","fast_food",""],
+  [46.4133068,-0.2058103,"Tacos House","fast_food",""],
+  [46.4129216,-0.2066091,"AGPM","insurance",""],
+  [46.4135592,-0.2049853,"L'Atelier Féminin","beauty",""],
+  [46.4137255,-0.2057876,"Mademoiselle P'ink","tattoo",""],
+  [46.4130614,-0.2052986,"Imag'in","hairdresser",""]
+].forEach(function(c){ COMMERCES.push(c); });
 })();
