@@ -22496,6 +22496,153 @@ majSurvol=function(h){
   SURVOL.o=cle;
 };
 
+/* ===== 23 bis. murs des maisons infranchissables ; rubalise nouée aux deux montants ===== */
+/* Murs : la grille de collision (cases de 2 m) laissait passer partout à
+   moins de 2,4 m du tracé et sur toute la largeur des rues, et rognait les
+   angles des bâtiments : on entrait dans les maisons. Chaque bâtiment posé
+   devient aussi un obstacle exact (son contour, celui qui est dessiné) dans
+   la liste des obstacles de la section 22 : on glisse le long des façades.
+   Seuls les bâtiments que le tracé traverse exprès (passage couvert,
+   portail) restent ouverts.
+   Rubalise : elle n'est plus nouée au milieu de la barrière mais aux deux
+   montants, un peu sous l'angle supérieur ; entre les deux montants, elle
+   longe la barrière. Elle arrive sur le montant le plus proche de la
+   barrière précédente et repart de l'autre. */
+
+/* ----- les contours des bâtiments, au fil de leur construction ----- */
+var MURS23B={polys:[], idx:null, C:20, cleTrace:'', marge:0.18};
+var _marquer23b=marquerPoly;
+marquerPoly=function(pts){
+  _marquer23b(pts);
+  if(pts && pts.length>=6){
+    var x0=1e9, x1=-1e9, z0=1e9, z1=-1e9;
+    for(var i=0;i<pts.length;i+=2){ x0=Math.min(x0,pts[i]); x1=Math.max(x1,pts[i]); z0=Math.min(z0,pts[i+1]); z1=Math.max(z1,pts[i+1]); }
+    MURS23B.polys.push({p:pts.slice(), x0:x0, x1:x1, z0:z0, z1:z1, libre:false});
+    MURS23B.idx=null;
+  }
+};
+/* un bâtiment que le tracé traverse reste ouvert (porche, portail, passage) */
+function traverseParTrace23b(o){
+  for(var i=1;i<TRACE.length;i++){
+    var a=TRACE[i-1], b=TRACE[i];
+    if(Math.max(a[0],b[0])<o.x0-1 || Math.min(a[0],b[0])>o.x1+1 || Math.max(a[1],b[1])<o.z0-1 || Math.min(a[1],b[1])>o.z1+1) continue;
+    var L=Math.hypot(b[0]-a[0],b[1]-a[1]), n=Math.max(1,Math.ceil(L/0.5));
+    for(var s=0;s<=n;s++){ if(dansPoly(o.p,a[0]+(b[0]-a[0])*s/n, a[1]+(b[1]-a[1])*s/n)) return true; }
+  }
+  return false;
+}
+function indexMurs23b(){
+  var cle=TRACE.length+':'+Math.round(LONGUEUR||0);
+  if(MURS23B.idx && cle===MURS23B.cleTrace) return MURS23B.idx;
+  var I={}, C=MURS23B.C;
+  MURS23B.polys.forEach(function(o){
+    o.libre=traverseParTrace23b(o);
+    if(o.libre) return;
+    for(var a=Math.floor(o.x0/C);a<=Math.floor(o.x1/C);a++) for(var b=Math.floor(o.z0/C);b<=Math.floor(o.z1/C);b++){ var k=a+','+b; (I[k]||(I[k]=[])).push(o); }
+  });
+  MURS23B.idx=I; MURS23B.cleTrace=cle;
+  return I;
+}
+var _obst23b=construireObst22;
+construireObst22=function(cx,cz){
+  _obst23b(cx,cz);
+  if(!MURS23B.polys.length) return;
+  var I=indexMurs23b(), C=MURS23B.C, R=18, vus=new Set(), L=OBST22.liste;
+  for(var a=Math.floor((cx-R)/C);a<=Math.floor((cx+R)/C);a++) for(var b=Math.floor((cz-R)/C);b<=Math.floor((cz+R)/C);b++){
+    (I[a+','+b]||[]).forEach(function(o){
+      if(vus.has(o)) return;
+      vus.add(o);
+      if(o.x1<cx-R || o.x0>cx+R || o.z1<cz-R || o.z0>cz+R) return;
+      /* rayon négatif : le coureur peut frôler la façade sans y entrer */
+      L.push({t:2, p:o.p, r:-MURS23B.marge});
+    });
+  }
+};
+
+/* ----- rubalise : du montant d'entrée au montant de sortie de chaque barrière ----- */
+var RUB23B={haut:1.0, montant:1.015, longe:0.035};
+/* suite des points de nouage : [entrée, sortie] pour chaque barrière, dans l'ordre de la rubalise */
+function cheminRubalise23b(N,angDe){
+  var n=N.length, P=[];
+  if(n<2) return P;
+  for(var k=0;k<n;k++){
+    var c=N[k], a=angDe ? angDe(c) : null;
+    if(a===null || a===undefined){
+      /* barrière inconnue : dans l'axe de la rubalise, comme les barrières d'ancrage */
+      var p0=N[Math.max(0,k-1)], p1=N[Math.min(n-1,k+1)];
+      a=Math.atan2(p1[1]-p0[1],p1[0]-p0[0])*180/PI;
+    }
+    var ux=Math.cos(a*PI/180), uz=Math.sin(a*PI/180), m=RUB23B.montant;
+    var A=[c[0]+ux*m, c[1]+uz*m], B=[c[0]-ux*m, c[1]-uz*m];
+    var ref=k>0 ? N[k-1] : N[1];
+    var dA=Math.hypot(A[0]-ref[0],A[1]-ref[1]), dB=Math.hypot(B[0]-ref[0],B[1]-ref[1]);
+    /* on arrive par le montant le plus proche de la barrière précédente ; la première
+       barrière est longée en entier avant de partir vers la suivante */
+    var entree=(k>0) ? (dA<=dB ? A : B) : (dA<=dB ? B : A), sortie=(entree===A) ? B : A;
+    var y=hauteurBarriere(c[0],c[1],a)+RUB23B.haut;
+    P.push({x:entree[0], z:entree[1], y:y, longe:true}, {x:sortie[0], z:sortie[1], y:y, longe:false});
+  }
+  return P;
+}
+/* un brin de rubalise : tendu le long d'une barrière, ou avec un léger ventre entre deux barrières */
+function brinRubalise23b(tape,a,b,du,longe){
+  var L=Math.hypot(b.x-a.x,b.z-a.z);
+  if(L<0.03) return du;
+  var blanc=teinte(0xf2f2ee), demi=0.028;
+  var nx=-(b.z-a.z)/L, nz=(b.x-a.x)/L, fl=longe ? 0 : Math.min(0.14,0.018*L), S=longe ? 1 : 8, dec=longe ? RUB23B.longe : EQ_DECAL;
+  for(var s=0;s<S;s++){
+    var t0=s/S, t1=(s+1)/S;
+    var x0=a.x+(b.x-a.x)*t0+nx*dec, z0=a.z+(b.z-a.z)*t0+nz*dec;
+    var x1=a.x+(b.x-a.x)*t1+nx*dec, z1=a.z+(b.z-a.z)*t1+nz*dec;
+    var y0=a.y+(b.y-a.y)*t0-fl*4*t0*(1-t0), y1=a.y+(b.y-a.y)*t1-fl*4*t1*(1-t1);
+    var u0=(du+L*t0)/0.9, u1=(du+L*t1)/0.9;
+    tape.tri(x0,y0-demi,z0, x1,y1-demi,z1, x1,y1+demi,z1, nx,0,nz,[u0,0,u1,0,u1,1],blanc);
+    tape.tri(x0,y0-demi,z0, x1,y1+demi,z1, x0,y0+demi,z0, nx,0,nz,[u0,0,u1,1,u0,1],blanc);
+  }
+  return du+L;
+}
+function tapeChemins23b(tape,R,angDe,garder){
+  R.forEach(function(r){
+    var N=noeudsRubalise(r);
+    if(garder) r._noeuds=N;
+    var P=cheminRubalise23b(N,angDe), du=0;
+    for(var i=1;i<P.length;i++) du=brinRubalise23b(tape,P[i-1],P[i],du,P[i-1].longe);
+  });
+}
+function matTape23b(){
+  if(!EQ.matTape){
+    EQ.matTape=new THREE.MeshStandardMaterial({map:texRubalise(), side:THREE.DoubleSide, roughness:0.45, metalness:0});
+    EQ.matPiq=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.6, metalness:0});
+  }
+  return EQ.matTape;
+}
+construireRubalises=function(){
+  if(EQ.rub){ monde.remove(EQ.rub); EQ.rub.children.forEach(function(m){ m.geometry.dispose(); }); EQ.rub=null; }
+  var E=CARTE.equip(), R=E.rubalises;
+  if(!R.length) return;
+  matTape23b();
+  /* orientation de la barrière posée à chaque point de nouage */
+  var A={};
+  E.barrieres.concat(EQ.ancrages||[]).forEach(function(b){
+    if(b._x!==undefined) A[b._x.toFixed(2)+','+b._z.toFixed(2)]=b.ang;
+  });
+  var tape=new Tas(16384);
+  tapeChemins23b(tape,R,function(c){ return A[c[0].toFixed(2)+','+c[1].toFixed(2)]; },true);
+  var g=new THREE.Group();
+  if(!tape.vide()){ var mt=new THREE.Mesh(tape.geo(),EQ.matTape); mt.castShadow=true; g.add(mt); }
+  monde.add(g); EQ.rub=g;
+};
+/* autres parcours affichés : leurs barrières d'ancrage sont dans l'axe de la rubalise */
+tapeRubalises=function(R){
+  matTape23b();
+  var tape=new Tas(16384);
+  tapeChemins23b(tape,R,null,false);
+  if(tape.vide()) return null;
+  var m=new THREE.Mesh(tape.geo(),EQ.matTape);
+  m.castShadow=true;
+  return m;
+};
+
 /* ===== 24. la sono se tait quand « Jeunes Chefs » joue ===== */
 /* La sono du départ et de l'arrivée (124 battements par minute) portait à
    380 m, et la 3D s'ouvre au départ : sous la musique, sa grosse caisse et
