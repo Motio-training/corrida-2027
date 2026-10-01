@@ -12729,6 +12729,8 @@ function interfaceConsultation3D(){
     var etaitPince=T.apresPince;
     if(!doigts().length) T.apresPince=false;
     if(!etaitPince && ev.type==='pointerup' && performance.now()-l.t<300 && Math.hypot(ev.clientX-l.x0,ev.clientY-l.y0)<12){
+      /* le Maître chien et les spitz posés passent avant les jalonneurs */
+      if(typeof toucherObjet29==='function' && toucherObjet29(ev)) return;
       var o=(typeof viser==='function') ? viser(ev) : null;
       if(o) dire('Jalonneur n° '+o.n+' · km '+(o.d/1000).toFixed(2).replace('.',',')+' · '+(o.j.niv==='r'?'indispensable':'facultatif')+
         ({x:' · bras croisés', n:' · bras le long du corps', g:' · bras gauche tendu', d:' · bras droit tendu'}[o.bras]||''));
@@ -23598,6 +23600,21 @@ selectionnerVeh=function(v){
   return _selVeh29(v);
 };
 
+/* Au téléphone, la vue garde tous les touchers pour le joystick et la
+   caméra : un toucher bref y est relayé ici, avant les jalonneurs. */
+function toucherObjet29(ev){
+  if(JEU29.actif || !VM.objs || !VM.objs.size) return false;
+  var v=viserVeh(ev);
+  if(!v) return false;
+  if(v.t==='maitre_chien'){ ouvrirMC29(v); return true; }
+  if(v.t==='spitz'){
+    var e=entreeDecor29(v);
+    if(e && e.chien){ aboyer29(e.o.position.x,e.o.position.z,1.4); allure29(e.chien,'Attack',0.1); e.chien.acte.setEffectiveTimeScale(1.4); e.t=1.1; }
+    return true;
+  }
+  return false;
+}
+
 /* ---------- le menu du Maître chien ---------- */
 var JEUX29=[
   {id:'balle', icone:'🎾', nom:'Lancer de balle', robe:'roux', laisse:['rouge','#c62828'],
@@ -23647,6 +23664,7 @@ function styleMC29(){
 function htmlEchap29(s){ return String(s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 function ouvrirMC29(v){
   if(JEU29.actif) return;
+  if(!SPITZ.modele && !SPITZ.echec) chargerSpitz();
   styleMC29();
   MC29.v=v;
   var p=$e('e3-mc');
@@ -23735,7 +23753,12 @@ function messageJeu29(txt,duree){
 }
 function lancerJeu29(id){
   if(JEU29.actif) finJeu29(false,null);
-  if(!SPITZ.modele){ chargerSpitz(); dire('Les spitz arrivent, réessaie dans un instant.'); return; }
+  if(!SPITZ.modele){
+    /* les chiens arrivent avec les piétons : l'épreuve part dès qu'ils sont là */
+    dire('Les spitz arrivent, l’épreuve commence dans un instant.');
+    Promise.resolve(chargerSpitz()).then(function(){ if(SPITZ.modele && !JEU29.actif) lancerJeu29(id); });
+    return;
+  }
   var def=null; JEUX29.forEach(function(j){ if(j.id===id) def=j; });
   var fab={balle:jeuBalle29, slalom:jeuSlalom29, perdu:jeuPerdu29, sprint:jeuSprint29, agility:jeuAgility29}[id];
   if(!def || !fab) return;
