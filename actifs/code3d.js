@@ -22866,4 +22866,341 @@ TYPES_DEV.tattoo={t:'TATOUAGE', fond:'#141414', encre:'#e9e2d6', cadres:['#14141
   [46.4137255,-0.2057876,"Mademoiselle P'ink","tattoo",""],
   [46.4130614,-0.2052986,"Imag'in","hairdresser",""]
 ].forEach(function(c){ COMMERCES.push(c); });
+
+/* ===== 28. des spitz nains promenés en laisse ===== */
+/* Le spitz nain (« pomeranian » de vicente betoret ferrero, CC BY 4.0) n'a
+   pas de squelette. Il reçoit celui du chien de Quaternius (CC0), dont les
+   os sont ramenés aux proportions du spitz : pattes courtes, corps rond,
+   cou court, queue enroulée sur le dos. Chaque point du spitz prend les
+   poids des points du berger les plus proches, une fois le berger lui-même
+   ramené sur ce squelette ; la queue, elle, suit seulement ses os.
+
+   Repère du spitz : la tête vers +z, les pattes au sol (y = 0), environ
+   1 m du museau à la croupe ; l'échelle réelle est donnée à l'affichage. */
+var SPITZ_OS={
+  Body:[0,0.10,-0.02],
+  Back:[0,0.50,-0.25], Torso:[0,0.50,-0.10], Torso2:[0,0.50,0.05], Torso3:[0,0.50,0.18],
+  Neck1:[0,0.55,0.25], Neck2:[0,0.60,0.28], Neck3:[0,0.65,0.30], Head:[0,0.70,0.32],
+  Ear1L:[0.07,0.79,0.33], Ear2L:[0.08,0.82,0.33], Ear3L:[0.09,0.845,0.33], Ear4L:[0.10,0.87,0.33],
+  Ear1R:[-0.07,0.79,0.33], Ear2R:[-0.08,0.82,0.33], Ear3R:[-0.09,0.845,0.33], Ear4R:[-0.10,0.87,0.33],
+  FrontShoulderL:[0.06,0.36,0.22], FrontUpperLegL:[0.09,0.34,0.22], FrontLowerLegL:[0.10,0.17,0.22],
+  FrontShoulderR:[-0.06,0.36,0.22], FrontUpperLegR:[-0.09,0.34,0.22], FrontLowerLegR:[-0.10,0.17,0.22],
+  Torso001:[0,0.55,-0.08],
+  BackShoulderL:[0.08,0.45,-0.24], BackLegL:[0.11,0.45,-0.24], BackUpperLegL:[0.11,0.30,-0.22], BackLowerLegL:[0.11,0.13,-0.34],
+  BackShoulderR:[-0.08,0.45,-0.24], BackLegR:[-0.11,0.45,-0.24], BackUpperLegR:[-0.11,0.30,-0.22], BackLowerLegR:[-0.11,0.13,-0.34],
+  /* la queue passe au milieu du panache, de la croupe jusqu'au-dessus du dos */
+  Tail1:[0,0.50,-0.40], Tail2:[0,0.62,-0.45], Tail3:[0,0.71,-0.38],
+  Tail3001:[0,0.72,-0.25], Tail3002:[0,0.70,-0.12], Tail3003:[0,0.65,-0.05]
+};
+var SPITZ_BOUT_QUEUE=[0,0.60,0.0];
+/* les déplacements animés du berger, ramenés à la taille du spitz */
+var SPITZ_K=0.7;
+/* part de la base de la queue dans le panache, le reste au dos */
+var SPITZ_QUEUE=0.5;
+
+function monterSpitz(ch,po){
+  var A=EXT.clone(ch.scene);
+  A.position.set(0,0,0); A.rotation.set(0,0,0); A.scale.set(1,1,1);
+  A.updateMatrixWorld(true);
+  var berger=null;
+  A.traverse(function(o){ if(o.isSkinnedMesh && !berger) berger=o; });
+  var os=berger.skeleton.bones, parNom={};
+  os.forEach(function(b,i){ parNom[b.name]=i; });
+  /* positions de repos du berger, avant toute retouche */
+  var avant={}, v=new THREE.Vector3();
+  os.forEach(function(b){ b.getWorldPosition(v); avant[b.name]=v.clone(); });
+  var localAvant={};
+  os.forEach(function(b){ localAvant[b.name]=b.position.clone(); });
+  /* le berger, ses poids et sa forme au repos */
+  var gB=berger.geometry, PB=gB.attributes.position, SI=gB.attributes.skinIndex, SW=gB.attributes.skinWeight;
+  var nB=PB.count, posB=new Float32Array(nB*3), i, j, k;
+  for(i=0;i<nB;i++){ v.fromBufferAttribute(PB,i).applyMatrix4(berger.matrixWorld); posB[i*3]=v.x; posB[i*3+1]=v.y; posB[i*3+2]=v.z; }
+  /* les os ramenés au spitz, du tronc vers les extrémités */
+  function poser(b){
+    if(b.isBone && SPITZ_OS[b.name]){
+      b.parent.updateMatrixWorld(true);
+      var t=new THREE.Vector3().fromArray(SPITZ_OS[b.name]);
+      b.position.copy(b.parent.worldToLocal(t));
+    }
+    b.updateMatrixWorld(true);
+    b.children.forEach(poser);
+  }
+  poser(A);
+  var apres={};
+  os.forEach(function(b){ b.getWorldPosition(v); apres[b.name]=v.clone(); });
+  /* le berger suit ses os : il prend la silhouette du spitz, à peu près */
+  var dom=new Int16Array(nB), cand=[];
+  var queue=/^Tail/;
+  for(i=0;i<nB;i++){
+    var dx=0, dy=0, dz=0, bw=-1, bi=0;
+    for(j=0;j<4;j++){
+      var w=SW.getComponent(i,j), b=os[SI.getComponent(i,j)];
+      if(w<=0 || !b) continue;
+      dx+=w*(apres[b.name].x-avant[b.name].x); dy+=w*(apres[b.name].y-avant[b.name].y); dz+=w*(apres[b.name].z-avant[b.name].z);
+      if(w>bw){ bw=w; bi=SI.getComponent(i,j); }
+    }
+    posB[i*3]+=dx; posB[i*3+1]+=dy; posB[i*3+2]+=dz;
+    dom[i]=bi;
+    /* ni le bât, ni la queue du berger : la queue du spitz est traitée à part */
+    if(os[bi].name!=='Torso001' && !queue.test(os[bi].name)) cand.push(i);
+  }
+  /* le maillage du spitz, retourné tête vers +z, pattes au sol */
+  var pm=null;
+  po.scene.updateMatrixWorld(true);
+  po.scene.traverse(function(o){ if(o.isMesh && !pm) pm=o; });
+  var g=new THREE.BufferGeometry();
+  g.setIndex(pm.geometry.index.clone());
+  g.setAttribute('position',pm.geometry.attributes.position.clone());
+  g.setAttribute('normal',pm.geometry.attributes.normal.clone());
+  g.setAttribute('uv',pm.geometry.attributes.uv.clone());
+  var M=new THREE.Matrix4().makeRotationY(Math.PI).multiply(pm.matrixWorld);
+  g.applyMatrix4(M);
+  g.computeBoundingBox();
+  g.translate(0,-g.boundingBox.min.y,0);
+  var P=g.attributes.position, n=P.count;
+  var si=new Uint16Array(n*4), sw=new Float32Array(n*4);
+  /* l'axe de la queue, os par os, jusqu'à son bout */
+  var chaine=['Tail1','Tail2','Tail3','Tail3001','Tail3002','Tail3003'].map(function(nm){ return apres[nm]; });
+  chaine.push(new THREE.Vector3().fromArray(SPITZ_BOUT_QUEUE));
+  var dos=['Back','Torso','Torso2','Torso3','Neck1'].map(function(nm){ return apres[nm]; });
+  var seg=new THREE.Line3(), q=new THREE.Vector3(), p=new THREE.Vector3();
+  function distChaine(L,pt){
+    var best=1e9, bk=0, bt=0;
+    for(var s=0;s<L.length-1;s++){
+      seg.set(L[s],L[s+1]); var t=seg.closestPointToPointParameter(pt,true); seg.at(t,q);
+      var d=q.distanceTo(pt); if(d<best){ best=d; bk=s; bt=t; }
+    }
+    return {d:best, k:bk, t:bt};
+  }
+  var KNN=6, nQueue=0;
+  for(i=0;i<n;i++){
+    p.fromBufferAttribute(P,i);
+    var dq=distChaine(chaine,p), dd=distChaine(dos,p);
+    /* le garrot touche le bout de la queue : sous 0,62 m il reste au dos */
+    if(p.y>0.47 && p.z<0.02 && dq.d<dd.d && !(p.z>-0.15 && p.y<0.62)){
+      /* La queue d'un spitz repose sur le dos : celle du berger fouette
+         dans toutes les allures. Le panache entier suit donc la base de
+         la queue, à moitié tenu par le dos — il oscille à peine. */
+      nQueue++;
+      si[i*4]=parNom.Tail1; sw[i*4]=SPITZ_QUEUE;
+      si[i*4+1]=parNom.Back; sw[i*4+1]=1-SPITZ_QUEUE;
+      continue;
+    }
+    /* les plus proches voisins du berger ramené au spitz */
+    var best=[];
+    for(k=0;k<cand.length;k++){
+      var c=cand[k], ex=posB[c*3]-p.x, ey=posB[c*3+1]-p.y, ez=posB[c*3+2]-p.z, d2=ex*ex+ey*ey+ez*ez;
+      if(best.length<KNN || d2<best[best.length-1][0]){
+        best.push([d2,c]); best.sort(function(x,y){ return x[0]-y[0]; });
+        if(best.length>KNN) best.pop();
+      }
+    }
+    var acc={};
+    best.forEach(function(e){
+      var wv=1/(e[0]+1e-6);
+      for(var jj=0;jj<4;jj++){
+        var ww=SW.getComponent(e[1],jj); if(ww<=0) continue;
+        var bb=SI.getComponent(e[1],jj); acc[bb]=(acc[bb]||0)+ww*wv;
+      }
+    });
+    var L=Object.keys(acc).map(function(x){ return [+x,acc[x]]; }).sort(function(x,y){ return y[1]-x[1]; }).slice(0,4);
+    var tot=L.reduce(function(s,e){ return s+e[1]; },0)||1;
+    L.forEach(function(e,jj){ si[i*4+jj]=e[0]; sw[i*4+jj]=e[1]/tot; });
+  }
+  g.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(si,4));
+  g.setAttribute('skinWeight',new THREE.Float32BufferAttribute(sw,4));
+  /* le spitz prend la place du berger dans la copie */
+  var mat=pm.material.clone();
+  mat.side=THREE.FrontSide;
+  var sm=new THREE.SkinnedMesh(g,mat);
+  sm.name='spitz';
+  berger.parent.remove(berger);
+  A.add(sm);
+  A.updateMatrixWorld(true);
+  var sq=new THREE.Skeleton(os);
+  sq.calculateInverses();
+  sm.bind(sq,new THREE.Matrix4());
+  /* les animations : les déplacements animés suivent les os retouchés */
+  var clips=ch.animations.filter(function(c){ return c.name.indexOf('|')<0; }).map(function(c){
+    var c2=c.clone();
+    c2.tracks.forEach(function(t){
+      var m=/^(.+)\.position$/.exec(t.name);
+      if(!m || !SPITZ_OS[m[1]]) return;
+      var b=null; os.forEach(function(o){ if(o.name===m[1]) b=o; });
+      var la=localAvant[m[1]], ln=b.position, V=t.values;
+      for(var x=0;x<V.length;x+=3){
+        V[x]=ln.x+(V[x]-la.x)*SPITZ_K; V[x+1]=ln.y+(V[x+1]-la.y)*SPITZ_K; V[x+2]=ln.z+(V[x+2]-la.z)*SPITZ_K;
+      }
+    });
+    return c2;
+  });
+  return {scene:A, mesh:sm, clips:clips, nQueue:nQueue};
+}
+/* La robe blanche : le roux et le fauve passent au blanc crème, les
+   ombres du poil gardent leur dessin ; la truffe, les yeux, la langue et
+   les coussinets, sombres ou roses peu saturés, ne bougent pas. */
+function robeBlancheSpitz(tex){
+  var img=tex.image, cv=document.createElement('canvas');
+  cv.width=img.width; cv.height=img.height;
+  var cx=cv.getContext('2d'); cx.drawImage(img,0,0);
+  var d=cx.getImageData(0,0,cv.width,cv.height), p=d.data;
+  for(var i=0;i<p.length;i+=4){
+    var r=p[i], g=p[i+1], b=p[i+2], mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+    if(mx<60) continue;
+    var sat=(mx-mn)/mx, roux=(r>=g && g>=b*0.8);
+    if(!roux || sat<0.18) continue;
+    /* la clarté reprise du poil, ramenée vers le blanc crème */
+    var l=(0.3*r+0.59*g+0.11*b)/255, f=Math.min(1,(sat-0.18)/0.25);
+    var nl=0.62+0.38*Math.min(1,l*1.35);
+    var cr=246*nl, cg=241*nl, cb=230*nl;
+    p[i]=r+(cr-r)*f; p[i+1]=g+(cg-g)*f; p[i+2]=b+(cb-b)*f;
+  }
+  cx.putImageData(d,0,0);
+  var t=new THREE.CanvasTexture(cv);
+  t.flipY=tex.flipY; t.colorSpace=tex.colorSpace; t.wrapS=tex.wrapS; t.wrapT=tex.wrapT;
+  t.needsUpdate=true;
+  return t;
+}
+
+/* Quelques piétons promènent un spitz : un sur cinq environ, jamais plus
+   de trois chiens à la fois (un seul en qualité basse). Deux roux, un
+   blanc, comme sur la photo de Nicolas. Le chien trotte à côté de son
+   maître, côté trottoir, un peu devant ; il s'arrête quand le maître
+   s'arrête, et finit par renifler le sol si l'arrêt dure. Une laisse
+   rouge sombre relie la main au collier, plus ou moins tendue. */
+var SPITZ={modele:null, robes:null, chiens:[], enCours:null, echec:false, ech:0.42};
+var NB_SPITZ=[1,2,3], SPITZ_PART=0.2;
+function chargerSpitz(){
+  if(SPITZ.enCours) return SPITZ.enCours;
+  SPITZ.enCours=Promise.resolve(window.ACTIFS_DIFFERES).then(function(){
+    if(!window.ACTIFS || !ACTIFS['spitz_nain.glb'] || !EXT.GLTFLoader || !EXT.clone) throw new Error('modèle du spitz absent');
+    return Promise.all([chargerModeleChien(), actifOctets('spitz_nain.glb').then(function(buf){
+      return new Promise(function(ok,ko){ new EXT.GLTFLoader().parse(buf,'',ok,ko); });
+    })]);
+  }).then(function(r){
+    var m=monterSpitz(r[0],r[1]);
+    var roux=m.mesh.material;
+    roux.roughness=0.9; roux.metalness=0;
+    var blanc=roux.clone(); blanc.map=robeBlancheSpitz(roux.map);
+    SPITZ.robes=[roux,blanc];
+    SPITZ.modele=m;
+  }).catch(function(e){ console.warn('spitz :',e); SPITZ.echec=true; });
+  return SPITZ.enCours;
+}
+function nouveauSpitz(blanc){
+  var M=SPITZ.modele, g=EXT.clone(M.scene), sm=null;
+  g.traverse(function(o){ if(o.isSkinnedMesh) sm=o; });
+  sm.material=SPITZ.robes[blanc?1:0];
+  sm.castShadow=true; sm.receiveShadow=false; sm.frustumCulled=false;
+  g.scale.setScalar(SPITZ.ech);
+  var racine=new THREE.Group();
+  racine.add(g); racine.visible=false;
+  monde.add(racine);
+  var mix=new THREE.AnimationMixer(g), actes={};
+  ['Idle','Idle_2_HeadLow','Walk','Run'].forEach(function(n){
+    var c=null; M.clips.forEach(function(k){ if(k.name===n) c=k; });
+    if(c) actes[n]=mix.clipAction(c);
+  });
+  /* la laisse : une courbe de neuf points, de la main au collier */
+  var lg=new THREE.BufferGeometry();
+  lg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(27),3));
+  var laisse=new THREE.Line(lg,new THREE.LineBasicMaterial({color:0x6e1c22}));
+  laisse.frustumCulled=false; laisse.visible=false;
+  monde.add(laisse);
+  return {racine:racine, g:g, mesh:sm, mix:mix, actes:actes, acte:null, cou:g.getObjectByName('Neck1'),
+          laisse:laisse, p:null, x:0, z:0, cap:0, v:0, arret:0};
+}
+function allureSpitz(c,nom){
+  var a=c.actes[nom];
+  if(!a || c.acte===a) return;
+  if(c.acte) c.acte.fadeOut(0.2);
+  a.reset().setEffectiveWeight(1).fadeIn(0.2).play();
+  a.time=Math.random()*a.getClip().duration;
+  c.acte=a;
+}
+function surChaussee28(x,z){
+  if(!IDX_SOL && Dvoies) IDX_SOL=indexerChaussees(Dvoies);
+  var rp=IDX_SOL?routeProche(IDX_SOL,x,z,9):null;
+  return !!(rp && rp.d<rp.w/2+0.3);
+}
+function attacherSpitz(c,p){
+  c.p=p; p.spitz=c;
+  c.cote=Math.random()<0.5?1:-1;
+  var main=p.rig.g.getObjectByName(c.cote>0?'Bip01_R_Hand':'Bip01_L_Hand');
+  c.main=main||null;
+  var f=[Math.cos(p.cap),Math.sin(p.cap)];
+  c.x=p.x+f[0]*0.4; c.z=p.z+f[1]*0.4; c.cap=p.cap; c.v=0; c.arret=0;
+  c.racine.visible=true; c.laisse.visible=!!c.main;
+  c.acte=null; c.mix.stopAllAction();
+}
+function libererSpitz(c){
+  if(c.p) c.p.spitz=null;
+  c.p=null; c.racine.visible=false; c.laisse.visible=false;
+}
+var _vMain28=new THREE.Vector3(), _vCou28=new THREE.Vector3();
+function animerSpitz(c,dt,ombre){
+  var p=c.p, f=[Math.cos(p.cap),Math.sin(p.cap)], l=[-f[1],f[0]];
+  /* sa place : à côté du maître, un peu devant ; jamais sur la chaussée */
+  var tx=p.x+f[0]*0.35+l[0]*c.cote*0.55, tz=p.z+f[1]*0.35+l[1]*c.cote*0.55;
+  if(surChaussee28(tx,tz)){ c.cote=-c.cote; tx=p.x+f[0]*0.35+l[0]*c.cote*0.55; tz=p.z+f[1]*0.35+l[1]*c.cote*0.55; }
+  var dx=tx-c.x, dz=tz-c.z, d=Math.hypot(dx,dz);
+  /* il rattrape sa place sans à-coup, un peu plus vite que son maître */
+  var vv=Math.min(3.2,d*3.5);
+  c.v+=(vv-c.v)*Math.min(1,dt*5);
+  if(d>1e-4){ var s=Math.min(d,c.v*dt); c.x+=dx/d*s; c.z+=dz/d*s; }
+  if(d>4){ c.x=tx; c.z=tz; }
+  var capV=(c.v>0.15 && d>0.03)?Math.atan2(dz,dx):p.cap;
+  c.cap+=ecartAngle(capV-c.cap)*Math.min(1,dt*7);
+  c.racine.position.set(c.x,hauteurSol(c.x,c.z,99),c.z);
+  c.racine.rotation.y=PI/2-c.cap;
+  /* l'allure : il trotte vite, à petits pas, comme un vrai petit chien */
+  if(c.v<0.12){
+    c.arret+=dt;
+    allureSpitz(c,c.arret>3.5?'Idle_2_HeadLow':'Idle');
+  } else {
+    c.arret=0;
+    if(c.v<0.55){ allureSpitz(c,'Walk'); c.acte.setEffectiveTimeScale(Math.max(0.6,Math.min(3,c.v/0.16))); }
+    else { allureSpitz(c,'Run'); c.acte.setEffectiveTimeScale(Math.max(0.8,Math.min(2.4,c.v/0.6))); }
+  }
+  c.mix.update(dt);
+  c.mesh.castShadow=ombre;
+  /* la laisse, après la pose du chien et du maître */
+  if(c.main && c.cou){
+    c.racine.updateMatrixWorld(true);
+    c.main.getWorldPosition(_vMain28); c.cou.getWorldPosition(_vCou28);
+    monde.worldToLocal(_vMain28); monde.worldToLocal(_vCou28);
+    var L=_vMain28.distanceTo(_vCou28), creux=Math.max(0,0.22*(1-L/1.15)), A=c.laisse.geometry.attributes.position;
+    for(var k=0;k<9;k++){
+      var t=k/8;
+      A.setXYZ(k,_vMain28.x+(_vCou28.x-_vMain28.x)*t, _vMain28.y+(_vCou28.y-_vMain28.y)*t-creux*4*t*(1-t), _vMain28.z+(_vCou28.z-_vMain28.z)*t);
+    }
+    A.needsUpdate=true;
+  }
+}
+var _majPietons28=majPietons;
+majPietons=function(dt){
+  _majPietons28(dt);
+  if(!VIE.pret || SPITZ.echec) return;
+  if(!SPITZ.modele){ chargerSpitz(); return; }
+  /* un maître parti emmène son chien */
+  SPITZ.chiens.forEach(function(c){ if(c.p && VIE.pietons.indexOf(c.p)<0) libererSpitz(c); });
+  var cap=NB_SPITZ[PERF.qualite];
+  SPITZ.chiens.forEach(function(c,i){ if(i>=cap && c.p) libererSpitz(c); });
+  VIE.pietons.forEach(function(p){
+    if(p.spitzVu) return;
+    p.spitzVu=true;
+    if(Math.random()>SPITZ_PART) return;
+    var c=null;
+    for(var i=0;i<Math.min(cap,SPITZ.chiens.length);i++) if(!SPITZ.chiens[i].p){ c=SPITZ.chiens[i]; break; }
+    if(!c){
+      if(SPITZ.chiens.length>=cap) return;
+      /* l'ordre des robes : roux, blanc, roux */
+      c=nouveauSpitz(SPITZ.chiens.length===1);
+      SPITZ.chiens.push(c);
+    }
+    attacherSpitz(c,p);
+  });
+  var ombre=QUAL().ombre>0;
+  SPITZ.chiens.forEach(function(c){ if(c.p) animerSpitz(c,dt,ombre); });
+};
 })();
