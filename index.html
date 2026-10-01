@@ -215563,8 +215563,18 @@ actifs:[["chien_berger.glb","chien_berger.glb",914220,1,0],["ciel_jour.hdr","cie
       });
     })();
   }
+  /* GitHub répond parfois 503 un instant : on retente deux fois */
+  function tirer(url,n){
+    return fetch(url).then(function(r){
+      if(!r.ok && r.status>=500 && n>0) throw r;
+      return r;
+    }).catch(function(e){
+      if(n<=0) throw e;
+      return new Promise(function(ok){ setTimeout(ok,900); }).then(function(){ return tirer(url,n-1); });
+    });
+  }
   function actif(a,avance){
-    return fetch('actifs/bin/'+a[1]).then(function(r){
+    return tirer('actifs/bin/'+a[1],2).then(function(r){
       if(!r.ok) throw new Error('téléchargement impossible ('+a[1]+')');
       return lire(r,avance);
     }).then(function(b){
