@@ -23350,4 +23350,804 @@ majPietons=function(dt){
   var ombre=QUAL().ombre>0;
   SPITZ.chiens.forEach(function(c){ if(c.p) animerSpitz(c,dt,ombre); });
 };
+
+/* ===== 29. le Maître chien, ses cinq épreuves, les spitz posés à la main ===== */
+/* Nicolas, 1er oct. 2026 :
+   - un piéton sur huit promène un spitz (au lieu d'un sur cinq) ;
+   - « Spitz » et « Maître chien » se posent comme les véhicules (menu
+     Poser), enregistrés avec le parcours. Le spitz posé est un décor
+     vivant : il regarde autour de lui, renifle, et aboie quand on le
+     touche. Le Maître chien, lui, ouvre son menu d'épreuves ;
+   - cinq épreuves jouables au téléphone. Chacune réussie donne un spitz
+     d'une robe nouvelle et sa laisse de couleur ; on peut ensuite courir
+     avec ses chiens. Rien n'est gardé d'une ouverture à l'autre.
+   Les épreuves se jouent devant le Maître chien, dans la direction où il
+   regarde : à poser face à un espace dégagé d'une trentaine de mètres. */
+SPITZ_PART=1/8;
+
+/* ---------- les robes ---------- */
+/* Le roux d'origine est repeint pixel par pixel : le poil roux prend la
+   couleur voulue en gardant ses ombres, le blanc du poitrail aussi quand
+   la robe le demande (noir, chocolat) ; yeux, truffe et langue restent. */
+var ROBES29={
+  roux:{nom:'roux'},
+  blanc:{nom:'blanc', roux:[246,241,230], k:[0.62,0.38]},
+  noir:{nom:'noir', roux:[44,40,38], k:[0.55,0.9], blanc:[58,54,52]},
+  creme:{nom:'crème', roux:[236,206,158], k:[0.7,0.35]},
+  chocolat:{nom:'chocolat', roux:[112,68,42], k:[0.6,0.7], blanc:[150,104,72]}
+};
+function repeindreSpitz(tex,R){
+  var img=tex.image, cv=document.createElement('canvas');
+  cv.width=img.width; cv.height=img.height;
+  var cx=cv.getContext('2d'); cx.drawImage(img,0,0);
+  var d=cx.getImageData(0,0,cv.width,cv.height), p=d.data;
+  for(var i=0;i<p.length;i+=4){
+    var r=p[i], g=p[i+1], b=p[i+2], mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+    if(mx<60) continue;
+    var sat=(mx-mn)/mx, l=(0.3*r+0.59*g+0.11*b)/255, c=null, f=0;
+    if(r>=g && g>=b*0.8 && sat>=0.18){ c=R.roux; f=Math.min(1,(sat-0.18)/0.25); }
+    else if(R.blanc && sat<0.2 && mx>105){ c=R.blanc; f=Math.min(1,(mx-105)/50); }
+    if(!c) continue;
+    var nl=R.k[0]+R.k[1]*Math.min(1,l*1.35);
+    p[i]=r+(c[0]*nl-r)*f; p[i+1]=g+(c[1]*nl-g)*f; p[i+2]=b+(c[2]*nl-b)*f;
+  }
+  cx.putImageData(d,0,0);
+  var t=new THREE.CanvasTexture(cv);
+  t.flipY=tex.flipY; t.colorSpace=tex.colorSpace; t.wrapS=tex.wrapS; t.wrapT=tex.wrapT;
+  t.needsUpdate=true;
+  return t;
+}
+var MATS29={};
+function matRobe29(nom){
+  if(MATS29[nom]) return MATS29[nom];
+  var base=SPITZ.robes[0];
+  if(nom==='roux') return MATS29[nom]=base;
+  if(nom==='blanc') return MATS29[nom]=SPITZ.robes[1];
+  var m=base.clone(); m.map=repeindreSpitz(base.map,ROBES29[nom]);
+  return MATS29[nom]=m;
+}
+
+/* ---------- un spitz, pour le décor, les jeux et la promenade ---------- */
+function chien29(robe){
+  var M=SPITZ.modele, g=EXT.clone(M.scene), sm=null;
+  g.traverse(function(o){ if(o.isSkinnedMesh) sm=o; });
+  sm.material=matRobe29(robe);
+  sm.castShadow=true; sm.receiveShadow=false; sm.frustumCulled=false;
+  g.scale.setScalar(SPITZ.ech);
+  var racine=new THREE.Group();
+  racine.add(g);
+  var mix=new THREE.AnimationMixer(g), actes={};
+  M.clips.forEach(function(c){ actes[c.name]=mix.clipAction(c); });
+  ['Attack','Run_Jump'].forEach(function(n){ if(actes[n]){ actes[n].setLoop(THREE.LoopOnce,1); actes[n].clampWhenFinished=true; } });
+  return {racine:racine, g:g, mesh:sm, mix:mix, actes:actes, acte:null, cou:g.getObjectByName('Neck1'), tete:g.getObjectByName('Head'),
+          x:0, z:0, cap:0, v:0, robe:robe};
+}
+function allure29(c,nom,fondu){
+  var a=c.actes[nom];
+  if(!a || c.acte===a) return a;
+  if(c.acte) c.acte.fadeOut(fondu||0.2);
+  a.reset().setEffectiveWeight(1).fadeIn(fondu||0.2).play();
+  c.acte=a;
+  return a;
+}
+/* l'allure suit la vitesse, comme pour les spitz des piétons */
+function cadence29(c,v){
+  if(v<0.12) return allure29(c,'Idle');
+  if(v<0.55){ var a=allure29(c,'Walk'); a.setEffectiveTimeScale(Math.max(0.6,Math.min(3,v/0.16))); return a; }
+  var b=allure29(c,'Run'); b.setEffectiveTimeScale(Math.max(0.8,Math.min(3,v/0.6))); return b;
+}
+function poserChien29(c,x,z,cap,dy){
+  c.x=x; c.z=z; c.cap=cap;
+  c.racine.position.set(x,hauteurSol(x,z,99)+(dy||0),z);
+  c.racine.rotation.y=PI/2-cap;
+}
+/* rejoindre un point sans à-coup ; rend la vitesse du moment */
+function suivre29(c,tx,tz,dt,vmax,capRepos){
+  var dx=tx-c.x, dz=tz-c.z, d=Math.hypot(dx,dz);
+  var vv=Math.min(vmax||6,d*3.5);
+  c.v+=(vv-c.v)*Math.min(1,dt*5);
+  if(d>1e-4){ var s=Math.min(d,c.v*dt); c.x+=dx/d*s; c.z+=dz/d*s; }
+  if(d>6){ c.x=tx; c.z=tz; }
+  var capV=(c.v>0.15 && d>0.03)?Math.atan2(dz,dx):(capRepos===undefined?c.cap:capRepos);
+  c.cap+=ecartAngle(capV-c.cap)*Math.min(1,dt*7);
+  poserChien29(c,c.x,c.z,c.cap);
+  return c.v;
+}
+
+/* ---------- l'aboiement : un « yap » de petit chien, synthétisé ---------- */
+function aboyer29(x,z,force){
+  var c=sonCtx();
+  if(!c) return;
+  if(c.state!=='running') try{ c.resume(); }catch(e){}
+  var t0=c.currentTime+0.01, vol=0.5, pan=0;
+  if(x!==undefined && camera){
+    var d=Math.hypot(x-camera.position.x,z-camera.position.z);
+    vol=0.55/(1+d/12)*(force||1);
+    var dir=new THREE.Vector3(); camera.getWorldDirection(dir);
+    var a=Math.atan2(z-camera.position.z,x-camera.position.x)-Math.atan2(dir.z,dir.x);
+    pan=Math.max(-1,Math.min(1,Math.sin(a)));
+  }
+  var sortie=c.createGain(); sortie.gain.value=vol;
+  var p=c.createStereoPanner ? c.createStereoPanner() : null;
+  if(p){ p.pan.value=pan; sortie.connect(p); p.connect(c.destination); } else sortie.connect(c.destination);
+  var n=1+(Math.random()<0.6?1:0);
+  for(var k=0;k<n;k++){
+    var t=t0+k*0.17, f0=780+Math.random()*160;
+    var o=c.createOscillator(); o.type='sawtooth';
+    o.frequency.setValueAtTime(f0*0.8,t); o.frequency.linearRampToValueAtTime(f0*1.25,t+0.025); o.frequency.exponentialRampToValueAtTime(f0*0.62,t+0.13);
+    var bp=c.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1900; bp.Q.value=1.1;
+    var hp=c.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=380;
+    var g=c.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(1,t+0.012); g.gain.exponentialRampToValueAtTime(0.0001,t+0.15);
+    o.connect(bp); bp.connect(hp); hp.connect(g); g.connect(sortie);
+    o.start(t); o.stop(t+0.17);
+    if(SON14.bruit){
+      var s=c.createBufferSource(); s.buffer=SON14.bruit;
+      var nf=c.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=2600; nf.Q.value=0.8;
+      var ng=c.createGain(); ng.gain.setValueAtTime(0.0001,t); ng.gain.exponentialRampToValueAtTime(0.35,t+0.008); ng.gain.exponentialRampToValueAtTime(0.0001,t+0.07);
+      s.connect(nf); nf.connect(ng); ng.connect(sortie); s.start(t,Math.random()); s.stop(t+0.09);
+    }
+  }
+}
+
+/* ---------- Spitz et Maître chien dans le menu Poser ---------- */
+VEH_DEF.spitz={nom:'Spitz', icone:'🐶', spitz:true};
+VEH_DEF.maitre_chien={avatar:'Military_Male_02', nom:'Maître chien', icone:'🦮', h:1.80};
+/* sa tenue est celle du coureur : le camouflage centre-Europe repeint */
+var _chargerAvatar29=chargerAvatar;
+chargerAvatar=function(nom,remplace){
+  if(nom==='Military_Male_02' && !remplace) remplace={sm024_body_color_acu:'sm024_body_color_ce',sm024_head_color_acu:'sm024_head_color_ce'};
+  return _chargerAvatar29(nom,remplace);
+};
+var _prepVeh29=preparerModeleVehicule;
+preparerModeleVehicule=function(t){
+  if(!VEH_DEF[t].spitz) return _prepVeh29(t);
+  /* tant que le chien n'est pas arrivé, un repère de sa taille */
+  var pivot=new THREE.Group();
+  var rep=new THREE.Mesh(new THREE.BoxGeometry(0.42,0.32,0.24),new THREE.MeshStandardMaterial({color:0xe8772e, roughness:0.9}));
+  rep.position.y=0.16; rep.name='repere29';
+  pivot.add(rep);
+  VM.modeles[t]={gabarit:pivot, L:0.9, W:0.5};
+  return Promise.resolve();
+};
+var DECOR29=[];
+var _creerVeh29=creerObjVeh;
+creerObjVeh=function(v,fantome){
+  var o=_creerVeh29(v,fantome);
+  if(!o || fantome) return o;
+  if(v.t==='spitz' || v.t==='maitre_chien'){
+    /* une boîte invisible pour viser le chien sans viser ses poils */
+    var cible=new THREE.Mesh(new THREE.BoxGeometry(v.t==='spitz'?0.55:0.5,v.t==='spitz'?0.45:0.5,v.t==='spitz'?0.4:0.35));
+    cible.visible=false;
+    if(v.t==='spitz') cible.position.y=0.2; else { cible.position.set(0.15,0.2,0.75); }
+    o.add(cible);
+    if(v.t==='maitre_chien') o.add(etiquetteMC29());
+    DECOR29.push({o:o, v:v, chien:null, t:Math.random()*4});
+  }
+  return o;
+};
+/* un spitz posé prend la robe que lui donne sa place, toujours la même */
+function robeDecor29(v){
+  var h=Math.abs(Math.round(v.la*1e6)*7+Math.round(v.lo*1e6)*13)%5;
+  return ['roux','blanc','creme','roux','noir'][h];
+}
+function majDecor29(dt){
+  if(!DECOR29.length) return;
+  DECOR29=DECOR29.filter(function(e){ return !!e.o.parent; });
+  if(!SPITZ.modele){ if(!SPITZ.echec) chargerSpitz(); return; }
+  var cx=camera?camera.position.x:0, cz=camera?camera.position.z:0;
+  DECOR29.forEach(function(e){
+    if(!e.chien){
+      var rep=e.o.getObjectByName('repere29'); if(rep) rep.visible=false;
+      var c=chien29(e.v.t==='maitre_chien'?'roux':robeDecor29(e.v));
+      /* le modèle regarde +z, l'objet posé regarde son +x */
+      c.racine.rotation.y=PI/2;
+      if(e.v.t==='maitre_chien'){ c.racine.position.set(0.15,0,0.75); }
+      e.o.add(c.racine);
+      e.chien=c; allure29(c,'Idle'); c.acte.time=Math.random()*3;
+    }
+    var c2=e.chien, d=Math.hypot(e.o.position.x-cx,e.o.position.z-cz);
+    if(d>70) return;
+    /* il change d'occupation toutes les quelques secondes */
+    e.t-=dt;
+    if(e.t<=0 && (!c2.acte || c2.acte.getClip().name!=='Attack' || !c2.acte.isRunning())){
+      var r=Math.random(), n=r<0.45?'Idle':(r<0.7?'Idle_2':(r<0.9?'Idle_2_HeadLow':'Eating'));
+      allure29(c2,n,0.4);
+      e.t=3+Math.random()*5;
+    }
+    c2.mesh.castShadow=QUAL().ombre>0;
+    c2.mix.update(dt);
+  });
+}
+function entreeDecor29(v){ for(var i=0;i<DECOR29.length;i++) if(DECOR29[i].v===v) return DECOR29[i]; return null; }
+
+/* l'écriteau du Maître chien, au-dessus de sa tête */
+function etiquetteMC29(){
+  var cv=document.createElement('canvas'); cv.width=512; cv.height=150;
+  var g=cv.getContext('2d');
+  g.fillStyle='rgba(14,20,31,0.86)';
+  var r=28; g.beginPath(); g.moveTo(r,6); g.arcTo(506,6,506,144,r); g.arcTo(506,144,6,144,r); g.arcTo(6,144,6,6,r); g.arcTo(6,6,506,6,r); g.fill();
+  g.strokeStyle='#F2B33D'; g.lineWidth=5; g.stroke();
+  g.fillStyle='#F2B33D'; g.textAlign='center';
+  g.font='700 52px "Oswald","Arial Narrow",Arial,sans-serif'; g.fillText('MAÎTRE CHIEN',256,72);
+  g.fillStyle='#ffffff'; g.font='400 30px Arial,Helvetica,sans-serif'; g.fillText('touche-moi pour jouer',256,118);
+  var t=new THREE.CanvasTexture(cv); if(t.colorSpace!==undefined) t.colorSpace=THREE.SRGBColorSpace;
+  var s=new THREE.Sprite(new THREE.SpriteMaterial({map:t, transparent:true, depthWrite:false}));
+  s.scale.set(1.5,0.44,1); s.position.set(0,2.35,0); s.renderOrder=6;
+  s.name='etiquette29';
+  return s;
+}
+
+/* Toucher un spitz posé : il aboie. Toucher le Maître chien : son menu.
+   Pour le déplacer, on le fait glisser, ou « Déplacer » dans son menu. */
+var MC29={v:null, dernierGlisse:0, edition:false, gagnes:{}, promene:false, chiens:[]};
+addEventListener('pointerup',function(){ if(VM.drag && VM.drag.bouge) MC29.dernierGlisse=performance.now(); },true);
+var _selVeh29=selectionnerVeh;
+selectionnerVeh=function(v){
+  if(v && v.t==='spitz'){
+    var e=entreeDecor29(v);
+    if(e && e.chien && !(VM.drag && VM.drag.bouge)){
+      aboyer29(e.o.position.x,e.o.position.z,1.4);
+      allure29(e.chien,'Attack',0.1); e.chien.acte.setEffectiveTimeScale(1.4); e.t=1.1;
+    }
+  }
+  if(v && v.t==='maitre_chien'){
+    var glisse=(VM.drag && VM.drag.bouge) || performance.now()-MC29.dernierGlisse<500;
+    if(!glisse && !MC29.edition){ ouvrirMC29(v); return; }
+    MC29.edition=false;
+  }
+  return _selVeh29(v);
+};
+
+/* ---------- le menu du Maître chien ---------- */
+var JEUX29=[
+  {id:'balle', icone:'🎾', nom:'Lancer de balle', robe:'roux', laisse:['rouge','#c62828'],
+   regle:'Glisse le doigt vers le haut pour lancer la balle dans le cercle. 3 balles sur 5.'},
+  {id:'slalom', icone:'🚩', nom:'Slalom chronométré', robe:'blanc', laisse:['bleue','#1f5fbf'],
+   regle:'Passe les plots en zigzag, du côté des pastilles vertes, et franchis l’arrivée en moins de 12 s.'},
+  {id:'perdu', icone:'🔎', nom:'Le chien perdu', robe:'noir', laisse:['verte','#2f8f4a'],
+   regle:'Un spitz s’est sauvé dans le quartier. Suis ses aboiements et retrouve-le en moins de 2 minutes.'},
+  {id:'sprint', icone:'🏁', nom:'Course contre le spitz', robe:'creme', laisse:['jaune','#f2b33d'],
+   regle:'60 m sur le parcours. Tapote le bouton le plus vite possible pour courir. Arrive avant lui !'},
+  {id:'agility', icone:'🐾', nom:'Agility', robe:'chocolat', laisse:['rose','#e5639a'],
+   regle:'Le chien court vers 8 haies : touche « Saute ! » juste avant chacune. 6 haies franchies sur 8.'}
+];
+function styleMC29(){
+  if($e('e3-style-mc')) return;
+  var s=document.createElement('style'); s.id='e3-style-mc';
+  s.textContent=[
+    '#e3-mc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(430px,calc(100vw - 20px));max-height:calc(100% - 20px);overflow:auto;z-index:25;background:rgba(14,20,31,.97);border:1px solid #3a4a63;border-radius:16px;padding:14px;box-shadow:0 14px 40px rgba(0,0,0,.6);color:#dfe6f0;font:13px/1.45 Arial,Helvetica,sans-serif}',
+    '#e3-mc h3{margin:0;font:700 20px "Oswald","Arial Narrow",Arial,sans-serif;color:#F2B33D;letter-spacing:.3px}',
+    '#e3-mc .mc-tete{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}',
+    '#e3-mc p{margin:4px 0 10px}',
+    '#e3-mc .mc-jeu{display:flex;align-items:center;gap:10px;padding:9px;border:1px solid #2c3a50;border-radius:12px;margin-bottom:7px;background:rgba(255,255,255,.03)}',
+    '#e3-mc .mc-jeu b{display:block;font-size:14px;color:#fff}',
+    '#e3-mc .mc-jeu small{display:block;color:#98A3B6;font-size:11.5px;line-height:1.35}',
+    '#e3-mc .mc-ic{font-size:26px;width:34px;text-align:center}',
+    '#e3-mc .mc-txt{flex:1;min-width:0}',
+    '#e3 #e3-mc .mc-jeu button{flex:none;padding:9px 13px;font-size:13px}',
+    '#e3-mc .mc-ok{color:#4ade80;font-weight:700;font-size:12px}',
+    '#e3-mc .mc-pied{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}',
+    '#e3 #e3-mc .mc-pied button{flex:1;padding:10px}',
+    '#e3-jeu{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:22;min-width:240px;max-width:calc(100vw - 20px);background:rgba(14,20,31,.92);border:1px solid #F2B33D;border-radius:14px;padding:8px 14px;color:#fff;text-align:center;font:13px/1.35 Arial,Helvetica,sans-serif;box-shadow:0 8px 26px rgba(0,0,0,.5)}',
+    '#e3-jeu b{display:block;font:700 17px "Oswald","Arial Narrow",Arial,sans-serif;color:#F2B33D}',
+    '#e3-jeu .j-info{font-size:15px;font-weight:700;margin-top:2px}',
+    '#e3-jeu .j-aide{color:#c8d1de;font-size:12px;margin-top:2px}',
+    '#e3 #e3-jeu .j-x{position:absolute;right:6px;top:6px;padding:2px 8px;font-size:12px}',
+    '#e3-jeu-act{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);z-index:22;display:none}',
+    '#e3 #e3-jeu-act button{width:150px;height:150px;border-radius:50%;font:700 22px "Oswald","Arial Narrow",Arial,sans-serif;background:#F2B33D;color:#14202f;border:4px solid #fff;box-shadow:0 8px 24px rgba(0,0,0,.5);touch-action:manipulation;user-select:none;-webkit-user-select:none}',
+    '#e3 #e3-jeu-act button:active{transform:scale(.94)}',
+    '#e3-jeu-glisse{position:absolute;inset:0;z-index:21;display:none;touch-action:none}',
+    '#e3-jeu-msg{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);z-index:24;font:700 40px "Oswald","Arial Narrow",Arial,sans-serif;color:#fff;text-shadow:0 3px 12px rgba(0,0,0,.8);pointer-events:none;text-align:center;display:none}',
+    '#e3-promene{position:absolute;left:10px;bottom:150px;z-index:9;display:none}',
+    '#e3 #e3-promene button{padding:8px 11px;font-size:13px}',
+    '#e3 #e3-promene button.on{border-color:#F2B33D;color:#F2B33D}'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+function htmlEchap29(s){ return String(s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function ouvrirMC29(v){
+  if(JEU29.actif) return;
+  styleMC29();
+  MC29.v=v;
+  var p=$e('e3-mc');
+  if(!p){
+    p=document.createElement('div'); p.id='e3-mc';
+    $e('e3').appendChild(p);
+    ['pointerdown','pointerup','click','wheel','touchstart'].forEach(function(t){ p.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+    p.addEventListener('click',function(ev){
+      var b=ev.target.closest ? ev.target.closest('button') : null;
+      if(!b) return;
+      var a=b.dataset.a;
+      if(a==='fermer') fermerMC29();
+      else if(a==='jouer'){ fermerMC29(); lancerJeu29(b.dataset.j); }
+      else if(a==='promener'){ basculerPromenade29(); ouvrirMC29(MC29.v); }
+      else if(a==='deplacer'){ fermerMC29(); MC29.edition=true; selectionnerVeh(MC29.v); dire('Fais glisser le Maître chien pour le déplacer, R pour le tourner.'); }
+    });
+  }
+  var n=Object.keys(MC29.gagnes).length, h='';
+  h+='<div class="mc-tete"><h3>🦮 Maître chien</h3><button data-a="fermer" title="Fermer">✕</button></div>';
+  h+='<p>Réussis mes épreuves et je te confie un spitz. Chaque épreuve gagnée : un nouveau chien, d’une autre couleur, avec sa laisse. Tu pourras ensuite courir avec eux.</p>';
+  JEUX29.forEach(function(j){
+    var ok=MC29.gagnes[j.id];
+    h+='<div class="mc-jeu"><div class="mc-ic">'+j.icone+'</div><div class="mc-txt"><b>'+htmlEchap29(j.nom)+'</b><small>'+htmlEchap29(j.regle)+'</small>'+
+       (ok?'<span class="mc-ok">✔ Gagné : spitz '+ROBES29[j.robe].nom+', laisse '+j.laisse[0]+'</span>':'<small>À gagner : spitz '+ROBES29[j.robe].nom+', laisse '+j.laisse[0]+'</small>')+
+       '</div><button data-a="jouer" data-j="'+j.id+'">'+(ok?'Rejouer':'Jouer')+'</button></div>';
+  });
+  h+='<div class="mc-pied">';
+  if(n) h+='<button data-a="promener" class="'+(MC29.promene?'on':'')+'">🐕 '+(MC29.promene?'Rendre mes chiens':'Promener mes chiens ('+n+')')+'</button>';
+  if(!window.CONSULTATION) h+='<button data-a="deplacer">✏️ Déplacer ou tourner</button>';
+  h+='</div>';
+  p.innerHTML=h; p.hidden=false;
+  if(sonCtx() && SON14.ctx.state!=='running') try{ SON14.ctx.resume(); }catch(e){}
+}
+function fermerMC29(){ var p=$e('e3-mc'); if(p) p.hidden=true; }
+
+/* ---------- le cadre commun des épreuves ---------- */
+var JEU29={actif:null};
+function repereMC29(){
+  var v=MC29.v, x=pX(v.lo), z=pZ(v.la), a=v.ang*PI/180;
+  return {x:x, z:z, f:[Math.cos(a),Math.sin(a)], l:[-Math.sin(a),Math.cos(a)], a:a};
+}
+function placerJoueur29(x,z,cap){
+  if(VUE==='jal') sortirVueJal();
+  if(auto) basculerAuto();
+  J.x=x; J.z=z; J.cap=cap; J.v=0;
+  CAM.yaw=cap; CAM.libre=0; CAM.capPrec=null;
+}
+function uiJeu29(){
+  styleMC29();
+  var e3=$e('e3'), h=$e('e3-jeu');
+  if(!h){
+    h=document.createElement('div'); h.id='e3-jeu';
+    h.innerHTML='<b></b><div class="j-info"></div><div class="j-aide"></div><button class="j-x" title="Abandonner">✕</button>';
+    e3.appendChild(h);
+    h.querySelector('.j-x').addEventListener('click',function(ev){ ev.stopPropagation(); finJeu29(false,'Épreuve abandonnée'); });
+    ['pointerdown','pointerup'].forEach(function(t){ h.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+    var act=document.createElement('div'); act.id='e3-jeu-act'; act.innerHTML='<button type="button"></button>';
+    e3.appendChild(act);
+    var bt=act.querySelector('button');
+    bt.addEventListener('pointerdown',function(ev){ ev.preventDefault(); ev.stopPropagation(); if(JEU29.actif && JEU29.actif.tape) JEU29.actif.tape(); });
+    ['pointerup','click','touchstart'].forEach(function(t){ bt.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+    var gl=document.createElement('div'); gl.id='e3-jeu-glisse'; e3.appendChild(gl);
+    var m=document.createElement('div'); m.id='e3-jeu-msg'; e3.appendChild(m);
+  }
+  return h;
+}
+function infoJeu29(titre,info,aide){
+  var h=uiJeu29();
+  if(titre!==null) h.querySelector('b').textContent=titre;
+  if(info!==null) h.querySelector('.j-info').textContent=info;
+  if(aide!==null && aide!==undefined) h.querySelector('.j-aide').textContent=aide;
+  h.hidden=false;
+}
+function boutonJeu29(txt){
+  var a=$e('e3-jeu-act');
+  if(!a) return;
+  if(!txt){ a.style.display='none'; return; }
+  a.querySelector('button').textContent=txt; a.style.display='block';
+}
+var _msgT29=0;
+function messageJeu29(txt,duree){
+  var m=$e('e3-jeu-msg'); if(!m) return;
+  m.textContent=txt; m.style.display='block';
+  clearTimeout(_msgT29);
+  _msgT29=setTimeout(function(){ m.style.display='none'; },(duree||1.2)*1000);
+}
+function lancerJeu29(id){
+  if(JEU29.actif) finJeu29(false,null);
+  if(!SPITZ.modele){ chargerSpitz(); dire('Les spitz arrivent, réessaie dans un instant.'); return; }
+  var def=null; JEUX29.forEach(function(j){ if(j.id===id) def=j; });
+  var fab={balle:jeuBalle29, slalom:jeuSlalom29, perdu:jeuPerdu29, sprint:jeuSprint29, agility:jeuAgility29}[id];
+  if(!def || !fab) return;
+  uiJeu29();
+  if(SELECTION) deselectionner();
+  if(VM.sel) deselectionnerVeh();
+  var R=repereMC29();
+  var G={def:def, R:R, objets:[], chiens:[], t:0, vitesse:VITESSE};
+  G.ajouter=function(o){ monde.add(o); G.objets.push(o); return o; };
+  G.chien=function(robe){ var c=chien29(robe||def.robe); monde.add(c.racine); G.chiens.push(c); return c; };
+  JEU29.actif=G;
+  fab(G);
+  infoJeu29(def.icone+' '+def.nom,null,def.regle);
+  if(MC29.promene) MC29.chiens.forEach(function(c){ c.racine.visible=false; c.laisse.visible=false; });
+}
+function finJeu29(gagne,msg){
+  var G=JEU29.actif;
+  if(!G) return;
+  JEU29.actif=null;
+  if(G.fin) try{ G.fin(); }catch(e){}
+  G.objets.forEach(function(o){ if(o.parent) o.parent.remove(o); });
+  G.chiens.forEach(function(c){ if(c.racine.parent) c.racine.parent.remove(c.racine); });
+  VITESSE=G.vitesse;
+  boutonJeu29(null);
+  var gl=$e('e3-jeu-glisse'); if(gl) gl.style.display='none';
+  var h=$e('e3-jeu'); if(h) h.hidden=true;
+  if(gagne){
+    var neuf=!MC29.gagnes[G.def.id];
+    MC29.gagnes[G.def.id]=true;
+    messageJeu29('Bravo !',2.2);
+    dire(neuf ? 'Gagné ! Tu adoptes un spitz '+ROBES29[G.def.robe].nom+' avec sa laisse '+G.def.laisse[0]+'. Il court avec toi.'
+              : 'Gagné, encore ! Ton spitz '+ROBES29[G.def.robe].nom+' est fier de toi.');
+    MC29.promene=true;
+    majPromenade29(true);
+  } else if(msg){ messageJeu29(msg.length<22?msg:'Raté',1.6); dire(msg+'. Retente ta chance auprès du Maître chien.'); }
+  if(MC29.promene) MC29.chiens.forEach(function(c){ c.racine.visible=true; c.laisse.visible=true; });
+  majBoutonPromene29();
+}
+function chrono29(s){
+  s=Math.max(0,s);
+  if(s<60) return s.toFixed(1).replace('.',',')+' s';
+  var t=Math.ceil(s), m=Math.floor(t/60), r=t%60;
+  return m+':'+(r<10?'0':'')+r;
+}
+
+/* un plot de chantier orange, une pastille, une haie : de quoi bâtir les épreuves */
+var GEO29={};
+function plot29(){
+  if(!GEO29.plot){
+    GEO29.plot=new THREE.CylinderGeometry(0.03,0.16,0.5,14); GEO29.plot.translate(0,0.25,0);
+    GEO29.socle=new THREE.BoxGeometry(0.36,0.03,0.36); GEO29.socle.translate(0,0.015,0);
+    GEO29.matPlot=new THREE.MeshStandardMaterial({color:0xff6a13, roughness:0.6});
+    GEO29.matBande=new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.5});
+    GEO29.bande=new THREE.CylinderGeometry(0.075,0.1,0.09,14); GEO29.bande.translate(0,0.3,0);
+  }
+  var g=new THREE.Group();
+  [new THREE.Mesh(GEO29.plot,GEO29.matPlot),new THREE.Mesh(GEO29.socle,GEO29.matPlot),new THREE.Mesh(GEO29.bande,GEO29.matBande)].forEach(function(m){ m.castShadow=true; g.add(m); });
+  return g;
+}
+function pastille29(r,coul,op){
+  var m=new THREE.Mesh(new THREE.RingGeometry(r*0.82,r,40),new THREE.MeshBasicMaterial({color:coul, transparent:true, opacity:op||0.9, depthWrite:false, side:THREE.DoubleSide}));
+  m.rotation.x=-PI/2; m.renderOrder=7;
+  return m;
+}
+function poserSol29(o,x,z,dy){ o.position.set(x,hauteurSol(x,z,99)+(dy||0.03),z); return o; }
+
+/* ================= 1. lancer de balle ================= */
+function jeuBalle29(G){
+  var R=G.R, ox=R.x+R.f[0]*2, oz=R.z+R.f[1]*2;
+  placerJoueur29(ox,oz,R.a);
+  var chien=G.chien(), ball=G.ajouter(new THREE.Mesh(new THREE.SphereGeometry(0.07,14,10),new THREE.MeshStandardMaterial({color:0xd8f03a, roughness:0.7})));
+  ball.castShadow=true; ball.visible=false;
+  var cercle=G.ajouter(pastille29(1.8,0xF2B33D)), centre={x:0,z:0};
+  var essais=0, reussis=0, etat='vise', vol=null, cr=null;
+  function nouvelleCible(){
+    var D=11+Math.random()*6, off=(Math.random()*2-1)*3.5;
+    centre.x=ox+R.f[0]*D+R.l[0]*off; centre.z=oz+R.f[1]*D+R.l[1]*off;
+    poserSol29(cercle,centre.x,centre.z,0.05);
+  }
+  nouvelleCible();
+  poserChien29(chien,ox+R.l[0]*0.7,oz+R.l[1]*0.7,R.a);
+  function score(){ infoJeu29(null,'Balle '+Math.min(5,essais+1)+'/5  ·  dans le cercle : '+reussis,null); }
+  score();
+  var gl=$e('e3-jeu-glisse'); gl.style.display='block';
+  var bas=null;
+  G.surBas=function(ev){ bas={x:ev.clientX, y:ev.clientY}; ev.stopPropagation(); ev.preventDefault(); };
+  G.surHaut=function(ev){
+    ev.stopPropagation(); ev.preventDefault();
+    if(!bas || etat!=='vise') { bas=null; return; }
+    var dx=ev.clientX-bas.x, dy=ev.clientY-bas.y; bas=null;
+    var H=gl.clientHeight||600, W=gl.clientWidth||800;
+    if(dy>-25){ messageJeu29('Glisse vers le haut',1); return; }
+    var p=Math.min(1.15,-dy/(H*0.42)), dist=4+p*18;
+    var cap=J.cap+Math.max(-1,Math.min(1,dx/(W*0.45)))*0.55;
+    var fx=ox+Math.cos(cap)*dist, fz=oz+Math.sin(cap)*dist;
+    vol={x0:ox+Math.cos(J.cap+1.2)*0.3, z0:oz+Math.sin(J.cap+1.2)*0.3, y0:hauteur(ox,oz)+1.6, x1:fx, z1:fz, T:0.55+dist/22, t:0, h:1.2+dist*0.22};
+    ball.visible=true; etat='vol';
+  };
+  gl.addEventListener('pointerdown',G.surBas); gl.addEventListener('pointerup',G.surHaut);
+  G.fin=function(){ gl.removeEventListener('pointerdown',G.surBas); gl.removeEventListener('pointerup',G.surHaut); gl.style.display='none'; };
+  G.maj=function(dt){
+    if(etat==='vol'){
+      vol.t+=dt; var u=Math.min(1,vol.t/vol.T), y1=hauteurSol(vol.x1,vol.z1,99)+0.07;
+      ball.position.set(vol.x0+(vol.x1-vol.x0)*u, vol.y0+(y1-vol.y0)*u+vol.h*4*u*(1-u), vol.z0+(vol.z1-vol.z0)*u);
+      /* le chien part dès le lancer, vers où la balle va tomber */
+      suivre29(chien,vol.x1,vol.z1,dt,7);
+      cadence29(chien,chien.v);
+      if(u>=1){
+        essais++;
+        var dedans=Math.hypot(vol.x1-centre.x,vol.z1-centre.z)<=1.8;
+        if(dedans){ reussis++; messageJeu29('Dans le cercle !',1.1); } else messageJeu29('À côté…',1.1);
+        aboyer29(chien.x,chien.z);
+        etat='rapporte'; cr={t:0};
+        score();
+      }
+    } else if(etat==='rapporte'){
+      cr.t+=dt;
+      var v=suivre29(chien,vol.x1,vol.z1,dt,7);
+      if(Math.hypot(chien.x-vol.x1,chien.z-vol.z1)<0.35){ etat='retour'; }
+      cadence29(chien,v);
+    } else if(etat==='retour'){
+      /* la balle dans la gueule */
+      if(chien.tete){ chien.racine.updateMatrixWorld(true); chien.tete.getWorldPosition(ball.position); monde.worldToLocal(ball.position); ball.position.y-=0.02; }
+      var tx=ox+R.l[0]*0.7, tz=oz+R.l[1]*0.7, v2=suivre29(chien,tx,tz,dt,6,J.cap);
+      cadence29(chien,v2);
+      if(Math.hypot(chien.x-tx,chien.z-tz)<0.25 && v2<0.3){
+        ball.visible=false;
+        if(reussis>=3){ finJeu29(true); return; }
+        if(essais>=5 || reussis+(5-essais)<3){ finJeu29(false,'Raté : '+reussis+' balle'+(reussis>1?'s':'')+' sur 5'); return; }
+        nouvelleCible(); etat='vise';
+      }
+    } else { cadence29(chien,0); poserChien29(chien,chien.x,chien.z,J.cap); }
+    if(etat==='vise') infoJeu29(null,null,'Glisse le doigt vers le haut : plus long = plus loin, de biais = à gauche ou à droite.');
+    chien.mix.update(dt);
+  };
+  /* le lanceur reste à sa place, face au cercle */
+  G.pilote=function(){ J.cap=Math.atan2(centre.z-oz,centre.x-ox); J.x=ox; J.z=oz; J.v=0; CAM.yaw=J.cap; CAM.libre=0; };
+}
+
+/* ================= 2. slalom chronométré ================= */
+function jeuSlalom29(G){
+  var R=G.R, N=6, pas=3, s0=5, sDep=3, sArr=s0+pas*(N-1)+3;
+  function P(s,t){ return [R.x+R.f[0]*s+R.l[0]*t, R.z+R.f[1]*s+R.l[1]*t]; }
+  var dep=P(1,0); placerJoueur29(dep[0],dep[1],R.a);
+  VITESSE=13/3.6;
+  var plots=[];
+  for(var k=0;k<N;k++){
+    var q=P(s0+pas*k,0), o=poserSol29(G.ajouter(plot29()),q[0],q[1],0);
+    var cote=(k%2===0)?1:-1, h=P(s0+pas*k,cote*1.1);
+    poserSol29(G.ajouter(pastille29(0.45,0x4ade80)),h[0],h[1],0.04);
+    plots.push({o:o, s:s0+pas*k, cote:cote, passe:false, tombe:false});
+  }
+  [sDep,sArr].forEach(function(s,i){
+    for(var t=-3;t<=3.01;t+=0.5){ var q2=P(s,t), m=pastille29(0.12,i?0xf2b33d:0xffffff,0.95); poserSol29(G.ajouter(m),q2[0],q2[1],0.04); }
+  });
+  var chien=G.chien(), t=0, parti=false, penal=0, LIM=12;
+  var c0=P(sArr+1.5,1.5); poserChien29(chien,c0[0],c0[1],R.a+PI);
+  function loc(){ var dx=J.x-R.x, dz=J.z-R.z; return {s:dx*R.f[0]+dz*R.f[1], t:dx*R.l[0]+dz*R.l[1]}; }
+  var prec=loc();
+  infoJeu29(null,'Franchis la ligne blanche pour lancer le chrono',null);
+  G.maj=function(dt){
+    var L=loc();
+    if(!parti && prec.s<sDep && L.s>=sDep){ parti=true; t=0; messageJeu29('Partez !',0.8); }
+    if(parti){
+      t+=dt;
+      plots.forEach(function(p){
+        /* le plot franchi : de quel côté est-on passé ? */
+        if(!p.passe && prec.s<p.s && L.s>=p.s){
+          p.passe=true;
+          if((L.t>0?1:-1)!==p.cote){ penal+=3; messageJeu29('Mauvais côté +3 s',1); }
+        }
+        var q=[p.o.position.x,p.o.position.z];
+        if(!p.tombe && Math.hypot(J.x-q[0],J.z-q[1])<0.42){ p.tombe=true; penal+=2; p.o.rotation.z=1.4; p.o.position.y+=0.12; messageJeu29('Plot renversé +2 s',1); }
+      });
+      var tot=t+penal;
+      infoJeu29(null,'⏱ '+chrono29(tot)+' / '+LIM+' s'+(penal?'  (pénalités '+penal+' s)':''),null);
+      if(prec.s<sArr && L.s>=sArr){
+        if(plots.some(function(p){ return !p.passe; })) penal+=3*plots.filter(function(p){ return !p.passe; }).length;
+        tot=t+penal;
+        if(tot<=LIM) finJeu29(true); else finJeu29(false,'Trop lent : '+chrono29(tot));
+        return;
+      }
+      if(tot>LIM+6) { finJeu29(false,'Temps dépassé'); return; }
+    }
+    prec=L;
+    /* le chien attend à l'arrivée, en regardant venir le coureur */
+    cadence29(chien,0); poserChien29(chien,chien.x,chien.z,Math.atan2(J.z-chien.z,J.x-chien.x));
+    chien.mix.update(dt);
+  };
+}
+
+/* ================= 3. le chien perdu ================= */
+function jeuPerdu29(G){
+  var R=G.R, dep=[R.x+R.f[0]*2,R.z+R.f[1]*2];
+  placerJoueur29(dep[0],dep[1],R.a);
+  if(!VIE.chemins) try{ construireChemins(); }catch(e){}
+  var C=VIE.chemins||[], pt=null;
+  for(var e=0;e<400 && !pt;e++){
+    var x,z;
+    if(C.length && e<300){ var c=C[Math.floor(Math.random()*C.length)], q=pointChemin(c,Math.random()*c.tot); x=q[0]; z=q[1]; }
+    else { var a=Math.random()*2*PI, r=55+Math.random()*50; x=R.x+Math.cos(a)*r; z=R.z+Math.sin(a)*r; }
+    var d=Math.hypot(x-R.x,z-R.z);
+    if(d<50 || d>110 || bloquer(x,z)) continue;
+    pt=[x,z];
+  }
+  if(!pt) pt=[R.x+R.f[0]*60,R.z+R.f[1]*60];
+  var chien=G.chien(); poserChien29(chien,pt[0],pt[1],Math.random()*2*PI);
+  var T=120, tAb=1.2, tAct=0;
+  G.maj=function(dt){
+    T-=dt; tAb-=dt; tAct-=dt;
+    var d=Math.hypot(J.x-chien.x,J.z-chien.z);
+    if(tAb<=0){ aboyer29(chien.x,chien.z,1.6); tAb=2.4+Math.random()*1.4; allure29(chien,'Attack',0.1); chien.acte.setEffectiveTimeScale(1.5); tAct=1; }
+    if(tAct<=0 && chien.acte && chien.acte.getClip().name==='Attack'){ allure29(chien,Math.random()<0.5?'Idle':'Idle_2_HeadLow',0.4); }
+    var ch=d<15?'🔥 Brûlant !':(d<35?'♨️ Chaud':(d<70?'🌤 Tiède':'❄️ Froid'));
+    infoJeu29(null,'⏱ '+chrono29(T)+'   '+ch,'Écoute les aboiements : plus fort à gauche ou à droite selon où il est.');
+    chien.mix.update(dt);
+    if(d<3.5){ finJeu29(true); return; }
+    if(T<=0) finJeu29(false,'Le chien n’a pas été retrouvé');
+  };
+}
+
+/* ================= 4. course contre le spitz ================= */
+function jeuSprint29(G){
+  var R=G.R, LG=60, d0=surLeParcours(R.x,R.z).d, sens=(d0+LG+5<LONGUEUR)?1:-1;
+  if(sens<0 && d0-LG<0){ d0=Math.max(0,Math.min(LONGUEUR-LG-5,d0)); sens=1; }
+  function pos(d,lat){ var p=pointArrondi(d), c=capArrondi(d)+(sens<0?PI:0); return [p[0]-Math.sin(c)*lat, p[1]+Math.cos(c)*lat, c]; }
+  var dj=d0, dc=d0, vj=0, vc=0, att=3, fini=false;
+  var p0=pos(d0,0); placerJoueur29(p0[0],p0[1],p0[2]);
+  var chien=G.chien(), pc=pos(d0,1.2); poserChien29(chien,pc[0],pc[1],pc[2]);
+  /* la ligne d'arrivée */
+  for(var t=-3;t<=3.01;t+=0.5){ var q=pos(d0+sens*LG,t); poserSol29(G.ajouter(pastille29(0.14,0xf2b33d,0.95)),q[0],q[1],0.05); }
+  var vMax=4.4+Math.random()*0.3;
+  G.tape=function(){ if(att<=0 && !fini) vj=Math.min(9,vj+0.5); };
+  G.clavier=function(e){ if(e.key===' ' || e.key==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); if(!e.repeat) G.tape(); } };
+  addEventListener('keydown',G.clavier,true);
+  G.fin=function(){ removeEventListener('keydown',G.clavier,true); };
+  boutonJeu29('COURS !');
+  G.pilote=function(dt){
+    if(att>0){
+      var a0=Math.ceil(att); att-=dt;
+      if(Math.ceil(att)!==a0 || att<=0) messageJeu29(att>0?String(Math.ceil(att)):'Partez !',0.7);
+    } else if(!fini){
+      vj-=vj*0.55*dt;
+      vc+=(vMax-vc)*Math.min(1,dt*1.6);
+      dj+=sens*vj*dt; dc+=sens*vc*dt;
+    }
+    var pj=pos(dj,0); J.x=pj[0]; J.z=pj[1]; J.cap=pj[2]; J.v=vj; CAM.yaw=pj[2]; CAM.libre=0;
+    var pk=pos(dc,1.2); poserChien29(chien,pk[0],pk[1],pk[2]); cadence29(chien,att>0?0:vc);
+    chien.mix.update(dt);
+    var rj=Math.abs(dj-d0), rc=Math.abs(dc-d0);
+    infoJeu29(null,att>0?'Prépare-toi…':('Toi '+Math.round(rj)+' m  ·  spitz '+Math.round(rc)+' m  ·  '+(vj*3.6).toFixed(0)+' km/h'),'Tapote le bouton (ou la barre d’espace) le plus vite possible.');
+    if(!fini && (rj>=LG || rc>=LG)){ fini=true; boutonJeu29(null); if(rj>=LG && rj>=rc) finJeu29(true); else finJeu29(false,'Le spitz a gagné'); }
+  };
+}
+
+/* ================= 5. agility ================= */
+function jeuAgility29(G){
+  var R=G.R, N=8, s0=4, pas=3.5, sFin=s0+pas*N;
+  function P(s,t){ return [R.x+R.f[0]*s+R.l[0]*t, R.z+R.f[1]*s+R.l[1]*t]; }
+  var vue=P(s0+pas*N/2,9); placerJoueur29(vue[0],vue[1],R.a-PI/2);
+  var matB=new THREE.MeshStandardMaterial({color:0xe53935, roughness:0.6}), matP=new THREE.MeshStandardMaterial({color:0xf5f5f5, roughness:0.6});
+  var gPost=new THREE.CylinderGeometry(0.025,0.025,0.42,8); gPost.translate(0,0.21,0);
+  var gBar=new THREE.CylinderGeometry(0.018,0.018,0.7,8); gBar.rotateX(PI/2);
+  var haies=[];
+  for(var k=0;k<N;k++){
+    var s=s0+pas*(k+0.5), g=new THREE.Group(), q=P(s,0);
+    [-0.36,0.36].forEach(function(t){ var m=new THREE.Mesh(gPost,matP); m.position.set(0,0,t); m.castShadow=true; g.add(m); });
+    var bar=new THREE.Mesh(gBar,matB); bar.position.set(0,0.24,0); bar.castShadow=true; g.add(bar);
+    poserSol29(G.ajouter(g),q[0],q[1],0); g.rotation.y=-R.a;
+    haies.push({s:s, bar:bar, fait:false, ok:false});
+  }
+  var chien=G.chien(), sc=0.5, saut=-1, att=2.5, reussies=0, ratees=0, vit=3.6;
+  var p0=P(sc,0); poserChien29(chien,p0[0],p0[1],R.a);
+  G.tape=function(){ if(att<=0 && saut<0){ saut=0; allure29(chien,'Run_Jump',0.08); } };
+  G.clavier=function(e){ if(e.key===' ' || e.key==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); if(!e.repeat) G.tape(); } };
+  addEventListener('keydown',G.clavier,true);
+  G.fin=function(){ removeEventListener('keydown',G.clavier,true); };
+  boutonJeu29('SAUTE !');
+  var DS=0.5;
+  G.pilote=function(dt){
+    if(att>0){ var a0=Math.ceil(att); att-=dt; if(Math.ceil(att)!==a0 || att<=0) messageJeu29(att>0?String(Math.ceil(att)):'Go !',0.6); }
+    else sc+=vit*dt;
+    var dy=0;
+    if(saut>=0){
+      saut+=dt; var u=saut/DS;
+      dy=u<1?0.34*4*u*(1-u):0;
+      if(u>=1){ saut=-1; allure29(chien,'Run',0.1); }
+    } else if(att<=0) cadence29(chien,vit);
+    else cadence29(chien,0);
+    haies.forEach(function(h){
+      if(!h.fait && sc>=h.s){
+        h.fait=true;
+        if(dy>0.16){ h.ok=true; reussies++; }
+        else { ratees++; h.bar.rotation.z=0.9; h.bar.position.y=0.05; h.bar.position.x=0.12; messageJeu29('Barre tombée',0.8); }
+      }
+    });
+    var q=P(sc,0); poserChien29(chien,q[0],q[1],R.a,dy);
+    chien.mix.update(dt);
+    /* le coureur suit le chien des yeux */
+    J.x=vue[0]; J.z=vue[1]; J.v=0; J.cap=Math.atan2(q[1]-vue[1],q[0]-vue[0]); CAM.yaw=J.cap; CAM.libre=0;
+    infoJeu29(null,'Haies franchies : '+reussies+'/'+N+(ratees?'  ·  tombées : '+ratees:''),'Touche « Saute ! » juste avant la haie.');
+    if(ratees>N-6){ finJeu29(false,'Trop de barres tombées'); return; }
+    if(sc>=sFin) finJeu29(reussies>=6,reussies>=6?null:'Pas assez de haies');
+  };
+}
+
+/* les épreuves avancent avec l'image, les plus pilotées avant la pose du coureur */
+var _majJoueur29=majJoueur;
+majJoueur=function(dt){
+  var G=JEU29.actif;
+  if(G && G.pilote && dt) try{ G.pilote(dt); }catch(e){ console.error(e); finJeu29(false,'Épreuve interrompue'); }
+  _majJoueur29(dt);
+};
+
+/* ---------- promener ses chiens ---------- */
+/* Les chiens gagnés courent avec le coureur, chacun à sa place autour de
+   lui, laisse à la main droite ou gauche selon le côté. */
+var PLACES29=[[0.5,0.7],[0.5,-0.7],[-0.1,1.15],[-0.1,-1.15],[1.0,0.35]];
+function mainJoueur29(cote){
+  if(!joueur) return null;
+  var k=cote>0?'_mainD29':'_mainG29';
+  if(joueur.userData[k]===undefined){
+    var m=null, re=cote>0?/(R_Hand|RightHand|hand_r|main_?d)/i:/(L_Hand|LeftHand|hand_l|main_?g)/i;
+    joueur.traverse(function(o){ if(!m && re.test(o.name||'')) m=o; });
+    joueur.userData[k]=m;
+  }
+  return joueur.userData[k];
+}
+function basculerPromenade29(){
+  MC29.promene=!MC29.promene;
+  majPromenade29(true);
+  dire(MC29.promene?'Tes chiens courent avec toi.':'Tes chiens sont rentrés au chenil.');
+}
+function majPromenade29(reconstruire){
+  if(!SPITZ.modele) return;
+  var voulus=JEUX29.filter(function(j){ return MC29.gagnes[j.id]; });
+  if(reconstruire){
+    MC29.chiens.forEach(function(c){ if(c.racine.parent) c.racine.parent.remove(c.racine); if(c.laisse.parent) c.laisse.parent.remove(c.laisse); });
+    MC29.chiens=[];
+    if(!MC29.promene) { majBoutonPromene29(); return; }
+    voulus.forEach(function(j,i){
+      var c=chien29(j.robe), pl=PLACES29[i%PLACES29.length];
+      var lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(27),3));
+      c.laisse=new THREE.Line(lg,new THREE.LineBasicMaterial({color:new THREE.Color(j.laisse[1])}));
+      c.laisse.frustumCulled=false;
+      c.place=pl; c.cote=pl[1]>0?1:-1;
+      var f=[Math.cos(J.cap),Math.sin(J.cap)], l=[-f[1],f[0]];
+      poserChien29(c,J.x+f[0]*pl[0]+l[0]*pl[1],J.z+f[1]*pl[0]+l[1]*pl[1],J.cap);
+      monde.add(c.racine); monde.add(c.laisse);
+      MC29.chiens.push(c);
+    });
+  }
+  majBoutonPromene29();
+}
+function majBoutonPromene29(){
+  styleMC29();
+  var b=$e('e3-promene'), n=Object.keys(MC29.gagnes).length;
+  if(!b){
+    b=document.createElement('div'); b.id='e3-promene'; b.innerHTML='<button type="button"></button>';
+    $e('e3').appendChild(b);
+    b.addEventListener('pointerdown',function(ev){ ev.stopPropagation(); });
+    b.querySelector('button').addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); basculerPromenade29(); });
+  }
+  b.style.display=(n && !JEU29.actif)?'block':'none';
+  var bt=b.querySelector('button');
+  bt.textContent=MC29.promene?'🐕 Rendre mes chiens':'🐕 Promener mes chiens ('+n+')';
+  bt.classList.toggle('on',MC29.promene);
+}
+var _vM29=new THREE.Vector3(), _vC29=new THREE.Vector3();
+function animerPromenade29(dt){
+  if(!MC29.promene || !MC29.chiens.length || JEU29.actif) return;
+  var f=[Math.cos(J.cap),Math.sin(J.cap)], l=[-f[1],f[0]];
+  if(joueur) joueur.updateMatrixWorld(true);
+  MC29.chiens.forEach(function(c){
+    var pl=c.place, tx=J.x+f[0]*pl[0]+l[0]*pl[1], tz=J.z+f[1]*pl[0]+l[1]*pl[1];
+    if(bloquer(tx,tz)){ tx=J.x-f[0]*0.8; tz=J.z-f[1]*0.8; }
+    /* au bout de la laisse, il suit à toutes les allures */
+    var v=suivre29(c,tx,tz,dt,Math.max(6,Math.abs(J.v)*1.6),J.cap);
+    cadence29(c,v);
+    c.mix.update(dt);
+    c.mesh.castShadow=QUAL().ombre>0;
+    var main=mainJoueur29(c.cote);
+    if(main) main.getWorldPosition(_vM29);
+    else _vM29.set(J.x+l[0]*c.cote*0.25,hauteur(J.x,J.z)+0.9,J.z+l[1]*c.cote*0.25);
+    c.racine.updateMatrixWorld(true);
+    if(c.cou) c.cou.getWorldPosition(_vC29); else _vC29.copy(c.racine.position);
+    monde.worldToLocal(_vM29); monde.worldToLocal(_vC29);
+    var Lg=_vM29.distanceTo(_vC29), creux=Math.max(0,0.25*(1-Lg/1.3)), A=c.laisse.geometry.attributes.position;
+    for(var k=0;k<9;k++){
+      var t=k/8;
+      A.setXYZ(k,_vM29.x+(_vC29.x-_vM29.x)*t,_vM29.y+(_vC29.y-_vM29.y)*t-creux*4*t*(1-t),_vM29.z+(_vC29.z-_vM29.z)*t);
+    }
+    A.needsUpdate=true;
+  });
+}
+
+/* tout ce qui bouge à chaque image */
+var _animDecor29=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _animDecor29(dt,cx,cz);
+  var d=Math.min(dt,0.1);
+  try{ majDecor29(d); }catch(e){ console.warn('spitz posés :',e); }
+  var G=JEU29.actif;
+  if(G){
+    G.t+=d;
+    if(G.maj) try{ G.maj(d); }catch(e2){ console.error(e2); finJeu29(false,'Épreuve interrompue'); }
+  }
+  try{ animerPromenade29(d); }catch(e3){ console.warn('promenade :',e3); }
+};
+/* pour les essais : ouvrir le menu, lancer une épreuve, donner un chien */
+window.ESPACE3D.maitreChien={ouvrir:function(){ var v=null; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien' && !v) v=k; }); if(v) ouvrirMC29(v); return !!v; },
+  jouer:function(id){ var v=null; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien' && !v) v=k; }); if(!v) return false; MC29.v=v; lancerJeu29(id); return true; },
+  gagner:function(id){ MC29.gagnes[id]=true; MC29.promene=true; majPromenade29(true); },
+  etat:function(){ return {jeu:JEU29.actif?JEU29.actif.def.id:null, gagnes:Object.keys(MC29.gagnes), chiens:MC29.chiens.length, decor:DECOR29.length}; }};
 })();
