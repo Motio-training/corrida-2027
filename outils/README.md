@@ -677,6 +677,37 @@ se rapproche à l'arrêt, il décroche à la course :
 Sa pointe est plafonnée à 11 m/s, celle de la race : au-delà de quarante à
 l'heure il ne suit plus, ce qui est la vérité.
 
+## `essai_maitre_chien.js`
+
+Les épreuves du Maître chien tiennent-elles dans la ville ?
+
+```sh
+node outils/essai_maitre_chien.js                      # 3 lieux, 5 épreuves
+node outils/essai_maitre_chien.js --lieux 4 --jeux balle,agility
+SORTIE_MC=/tmp/mc node outils/essai_maitre_chien.js    # où écrire les images
+```
+
+Le banc ouvre la page au format téléphone, pose un Maître chien à plusieurs
+endroits du parcours — au bord de la rue, regard tantôt le long de la rue,
+tantôt vers la façade la plus proche —, lance chaque épreuve et compte ce
+qui tombe là où l'on ne peut pas jouer : plots, haies, cercle ou chien dans
+un mur, coureur posé dans une maison. Il photographie l'écran à chaque
+épreuve, puis une balle en vol, l'agility et la course lancées.
+
+**Ce qu'il a montré.** Les épreuves se construisaient droit devant le
+Maître chien, quoi qu'il y ait devant : posé face à une façade ou en
+travers d'une rue étroite, le slalom plantait ses plots dans les murs et le
+coureur partait de l'intérieur d'une maison. L'agility plaçait même le
+spectateur à 9 m sur le côté, presque toujours dans un bâtiment.
+
+Depuis, chaque épreuve cherche sa bande de terrain libre (murs exacts,
+rivière, barrières, rubalise, voitures garées, véhicules posés) : dans le
+regard du Maître chien d'abord, sinon dans l'axe de la rue, du parcours, ou
+en tournant autour de lui ; à défaut elle se resserre, et en dernier
+recours se joue sur le parcours le plus proche. Le banc refait la carte
+des obstacles de zéro pour juger : il ne se contente pas de celle qui a
+servi à choisir.
+
 ## `essai_musique_auto.js`
 
 La musique part-elle avec la 3D, et se tait-elle quand on la coupe ?

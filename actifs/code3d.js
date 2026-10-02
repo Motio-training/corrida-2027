@@ -23363,8 +23363,9 @@ majPietons=function(dt){
    - cinq épreuves jouables au téléphone. Chacune réussie donne un spitz
      d'une robe nouvelle et sa laisse de couleur ; on peut ensuite courir
      avec ses chiens. Rien n'est gardé d'une ouverture à l'autre.
-   Les épreuves se jouent devant le Maître chien, dans la direction où il
-   regarde : à poser face à un espace dégagé d'une trentaine de mètres. */
+   Les épreuves se jouent devant le Maître chien, de préférence dans la
+   direction où il regarde ; s'il fait face à un mur, elles cherchent leur
+   place dans la rue autour de lui (voir « le terrain de chaque épreuve »). */
 SPITZ_PART=1/8;
 
 /* ---------- les robes ---------- */
@@ -23548,6 +23549,11 @@ function majDecor29(dt){
       e.chien=c; allure29(c,'Idle'); c.acte.time=Math.random()*3;
     }
     var c2=e.chien, d=Math.hypot(e.o.position.x-cx,e.o.position.z-cz);
+    if(e.v.t==='maitre_chien'){
+      tournerMC29(e,dt);
+      /* « touche-moi pour jouer » n'a pas de sens pendant qu'on joue */
+      var et=e.o.getObjectByName('etiquette29'); if(et) et.visible=!JEU29.actif;
+    }
     if(d>70) return;
     /* il change d'occupation toutes les quelques secondes */
     e.t-=dt;
@@ -23559,6 +23565,21 @@ function majDecor29(dt){
     c2.mesh.castShadow=QUAL().ombre>0;
     c2.mix.update(dt);
   });
+}
+/* Pendant son épreuve, le Maître chien se tourne vers l'action : le chien,
+   ou le coureur. Après, il reprend doucement la pose qu'on lui a donnée. */
+function tournerMC29(e,dt){
+  var G=JEU29.actif, capV=e.v.ang*PI/180, cible=capV;
+  if(G && MC29.v===e.v){
+    var t=G.regard||[J.x,J.z], dx=t[0]-e.o.position.x, dz=t[1]-e.o.position.z;
+    if(Math.hypot(dx,dz)>1.2) cible=Math.atan2(dz,dx);
+    e.tourne=true;
+  }
+  if(!e.tourne) return;
+  if(e.cap===undefined) e.cap=capV;
+  e.cap+=ecartAngle(cible-e.cap)*Math.min(1,dt*3);
+  if(!G && Math.abs(ecartAngle(cible-e.cap))<0.01){ e.cap=capV; e.tourne=false; }
+  e.o.rotation.y=-e.cap;
 }
 function entreeDecor29(v){ for(var i=0;i<DECOR29.length;i++) if(DECOR29[i].v===v) return DECOR29[i]; return null; }
 
@@ -23620,13 +23641,13 @@ var JEUX29=[
   {id:'balle', icone:'🎾', nom:'Lancer de balle', robe:'roux', laisse:['rouge','#c62828'],
    regle:'Glisse le doigt vers le haut pour lancer la balle dans le cercle. 3 balles sur 5.'},
   {id:'slalom', icone:'🚩', nom:'Slalom chronométré', robe:'blanc', laisse:['bleue','#1f5fbf'],
-   regle:'Passe les plots en zigzag, du côté des pastilles vertes, et franchis l’arrivée en moins de 12 s.'},
+   regle:'Passe les plots en zigzag, du côté des pastilles vertes, et franchis l’arrivée avant la fin du chrono.'},
   {id:'perdu', icone:'🔎', nom:'Le chien perdu', robe:'noir', laisse:['verte','#2f8f4a'],
    regle:'Un spitz s’est sauvé dans le quartier. Suis ses aboiements et retrouve-le en moins de 2 minutes.'},
   {id:'sprint', icone:'🏁', nom:'Course contre le spitz', robe:'creme', laisse:['jaune','#f2b33d'],
    regle:'60 m sur le parcours. Tapote le bouton le plus vite possible pour courir. Arrive avant lui !'},
   {id:'agility', icone:'🐾', nom:'Agility', robe:'chocolat', laisse:['rose','#e5639a'],
-   regle:'Le chien court vers 8 haies : touche « Saute ! » juste avant chacune. 6 haies franchies sur 8.'}
+   regle:'Cours à côté de ton chien vers les haies : touche « Saute ! » juste avant chacune. Deux barres tombées au plus.'}
 ];
 function styleMC29(){
   if($e('e3-style-mc')) return;
@@ -23645,19 +23666,23 @@ function styleMC29(){
     '#e3-mc .mc-ok{color:#4ade80;font-weight:700;font-size:12px}',
     '#e3-mc .mc-pied{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}',
     '#e3 #e3-mc .mc-pied button{flex:1;padding:10px}',
-    '#e3-jeu{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:22;min-width:240px;max-width:calc(100vw - 20px);background:rgba(14,20,31,.92);border:1px solid #F2B33D;border-radius:14px;padding:8px 14px;color:#fff;text-align:center;font:13px/1.35 Arial,Helvetica,sans-serif;box-shadow:0 8px 26px rgba(0,0,0,.5)}',
-    '#e3-jeu b{display:block;font:700 17px "Oswald","Arial Narrow",Arial,sans-serif;color:#F2B33D}',
-    '#e3-jeu .j-info{font-size:15px;font-weight:700;margin-top:2px}',
-    '#e3-jeu .j-aide{color:#c8d1de;font-size:12px;margin-top:2px}',
+    /* sous la barre du haut, pas dessus : les boutons de la 3D restent à portée */
+    '#e3-jeu{position:absolute;left:50%;top:50px;transform:translateX(-50%);z-index:22;min-width:220px;max-width:min(420px,calc(100vw - 20px));background:rgba(14,20,31,.82);border:1px solid #F2B33D;border-radius:12px;padding:5px 30px 6px;color:#fff;text-align:center;font:13px/1.3 Arial,Helvetica,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.45)}',
+    '#e3-jeu b{display:block;font:700 15px "Oswald","Arial Narrow",Arial,sans-serif;color:#F2B33D}',
+    '#e3-jeu .j-info{font-size:14px;font-weight:700;margin-top:1px}',
+    '#e3-jeu .j-aide{color:#c8d1de;font-size:11px;margin-top:1px}',
     '#e3 #e3-jeu .j-x{position:absolute;right:6px;top:6px;padding:2px 8px;font-size:12px}',
-    '#e3-jeu-act{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);z-index:22;display:none}',
+    /* sur le bord droit, sous le pouce : le milieu de l'écran reste au jeu */
+    '#e3-jeu-act{position:absolute;right:14px;top:42%;transform:translateY(-50%);z-index:22;display:none}',
     '#e3 #e3-jeu-act button{width:150px;height:150px;border-radius:50%;font:700 22px "Oswald","Arial Narrow",Arial,sans-serif;background:#F2B33D;color:#14202f;border:4px solid #fff;box-shadow:0 8px 24px rgba(0,0,0,.5);touch-action:manipulation;user-select:none;-webkit-user-select:none}',
     '#e3 #e3-jeu-act button:active{transform:scale(.94)}',
     '#e3-jeu-glisse{position:absolute;inset:0;z-index:21;display:none;touch-action:none}',
     '#e3-jeu-msg{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);z-index:24;font:700 40px "Oswald","Arial Narrow",Arial,sans-serif;color:#fff;text-shadow:0 3px 12px rgba(0,0,0,.8);pointer-events:none;text-align:center;display:none}',
     '#e3-promene{position:absolute;left:10px;bottom:150px;z-index:9;display:none}',
     '#e3 #e3-promene button{padding:8px 11px;font-size:13px}',
-    '#e3 #e3-promene button.on{border-color:#F2B33D;color:#F2B33D}'
+    '#e3 #e3-promene button.on{border-color:#F2B33D;color:#F2B33D}',
+    /* téléphone à l'horizontale : moins de hauteur, tout se resserre */
+    '@media (max-height:420px){ #e3-jeu{top:46px;padding-top:3px;padding-bottom:4px} #e3 #e3-jeu-act button{width:104px;height:104px;font-size:18px;border-width:3px} }'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -23700,17 +23725,260 @@ function ouvrirMC29(v){
 }
 function fermerMC29(){ var p=$e('e3-mc'); if(p) p.hidden=true; }
 
-/* ---------- le cadre commun des épreuves ---------- */
-var JEU29={actif:null};
+/* ---------- la place libre autour du Maître chien ---------- */
+/* Ce qui gêne un jeu : les murs (contours exacts des bâtiments), la
+   rivière, les barrières, la rubalise, les voitures garées et les véhicules
+   posés. Les obstacles sont ceux qui arrêtent le coureur (section 22), mais
+   relevés sur toute l'aire de jeu et non seulement autour de lui, puis
+   reportés sur une carte locale au demi-mètre : on l'interroge des milliers
+   de fois pour choisir un terrain, il faut que chaque question soit
+   gratuite. */
+var OCC29={liste:[], cx:1e9, cz:1e9, R:0};
+function releverObstacles29(cx,cz,R){
+  if(Math.hypot(cx-OCC29.cx,cz-OCC29.cz)<1 && OCC29.R>=R) return;
+  var L=[], vus=new Set(), pas=20,
+      sauve={liste:OBST22.liste, cx:OBST22.cx, cz:OBST22.cz, t:OBST22.t};
+  for(var a=-R;a<=R+0.1;a+=pas) for(var b=-R;b<=R+0.1;b+=pas){
+    if(Math.hypot(a,b)>R+pas*0.75) continue;
+    try{ construireObst22(cx+a,cz+b); }catch(e){ continue; }
+    OBST22.liste.forEach(function(o){
+      var k=o.t===2 ? o.p : (o.ax.toFixed(2)+','+o.az.toFixed(2)+','+o.bx.toFixed(2)+','+o.bz.toFixed(2));
+      /* le Maître chien et ses spitz ne gênent pas leurs propres jeux */
+      if(vus.has(k) || (o.t===2 && dansPoly(o.p,cx,cz))) return;
+      vus.add(k); L.push(o);
+    });
+  }
+  OBST22.liste=sauve.liste; OBST22.cx=sauve.cx; OBST22.cz=sauve.cz; OBST22.t=sauve.t;
+  /* les voitures garées n'existent qu'autour de la caméra : on les prend
+     toutes, à leur place, même celles que le coureur ne voit pas encore */
+  try{
+    VOIT.ims.forEach(function(im){
+      var A=im.userData.toutes, tot=im.userData.total, VV=im.userData.voies;
+      if(!A) return;
+      if(!im.geometry.boundingBox) im.geometry.computeBoundingBox();
+      var g=im.geometry.boundingBox, bb=[g.min.x,g.max.x,g.min.z,g.max.z];
+      for(var i=0;i<tot;i++){
+        var o=i*16;
+        if(Math.hypot(A[o+12]-cx,A[o+14]-cz)>R+4) continue;
+        if(VV && typeof masquerStationnement==='function' && masquerStationnement(VV[i])) continue;
+        obstRect22(L,A.subarray(o,o+16),bb);
+      }
+    });
+  }catch(e){}
+  OCC29={liste:L, cx:cx, cz:cz, R:R};
+}
+var PLACE29={occ:null, x0:0, z0:0, n:0, pas:0.5, cx:1e9, cz:1e9, R:0};
+function cartePlace29(cx,cz,R){
+  if(PLACE29.occ && Math.hypot(cx-PLACE29.cx,cz-PLACE29.cz)<1 && PLACE29.R>=R) return;
+  releverObstacles29(cx,cz,R+2);
+  var pas=0.5, n=Math.ceil(2*R/pas), x0=cx-R, z0=cz-R, occ=new Uint8Array(n*n), m=0.3, i, j;
+  /* murs et rivière : la grille du coureur, lue au mètre */
+  for(j=0;j<n;j+=2) for(i=0;i<n;i+=2){
+    if(!bloquer(x0+(i+1)*pas,z0+(j+1)*pas)) continue;
+    occ[j*n+i]=1; if(i+1<n) occ[j*n+i+1]=1;
+    if(j+1<n){ occ[(j+1)*n+i]=1; if(i+1<n) occ[(j+1)*n+i+1]=1; }
+  }
+  /* murs exacts, barrières, rubalise, voitures : à 30 cm près */
+  OCC29.liste.forEach(function(o){
+    var bx0, bx1, bz0, bz1, mg=Math.max(0,o.r)+m+pas;
+    if(o.t===1){ bx0=Math.min(o.ax,o.bx); bx1=Math.max(o.ax,o.bx); bz0=Math.min(o.az,o.bz); bz1=Math.max(o.az,o.bz); }
+    else {
+      bx0=bz0=1e9; bx1=bz1=-1e9;
+      for(var k=0;k<o.p.length;k+=2){ bx0=Math.min(bx0,o.p[k]); bx1=Math.max(bx1,o.p[k]); bz0=Math.min(bz0,o.p[k+1]); bz1=Math.max(bz1,o.p[k+1]); }
+    }
+    var ia=Math.max(0,Math.floor((bx0-mg-x0)/pas)), ib=Math.min(n-1,Math.floor((bx1+mg-x0)/pas));
+    var ja=Math.max(0,Math.floor((bz0-mg-z0)/pas)), jb=Math.min(n-1,Math.floor((bz1+mg-z0)/pas));
+    for(var jj=ja;jj<=jb;jj++) for(var ii=ia;ii<=ib;ii++){
+      var q=jj*n+ii;
+      if(!occ[q] && distObst22(o,x0+(ii+0.5)*pas,z0+(jj+0.5)*pas)<m) occ[q]=1;
+    }
+  });
+  PLACE29={occ:occ, x0:x0, z0:z0, n:n, pas:pas, cx:cx, cz:cz, R:R};
+}
+/* un point où l'on ne peut pas jouer */
+function occupe29(x,z){
+  var P=PLACE29;
+  if(P.occ){
+    var i=Math.floor((x-P.x0)/P.pas), j=Math.floor((z-P.z0)/P.pas);
+    if(i>=0 && j>=0 && i<P.n && j<P.n) return P.occ[j*P.n+i]===1;
+  }
+  if(bloquer(x,z)) return true;
+  var L=OCC29.liste;
+  for(var k=0;k<L.length;k++) if(distObst22(L[k],x,z)<0.3) return true;
+  return false;
+}
+/* longueur libre d'une bande droite : de s0 à s1 devant (x,z) dans la
+   direction a, sur une demi-largeur w ; ni mur, ni marche, ni talus */
+function bande29(x,z,a,s0,s1,w){
+  var f0=Math.cos(a), f1=Math.sin(a), n=Math.max(1,Math.ceil(2*w/0.6)), yp=null, lib=0;
+  for(var s=s0;s<=s1+1e-6;s+=0.5){
+    for(var i=0;i<=n;i++){
+      var t=-w+2*w*i/n;
+      if(occupe29(x+f0*s-f1*t,z+f1*s+f0*t)) return lib;
+    }
+    var y=hauteur(x+f0*s,z+f1*s);
+    if(yp!==null && Math.abs(y-yp)>0.35) return lib;
+    yp=y; lib=s-s0;
+  }
+  return lib;
+}
+function dansBande29(Z,x,z,m){
+  var dx=x-Z.x, dz=z-Z.z, s=dx*Z.f[0]+dz*Z.f[1], t=dx*Z.l[0]+dz*Z.l[1];
+  return s>=Z.s0-m && s<=Z.s1+m && Math.abs(t)<=Z.w+m;
+}
+/* la distance libre derrière (x,z) quand on regarde dans la direction a */
+function reculLibre29(x,z,a,dmax){
+  var c=Math.cos(a), s=Math.sin(a), d=0;
+  for(var r=0.5;r<=dmax+1e-6;r+=0.5){ if(occupe29(x-c*r,z-s*r)) break; d=r; }
+  return d;
+}
+
+/* ---------- le terrain de chaque épreuve ---------- */
+/* Une épreuve occupe une bande droite : de s0 à s1 devant son origine, sur
+   une demi-largeur w. On la cherche d'abord dans le regard du Maître chien,
+   puis dans l'axe de la rue et du parcours, puis en tournant autour de lui
+   de 15° en 15° ; l'origine peut glisser de quelques mètres de côté pour
+   se caler au milieu de la chaussée, et jusqu'à 12 m le long de la rue si
+   rien ne tient à ses pieds. Une bande entière l'emporte, et
+   entre deux bandes entières, la plus proche de son regard et de l'axe de
+   la rue. À défaut, la plus longue, et l'épreuve se resserre pour y tenir ;
+   s'il est vraiment à l'étroit (une cour, une impasse), l'épreuve se joue
+   sur le parcours le plus proche, qui passe toujours. */
 function repereMC29(){
   var v=MC29.v, x=pX(v.lo), z=pZ(v.la), a=v.ang*PI/180;
-  return {x:x, z:z, f:[Math.cos(a),Math.sin(a)], l:[-Math.sin(a),Math.cos(a)], a:a};
+  return {x:x, z:z, f:[Math.cos(a),Math.sin(a)], l:[-Math.sin(a),Math.cos(a)], a:a, mc:{x:x, z:z, a:a}, quoi:'devant lui'};
 }
+function aire29(B){
+  var M=repereMC29(), a0=M.a, need=B.s1-B.s0, Rc=Math.min(60,B.s1+B.w+8);
+  /* l'origine peut aussi glisser le long de la rue, jusqu'à 12 m de lui */
+  var ar=null;
+  try{ ar=angleRue(M.x,M.z)*PI/180; }catch(e){}
+  var ru=ar===null ? [0,0] : [Math.cos(ar),Math.sin(ar)];
+  function chercher(X,Z,axes,glisse){
+    cartePlace29(X,Z,Rc+(glisse?12:0));
+    var best=null;
+    axes.forEach(function(A){
+      var f=[Math.cos(A.a),Math.sin(A.a)], l=[-f[1],f[0]], ec=Math.abs(ecartAngle(A.a-a0));
+      (glisse?[0,6,-6,12,-12]:[0]).forEach(function(u0){
+        [0,1.5,-1.5,3,-3,4.5,-4.5].forEach(function(t0){
+          var x=X+ru[0]*u0+l[0]*t0, z=Z+ru[1]*u0+l[1]*t0;
+          if(occupe29(x,z)) return;
+          var lib=bande29(x,z,A.a,B.s0,B.s1,B.w);
+          var sc=Math.min(lib,need)*10-ec*4-Math.abs(t0)*0.8-Math.abs(u0)*0.6+(A.bonus||0);
+          if(!best || sc>best.sc) best={x:x, z:z, a:A.a, f:f, l:l, lib:lib, sc:sc, quoi:u0?A.q+', un peu plus loin':A.q};
+        });
+      });
+    });
+    return best;
+  }
+  var axes=[{a:a0, q:'dans son regard', bonus:1}];
+  if(ar!==null) axes.push({a:ar, q:'le long de la rue', bonus:3},{a:ar+PI, q:'le long de la rue', bonus:3});
+  var sp=TRACE.length ? surLeParcours(M.x,M.z) : null;
+  if(sp && sp.ecart<20){ var ac=capSur(sp.d); axes.push({a:ac, q:'le long du parcours', bonus:2},{a:ac+PI, q:'le long du parcours', bonus:2}); }
+  for(var k=1;k<12;k++) axes.push({a:a0+k*PI/12, q:'à côté de lui'},{a:a0-k*PI/12, q:'à côté de lui'});
+  axes.push({a:a0+PI, q:'derrière lui'});
+  var R=chercher(M.x,M.z,axes,false);
+  if(!R || R.lib<need){
+    var Rg=chercher(M.x,M.z,axes,true);
+    if(Rg && (!R || Rg.sc>R.sc)) R=Rg;
+  }
+  if((!R || R.lib<B.min) && sp){
+    var p=pointSur(sp.d), ac2=capSur(sp.d);
+    var R2=chercher(p[0],p[1],[{a:ac2, q:'sur le parcours'},{a:ac2+PI, q:'sur le parcours'}],false);
+    if(R2 && (!R || R2.lib>R.lib)) R=R2;
+    else cartePlace29(M.x,M.z,Rc);
+  }
+  if(!R) R={x:M.x, z:M.z, a:a0, f:M.f, l:M.l, lib:need, quoi:M.quoi};
+  R.mc=M.mc;
+  R.fin=B.s0+R.lib;
+  return R;
+}
+
+/* ---------- le cadrage des épreuves ---------- */
+/* La caméra de la course reste à sa distance même derrière un mur : on y
+   voit le coureur en silhouette. Pendant une épreuve, ce serait voir le jeu
+   depuis l'intérieur d'une maison. La caméra cadre donc l'action, sans
+   jamais entrer dans un mur — elle se rapproche et monte plutôt — et elle
+   glisse d'un cadrage à l'autre au lieu de sauter. */
+var CADRE29={pos:new THREE.Vector3(), vise:new THREE.Vector3(), cPos:new THREE.Vector3(), cVise:new THREE.Vector3(),
+             actif:false, retour:0, d:null, saut:false};
+var _vD29=new THREE.Vector3(), _vA29=new THREE.Vector3(), _vB29=new THREE.Vector3();
+/* la caméra du coureur, mais arrêtée avant le premier mur */
+function cadreSuivi29(pos,vise,dt){
+  if(VUE!=='tp' || !joueur) return null;
+  var hy=joueur.position.y+1.35, cp=CAM.pitch, cd=CAM.dist, horiz=Math.cos(cp)*cd;
+  var lib=Math.max(2.2,reculLibre29(J.x,J.z,CAM.yaw,horiz)-0.4);
+  var voulu=Math.min(horiz,lib);
+  CADRE29.d=(CADRE29.d===null) ? voulu : CADRE29.d+(voulu-CADRE29.d)*Math.min(1,dt*(voulu<CADRE29.d?10:2.5));
+  var h=CADRE29.d, monte=Math.max(0,horiz-h)*0.35;
+  var x=J.x-Math.cos(CAM.yaw)*h, z=J.z-Math.sin(CAM.yaw)*h;
+  pos.set(x,Math.max(hy+Math.tan(cp)*h+0.55+Math.min(2.5,monte),hauteur(x,z)+1.3),z);
+  vise.set(J.x,hy+0.25,J.z);
+  return 'direct';
+}
+/* un cadrage posé derrière (x,z) dans la direction a : recul et hauteur
+   voulus, réduits si un mur est trop près, la hauteur prenant le relais */
+function cadreDerriere29(pos,x,z,a,recul,haut){
+  var r=Math.max(1.2,Math.min(recul,reculLibre29(x,z,a,recul)-0.3));
+  var cx=x-Math.cos(a)*r, cz=z-Math.sin(a)*r;
+  pos.set(cx,hauteurSol(cx,cz,99)+haut+(recul-r)*0.45,cz);
+}
+function appliquerCadre29(dt){
+  var G=JEU29.actif, C=CADRE29;
+  if(!camera || VUE==='jal' || (window.XR3D && XR3D.actif)){ C.actif=false; C.retour=0; return; }
+  camera.getWorldDirection(_vD29);
+  var mode=(G && G.cadre) ? G.cadre(C.cPos,C.cVise,dt) : null;
+  if(mode){
+    if(!C.actif){
+      /* après un fondu, on part du cadrage voulu ; sinon de la vue du moment */
+      if(C.saut){ C.pos.copy(C.cPos); C.vise.copy(C.cVise); }
+      else { C.pos.copy(camera.position); C.vise.copy(camera.position).addScaledVector(_vD29,10); }
+      C.actif=true; C.saut=false;
+    }
+    if(mode==='direct'){ C.pos.copy(C.cPos); C.vise.copy(C.cVise); }
+    else {
+      var k=1-Math.exp(-dt*3.2);
+      C.pos.lerp(C.cPos,k); C.vise.lerp(C.cVise,Math.min(1,k*1.5));
+    }
+    camera.position.copy(C.pos); camera.lookAt(C.vise);
+    C.retour=G ? 0.9 : 0;
+    return;
+  }
+  if(C.actif && C.retour>0){
+    /* de la dernière vue de l'épreuve à la caméra de la course, en douceur */
+    C.retour=Math.max(0,C.retour-dt);
+    var u=C.retour/0.9; u=u*u*(3-2*u);
+    _vA29.copy(camera.position).addScaledVector(_vD29,10);
+    _vB29.copy(camera.position).lerp(C.pos,u);
+    _vA29.lerp(C.vise,u);
+    camera.position.copy(_vB29); camera.lookAt(_vA29);
+    if(C.retour<=0) C.actif=false;
+    return;
+  }
+  C.actif=false; C.d=null;
+}
+/* un fondu au noir, bref, quand l'épreuve déplace le coureur */
+function fondu29(){
+  var f=$e('e3-fondu29'), e3=$e('e3');
+  if(!e3) return;
+  if(!f){
+    f=document.createElement('div'); f.id='e3-fondu29';
+    f.style.cssText='position:absolute;inset:0;z-index:21;background:#0b1018;pointer-events:none;opacity:0';
+    e3.appendChild(f);
+  }
+  f.style.transition='none'; f.style.opacity='1';
+  void f.offsetWidth;
+  f.style.transition='opacity .55s ease .1s'; f.style.opacity='0';
+  CADRE29.actif=false; CADRE29.retour=0; CADRE29.d=null; CADRE29.saut=true;
+}
+
+/* ---------- le cadre commun des épreuves ---------- */
+var JEU29={actif:null};
 function placerJoueur29(x,z,cap){
   if(VUE==='jal') sortirVueJal();
   if(auto) basculerAuto();
   J.x=x; J.z=z; J.cap=cap; J.v=0;
-  CAM.yaw=cap; CAM.libre=0; CAM.capPrec=null;
+  CAM.yaw=cap; CAM.libre=0; CAM.capPrec=null; CAM.vYaw=0; CAM.vPitch=0;
 }
 function uiJeu29(){
   styleMC29();
@@ -23751,6 +24019,16 @@ function messageJeu29(txt,duree){
   clearTimeout(_msgT29);
   _msgT29=setTimeout(function(){ m.style.display='none'; },(duree||1.2)*1000);
 }
+/* la vue à la première personne cache le coureur : une épreuve cadrée de
+   l'extérieur passe le temps du jeu à la troisième personne */
+function vueJeu29(G,entree){
+  if(entree){
+    G.vueAvant=VUE;
+    if(VUE==='fp' && G.cadreExterieur){ VUE='tp'; camera.fov=56; camera.updateProjectionMatrix(); majVisibilite(); majBoutonsVue(); }
+  } else if(G.vueAvant==='fp' && VUE==='tp'){
+    VUE='fp'; camera.fov=80; camera.updateProjectionMatrix(); majVisibilite(); majBoutonsVue();
+  }
+}
 function lancerJeu29(id){
   if(JEU29.actif) finJeu29(false,null);
   if(!SPITZ.modele){
@@ -23765,14 +24043,35 @@ function lancerJeu29(id){
   uiJeu29();
   if(SELECTION) deselectionner();
   if(VM.sel) deselectionnerVeh();
-  var R=repereMC29();
-  var G={def:def, R:R, objets:[], chiens:[], t:0, vitesse:VITESSE};
+  var G={def:def, R:repereMC29(), objets:[], chiens:[], t:0, vitesse:VITESSE, zone:null, cadre:cadreSuivi29};
   G.ajouter=function(o){ monde.add(o); G.objets.push(o); return o; };
   G.chien=function(robe){ var c=chien29(robe||def.robe); monde.add(c.racine); G.chiens.push(c); return c; };
+  /* la caméra spéciale (drone, spectateur) rend la main le temps du jeu */
+  if(typeof CAMV!=='undefined' && CAMV.mode!=='suivi'){ G.camv=CAMV.mode; CAMV.mode='suivi'; }
   JEU29.actif=G;
+  fondu29();
   fab(G);
+  vueJeu29(G,true);
+  /* l'épreuve a déplacé le coureur : le décor se met à jour tout de suite */
+  PERF.t=0;
+  if(G.zone) degagerZone29(G.zone);
   infoJeu29(def.icone+' '+def.nom,null,def.regle);
   if(MC29.promene) MC29.chiens.forEach(function(c){ c.racine.visible=false; c.laisse.visible=false; });
+}
+/* après l'épreuve, on revient devant le Maître chien : c'est lui qui
+   confie le chien gagné, et c'est là qu'on rejoue */
+function retourMC29(G){
+  var M=G.R && G.R.mc;
+  if(!M || Math.hypot(J.x-M.x,J.z-M.z)<6) return false;
+  cartePlace29(M.x,M.z,12);
+  var px=null, pz=null;
+  for(var k=0;k<16 && px===null;k++){
+    var a=M.a+(k%2?1:-1)*Math.ceil(k/2)*PI/8, x=M.x+Math.cos(a)*2.4, z=M.z+Math.sin(a)*2.4;
+    if(!occupe29(x,z)){ px=x; pz=z; }
+  }
+  if(px===null){ px=M.x+Math.cos(M.a)*2.4; pz=M.z+Math.sin(M.a)*2.4; }
+  placerJoueur29(px,pz,Math.atan2(M.z-pz,M.x-px));
+  return true;
 }
 function finJeu29(gagne,msg){
   var G=JEU29.actif;
@@ -23782,6 +24081,10 @@ function finJeu29(gagne,msg){
   G.objets.forEach(function(o){ if(o.parent) o.parent.remove(o); });
   G.chiens.forEach(function(c){ if(c.racine.parent) c.racine.parent.remove(c.racine); });
   VITESSE=G.vitesse;
+  rendreZone29();
+  if(G.camv && typeof CAMV!=='undefined'){ CAMV.mode=G.camv; CAMV.init=false; }
+  vueJeu29(G,false);
+  if(retourMC29(G)) fondu29();
   boutonJeu29(null);
   var gl=$e('e3-jeu-glisse'); if(gl) gl.style.display='none';
   var h=$e('e3-jeu'); if(h) h.hidden=true;
@@ -23804,6 +24107,37 @@ function chrono29(s){
   return m+':'+(r<10?'0':'')+r;
 }
 
+/* ---------- les passants s'arrêtent au bord du terrain ---------- */
+/* Ceux qui s'y trouvent quand l'épreuve commence s'en vont (ils sont
+   remplacés plus loin) ; ceux qui arrivent s'arrêtent au bord et attendent
+   la fin, comme on attend qu'un jeu se termine. */
+function degagerZone29(Z){
+  if(!VIE.pietons) return;
+  VIE.pietons=VIE.pietons.filter(function(p){
+    if(!dansBande29(Z,p.x,p.z,0.6)) return true;
+    p.rig.g.visible=false; p.rig.libre=true;
+    return false;
+  });
+}
+function rendreZone29(){
+  (VIE.pietons||[]).forEach(function(p){ if(p.vmax29){ p.vmax=p.vmax29; p.vmax29=0; } });
+}
+var _majPietons29=majPietons;
+majPietons=function(dt){
+  var G=JEU29.actif, Z=G && G.zone;
+  if(Z && VIE.pietons && VIE.pietons.length){
+    VIE.pietons=VIE.pietons.filter(function(p){
+      /* un passant apparu au milieu du terrain n'y reste pas */
+      if(dansBande29(Z,p.x,p.z,0.2) && !p.vmax29){ p.rig.g.visible=false; p.rig.libre=true; return false; }
+      var q=pointChemin(p.chemin,p.s+p.dir*1.3), dedans=dansBande29(Z,q[0],q[1],0.6);
+      if(dedans && p.vmax>0){ p.vmax29=p.vmax; p.vmax=0; }
+      else if(!dedans && p.vmax29){ p.vmax=p.vmax29; p.vmax29=0; }
+      return true;
+    });
+  }
+  _majPietons29(dt);
+};
+
 /* un plot de chantier orange, une pastille, une haie : de quoi bâtir les épreuves */
 var GEO29={};
 function plot29(){
@@ -23824,22 +24158,40 @@ function pastille29(r,coul,op){
   return m;
 }
 function poserSol29(o,x,z,dy){ o.position.set(x,hauteurSol(x,z,99)+(dy||0.03),z); return o; }
+/* une ligne de départ ou d'arrivée, en travers de la bande, de bord à bord */
+function ligne29(G,P,s,w,coul){
+  for(var t=-w;t<=w+0.01;t+=0.5){ var q=P(s,t); poserSol29(G.ajouter(pastille29(0.12,coul,0.95)),q[0],q[1],0.04); }
+}
 
 /* ================= 1. lancer de balle ================= */
 function jeuBalle29(G){
-  var R=G.R, ox=R.x+R.f[0]*2, oz=R.z+R.f[1]*2;
+  var W=3.5, R=G.R=aire29({s0:0, s1:21, w:W, min:10});
+  /* le lanceur se met un peu de côté : derrière lui, la caméra ne doit
+     pas avoir le Maître chien dans l'objectif */
+  var cl=1.3, M=R.mc, ox, oz;
+  [1,-1].some(function(sg){
+    var x=R.x+R.f[0]*2.5+R.l[0]*cl*sg, z=R.z+R.f[1]*2.5+R.l[1]*cl*sg;
+    var dx=x-M.x, dz=z-M.z, lat=Math.abs(dx*R.l[0]+dz*R.l[1]);
+    ox=x; oz=z; cl*=sg;
+    return lat>=1;
+  });
+  var cs=cl>0?1:-1;
   placerJoueur29(ox,oz,R.a);
+  G.zone={x:R.x, z:R.z, f:R.f, l:R.l, s0:0, s1:R.fin, w:W};
+  G.cadreExterieur=true;
+  /* les cibles restent dans la place trouvée */
+  var Dmax=Math.max(5,Math.min(17,R.fin-2.5-2)), Dmin=Math.max(4,Math.min(11,Dmax-4)), OFF=Math.min(3.5,W-1.6);
   var chien=G.chien(), ball=G.ajouter(new THREE.Mesh(new THREE.SphereGeometry(0.07,14,10),new THREE.MeshStandardMaterial({color:0xd8f03a, roughness:0.7})));
   ball.castShadow=true; ball.visible=false;
   var cercle=G.ajouter(pastille29(1.8,0xF2B33D)), centre={x:0,z:0};
   var essais=0, reussis=0, etat='vise', vol=null, cr=null;
   function nouvelleCible(){
-    var D=11+Math.random()*6, off=(Math.random()*2-1)*3.5;
-    centre.x=ox+R.f[0]*D+R.l[0]*off; centre.z=oz+R.f[1]*D+R.l[1]*off;
+    var D=Dmin+Math.random()*(Dmax-Dmin), off=(Math.random()*2-1)*OFF;
+    centre.x=ox+R.f[0]*D+R.l[0]*(off-cl); centre.z=oz+R.f[1]*D+R.l[1]*(off-cl);
     poserSol29(cercle,centre.x,centre.z,0.05);
   }
   nouvelleCible();
-  poserChien29(chien,ox+R.l[0]*0.7,oz+R.l[1]*0.7,R.a);
+  poserChien29(chien,ox+R.l[0]*0.7*cs,oz+R.l[1]*0.7*cs,R.a);
   function score(){ infoJeu29(null,'Balle '+Math.min(5,essais+1)+'/5  ·  dans le cercle : '+reussis,null); }
   score();
   var gl=$e('e3-jeu-glisse'); gl.style.display='block';
@@ -23849,12 +24201,17 @@ function jeuBalle29(G){
     ev.stopPropagation(); ev.preventDefault();
     if(!bas || etat!=='vise') { bas=null; return; }
     var dx=ev.clientX-bas.x, dy=ev.clientY-bas.y; bas=null;
-    var H=gl.clientHeight||600, W=gl.clientWidth||800;
+    var H=gl.clientHeight||600, W2=gl.clientWidth||800;
     if(dy>-25){ messageJeu29('Glisse vers le haut',1); return; }
     var p=Math.min(1.15,-dy/(H*0.42)), dist=4+p*18;
-    var cap=J.cap+Math.max(-1,Math.min(1,dx/(W*0.45)))*0.55;
-    var fx=ox+Math.cos(cap)*dist, fz=oz+Math.sin(cap)*dist;
-    vol={x0:ox+Math.cos(J.cap+1.2)*0.3, z0:oz+Math.sin(J.cap+1.2)*0.3, y0:hauteur(ox,oz)+1.6, x1:fx, z1:fz, T:0.55+dist/22, t:0, h:1.2+dist*0.22};
+    var cap=J.cap+Math.max(-1,Math.min(1,dx/(W2*0.45)))*0.55;
+    /* une balle lancée vers un mur s'y arrête et retombe à son pied */
+    var x0=ox+Math.cos(J.cap+1.2)*0.3, z0=oz+Math.sin(J.cap+1.2)*0.3, libre=dist;
+    for(var s=0.5;s<=dist;s+=0.5){ if(occupe29(x0+Math.cos(cap)*s,z0+Math.sin(cap)*s)){ libre=Math.max(0.5,s-0.5); break; } }
+    var mur=libre<dist;
+    dist=libre;
+    var fx=x0+Math.cos(cap)*dist, fz=z0+Math.sin(cap)*dist;
+    vol={x0:x0, z0:z0, y0:hauteur(ox,oz)+1.6, x1:fx, z1:fz, T:0.55+dist/22, t:0, h:1.2+dist*0.22, mur:mur};
     ball.visible=true; etat='vol';
   };
   gl.addEventListener('pointerdown',G.surBas); gl.addEventListener('pointerup',G.surHaut);
@@ -23869,7 +24226,7 @@ function jeuBalle29(G){
       if(u>=1){
         essais++;
         var dedans=Math.hypot(vol.x1-centre.x,vol.z1-centre.z)<=1.8;
-        if(dedans){ reussis++; messageJeu29('Dans le cercle !',1.1); } else messageJeu29('À côté…',1.1);
+        if(dedans){ reussis++; messageJeu29('Dans le cercle !',1.1); } else messageJeu29(vol.mur?'Contre le mur…':'À côté…',1.1);
         aboyer29(chien.x,chien.z);
         etat='rapporte'; cr={t:0};
         score();
@@ -23882,7 +24239,7 @@ function jeuBalle29(G){
     } else if(etat==='retour'){
       /* la balle dans la gueule */
       if(chien.tete){ chien.racine.updateMatrixWorld(true); chien.tete.getWorldPosition(ball.position); monde.worldToLocal(ball.position); ball.position.y-=0.02; }
-      var tx=ox+R.l[0]*0.7, tz=oz+R.l[1]*0.7, v2=suivre29(chien,tx,tz,dt,6,J.cap);
+      var tx=ox+R.l[0]*0.7*cs, tz=oz+R.l[1]*0.7*cs, v2=suivre29(chien,tx,tz,dt,6,J.cap);
       cadence29(chien,v2);
       if(Math.hypot(chien.x-tx,chien.z-tz)<0.25 && v2<0.3){
         ball.visible=false;
@@ -23892,17 +24249,35 @@ function jeuBalle29(G){
       }
     } else { cadence29(chien,0); poserChien29(chien,chien.x,chien.z,J.cap); }
     if(etat==='vise') infoJeu29(null,null,'Glisse le doigt vers le haut : plus long = plus loin, de biais = à gauche ou à droite.');
+    G.regard=[chien.x,chien.z]; G.phase=etat;
     chien.mix.update(dt);
   };
   /* le lanceur reste à sa place, face au cercle */
   G.pilote=function(){ J.cap=Math.atan2(centre.z-oz,centre.x-ox); J.x=ox; J.z=oz; J.v=0; CAM.yaw=J.cap; CAM.libre=0; };
+  /* derrière l'épaule du lanceur ; le regard suit la balle, puis le chien */
+  G.cadre=function(pos,vise){
+    cadreDerriere29(pos,ox,oz,J.cap,4.2,2.3);
+    var px=centre.x, pz=centre.z;
+    if(etat==='vol'){ px=ball.position.x; pz=ball.position.z; }
+    else if(etat!=='vise'){ px=chien.x; pz=chien.z; }
+    vise.set(ox+(px-ox)*0.75,hauteur(px,pz)+0.6,oz+(pz-oz)*0.75);
+    return 'doux';
+  };
 }
 
 /* ================= 2. slalom chronométré ================= */
 function jeuSlalom29(G){
-  var R=G.R, N=6, pas=3, s0=5, sDep=3, sArr=s0+pas*(N-1)+3;
+  var W=2.4, R=G.R=aire29({s0:0, s1:25.5, w:W, min:15});
+  /* six plots tous les 3 m si la place le permet ; dans une ruelle, tout
+     se tasse — élan, écart des plots, dégagement — et le chrono avec */
+  var L=R.fin, k=Math.max(0.4,Math.min(1,L/25.5));
+  var sDep=3*k, s0=5*k, fin=3*k, pas=Math.max(2,3*k);
+  var N=Math.max(3,Math.min(6,Math.floor((L-s0-fin-1.2)/pas)+1));
+  var sArr=s0+pas*(N-1)+fin;
+  var LIM=Math.max(5,Math.round(12*(sArr-sDep)/20*2)/2);
   function P(s,t){ return [R.x+R.f[0]*s+R.l[0]*t, R.z+R.f[1]*s+R.l[1]*t]; }
-  var dep=P(1,0); placerJoueur29(dep[0],dep[1],R.a);
+  var dep=P(Math.max(0.3,sDep-2),0); placerJoueur29(dep[0],dep[1],R.a);
+  G.zone={x:R.x, z:R.z, f:R.f, l:R.l, s0:0, s1:sArr+2, w:W};
   VITESSE=13/3.6;
   var plots=[];
   for(var k=0;k<N;k++){
@@ -23911,31 +24286,29 @@ function jeuSlalom29(G){
     poserSol29(G.ajouter(pastille29(0.45,0x4ade80)),h[0],h[1],0.04);
     plots.push({o:o, s:s0+pas*k, cote:cote, passe:false, tombe:false});
   }
-  [sDep,sArr].forEach(function(s,i){
-    for(var t=-3;t<=3.01;t+=0.5){ var q2=P(s,t), m=pastille29(0.12,i?0xf2b33d:0xffffff,0.95); poserSol29(G.ajouter(m),q2[0],q2[1],0.04); }
-  });
-  var chien=G.chien(), t=0, parti=false, penal=0, LIM=12;
-  var c0=P(sArr+1.5,1.5); poserChien29(chien,c0[0],c0[1],R.a+PI);
+  ligne29(G,P,sDep,W,0xffffff); ligne29(G,P,sArr,W,0xf2b33d);
+  var chien=G.chien(), t=0, parti=false, penal=0;
+  var c0=P(Math.min(sArr+1.5,L-0.3),1.5); poserChien29(chien,c0[0],c0[1],R.a+PI);
   function loc(){ var dx=J.x-R.x, dz=J.z-R.z; return {s:dx*R.f[0]+dz*R.f[1], t:dx*R.l[0]+dz*R.l[1]}; }
   var prec=loc();
-  infoJeu29(null,'Franchis la ligne blanche pour lancer le chrono',null);
+  infoJeu29(null,'Franchis la ligne blanche pour lancer le chrono ('+LIM.toString().replace('.',',')+' s)',null);
   G.maj=function(dt){
-    var L=loc();
-    if(!parti && prec.s<sDep && L.s>=sDep){ parti=true; t=0; messageJeu29('Partez !',0.8); }
+    var L2=loc();
+    if(!parti && prec.s<sDep && L2.s>=sDep){ parti=true; t=0; messageJeu29('Partez !',0.8); }
     if(parti){
       t+=dt;
       plots.forEach(function(p){
         /* le plot franchi : de quel côté est-on passé ? */
-        if(!p.passe && prec.s<p.s && L.s>=p.s){
+        if(!p.passe && prec.s<p.s && L2.s>=p.s){
           p.passe=true;
-          if((L.t>0?1:-1)!==p.cote){ penal+=3; messageJeu29('Mauvais côté +3 s',1); }
+          if((L2.t>0?1:-1)!==p.cote){ penal+=3; messageJeu29('Mauvais côté +3 s',1); }
         }
         var q=[p.o.position.x,p.o.position.z];
         if(!p.tombe && Math.hypot(J.x-q[0],J.z-q[1])<0.42){ p.tombe=true; penal+=2; p.o.rotation.z=1.4; p.o.position.y+=0.12; messageJeu29('Plot renversé +2 s',1); }
       });
       var tot=t+penal;
-      infoJeu29(null,'⏱ '+chrono29(tot)+' / '+LIM+' s'+(penal?'  (pénalités '+penal+' s)':''),null);
-      if(prec.s<sArr && L.s>=sArr){
+      infoJeu29(null,'⏱ '+chrono29(tot)+' / '+LIM.toString().replace('.',',')+' s'+(penal?'  (pénalités '+penal+' s)':''),null);
+      if(prec.s<sArr && L2.s>=sArr){
         if(plots.some(function(p){ return !p.passe; })) penal+=3*plots.filter(function(p){ return !p.passe; }).length;
         tot=t+penal;
         if(tot<=LIM) finJeu29(true); else finJeu29(false,'Trop lent : '+chrono29(tot));
@@ -23943,7 +24316,7 @@ function jeuSlalom29(G){
       }
       if(tot>LIM+6) { finJeu29(false,'Temps dépassé'); return; }
     }
-    prec=L;
+    prec=L2;
     /* le chien attend à l'arrivée, en regardant venir le coureur */
     cadence29(chien,0); poserChien29(chien,chien.x,chien.z,Math.atan2(J.z-chien.z,J.x-chien.x));
     chien.mix.update(dt);
@@ -23953,6 +24326,8 @@ function jeuSlalom29(G){
 /* ================= 3. le chien perdu ================= */
 function jeuPerdu29(G){
   var R=G.R, dep=[R.x+R.f[0]*2,R.z+R.f[1]*2];
+  cartePlace29(R.x,R.z,8);
+  if(occupe29(dep[0],dep[1])) dep=[R.x,R.z];
   placerJoueur29(dep[0],dep[1],R.a);
   if(!VIE.chemins) try{ construireChemins(); }catch(e){}
   var C=VIE.chemins||[], pt=null;
@@ -23987,9 +24362,19 @@ function jeuSprint29(G){
   function pos(d,lat){ var p=pointArrondi(d), c=capArrondi(d)+(sens<0?PI:0); return [p[0]-Math.sin(c)*lat, p[1]+Math.cos(c)*lat, c]; }
   var dj=d0, dc=d0, vj=0, vc=0, att=3, fini=false;
   var p0=pos(d0,0); placerJoueur29(p0[0],p0[1],p0[2]);
-  var chien=G.chien(), pc=pos(d0,1.2); poserChien29(chien,pc[0],pc[1],pc[2]);
-  /* la ligne d'arrivée */
-  for(var t=-3;t<=3.01;t+=0.5){ var q=pos(d0+sens*LG,t); poserSol29(G.ajouter(pastille29(0.14,0xf2b33d,0.95)),q[0],q[1],0.05); }
+  /* le spitz court du côté de la rue où il y a de la place */
+  var mi=pos(d0+sens*LG/2,0); cartePlace29(mi[0],mi[1],LG/2+12);
+  var latC=1.2, libreD=0, libreG=0;
+  for(var e=0;e<=LG;e+=2){ var a1=pos(d0+sens*e,1.2), a2=pos(d0+sens*e,-1.2); if(!occupe29(a1[0],a1[1])) libreD++; if(!occupe29(a2[0],a2[1])) libreG++; }
+  if(libreG>libreD) latC=-1.2;
+  var chien=G.chien(), pc=pos(d0,latC); poserChien29(chien,pc[0],pc[1],pc[2]);
+  /* les lignes de départ et d'arrivée, en travers du parcours, de trottoir
+     à trottoir : là où la rue est étroite, elles s'arrêtent au mur */
+  for(var t=-3;t<=3.01;t+=0.5){
+    var q=pos(d0+sens*LG,t), q0=pos(d0-sens*0.6,t);
+    if(!occupe29(q[0],q[1])) poserSol29(G.ajouter(pastille29(0.14,0xf2b33d,0.95)),q[0],q[1],0.05);
+    if(!occupe29(q0[0],q0[1])) poserSol29(G.ajouter(pastille29(0.12,0xffffff,0.95)),q0[0],q0[1],0.05);
+  }
   var vMax=4.4+Math.random()*0.3;
   G.tape=function(){ if(att<=0 && !fini) vj=Math.min(9,vj+0.5); };
   G.clavier=function(e){ if(e.key===' ' || e.key==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); if(!e.repeat) G.tape(); } };
@@ -24006,7 +24391,7 @@ function jeuSprint29(G){
       dj+=sens*vj*dt; dc+=sens*vc*dt;
     }
     var pj=pos(dj,0); J.x=pj[0]; J.z=pj[1]; J.cap=pj[2]; J.v=vj; CAM.yaw=pj[2]; CAM.libre=0;
-    var pk=pos(dc,1.2); poserChien29(chien,pk[0],pk[1],pk[2]); cadence29(chien,att>0?0:vc);
+    var pk=pos(dc,latC); poserChien29(chien,pk[0],pk[1],pk[2]); cadence29(chien,att>0?0:vc);
     chien.mix.update(dt);
     var rj=Math.abs(dj-d0), rc=Math.abs(dc-d0);
     infoJeu29(null,att>0?'Prépare-toi…':('Toi '+Math.round(rj)+' m  ·  spitz '+Math.round(rc)+' m  ·  '+(vj*3.6).toFixed(0)+' km/h'),'Tapote le bouton (ou la barre d’espace) le plus vite possible.');
@@ -24015,10 +24400,22 @@ function jeuSprint29(G){
 }
 
 /* ================= 5. agility ================= */
+/* Le coureur court à côté de son chien, comme en vrai : le maître guide,
+   le chien saute. La caméra suit le chien, de trois quarts arrière. */
 function jeuAgility29(G){
-  var R=G.R, N=8, s0=4, pas=3.5, sFin=s0+pas*N;
+  var W=1.6, R=G.R=aire29({s0:-1, s1:33.5, w:W, min:18});
+  var s0=4, pas=3.5, N=Math.floor((R.fin-s0-1.5)/pas);
+  if(N<6){ pas=3; N=Math.floor((R.fin-s0-1.5)/pas); }
+  if(N<5){ s0=2.5; pas=2.6; N=Math.floor((R.fin-s0-1.2)/pas); }
+  N=Math.max(3,Math.min(8,N));
+  var sFin=s0+pas*N, BUT=N-2;
   function P(s,t){ return [R.x+R.f[0]*s+R.l[0]*t, R.z+R.f[1]*s+R.l[1]*t]; }
-  var vue=P(s0+pas*N/2,9); placerJoueur29(vue[0],vue[1],R.a-PI/2);
+  var cote=-1, lat=1.1;
+  /* le coureur se met du côté où il y a le plus de place */
+  if(bande29(R.x+R.l[0]*1.6,R.z+R.l[1]*1.6,R.a,0,sFin,0.4)>bande29(R.x-R.l[0]*1.6,R.z-R.l[1]*1.6,R.a,0,sFin,0.4)) cote=1;
+  var dep=P(0,cote*lat); placerJoueur29(dep[0],dep[1],R.a);
+  G.zone={x:R.x, z:R.z, f:R.f, l:R.l, s0:-1, s1:sFin+1.5, w:W};
+  G.cadreExterieur=true;
   var matB=new THREE.MeshStandardMaterial({color:0xe53935, roughness:0.6}), matP=new THREE.MeshStandardMaterial({color:0xf5f5f5, roughness:0.6});
   var gPost=new THREE.CylinderGeometry(0.025,0.025,0.42,8); gPost.translate(0,0.21,0);
   var gBar=new THREE.CylinderGeometry(0.018,0.018,0.7,8); gBar.rotateX(PI/2);
@@ -24030,6 +24427,7 @@ function jeuAgility29(G){
     poserSol29(G.ajouter(g),q[0],q[1],0); g.rotation.y=-R.a;
     haies.push({s:s, bar:bar, fait:false, ok:false});
   }
+  ligne29(G,P,sFin,W,0xf2b33d);
   var chien=G.chien(), sc=0.5, saut=-1, att=2.5, reussies=0, ratees=0, vit=3.6;
   var p0=P(sc,0); poserChien29(chien,p0[0],p0[1],R.a);
   G.tape=function(){ if(att<=0 && saut<0){ saut=0; allure29(chien,'Run_Jump',0.08); } };
@@ -24057,11 +24455,21 @@ function jeuAgility29(G){
     });
     var q=P(sc,0); poserChien29(chien,q[0],q[1],R.a,dy);
     chien.mix.update(dt);
-    /* le coureur suit le chien des yeux */
-    J.x=vue[0]; J.z=vue[1]; J.v=0; J.cap=Math.atan2(q[1]-vue[1],q[0]-vue[0]); CAM.yaw=J.cap; CAM.libre=0;
-    infoJeu29(null,'Haies franchies : '+reussies+'/'+N+(ratees?'  ·  tombées : '+ratees:''),'Touche « Saute ! » juste avant la haie.');
-    if(ratees>N-6){ finJeu29(false,'Trop de barres tombées'); return; }
-    if(sc>=sFin) finJeu29(reussies>=6,reussies>=6?null:'Pas assez de haies');
+    /* le maître court à sa hauteur, un demi-pas derrière */
+    var qj=P(Math.max(0,sc-0.5),cote*lat);
+    J.x=qj[0]; J.z=qj[1]; J.cap=R.a; J.v=att>0?0:vit; CAM.yaw=R.a; CAM.libre=0;
+    G.regard=q;
+    infoJeu29(null,'Haies franchies : '+reussies+'/'+N+(ratees?'  ·  tombées : '+ratees:''),'Touche « Saute ! » juste avant la haie. '+BUT+' sur '+N+' pour gagner.');
+    if(ratees>N-BUT){ finJeu29(false,'Trop de barres tombées'); return; }
+    if(sc>=sFin) finJeu29(reussies>=BUT,reussies>=BUT?null:'Pas assez de haies');
+  };
+  /* de trois quarts arrière, du côté opposé au maître, le regard devant le chien */
+  G.cadre=function(pos,vise){
+    var c=P(sc,0), a=R.a-cote*0.32;
+    cadreDerriere29(pos,c[0],c[1],a,4.6,1.9);
+    var v=P(sc+3.2,0);
+    vise.set(v[0],hauteurSol(v[0],v[1],99)+0.35,v[1]);
+    return 'doux';
   };
 }
 
@@ -24167,10 +24575,68 @@ animerDecor=function(dt,cx,cz){
     if(G.maj) try{ G.maj(d); }catch(e2){ console.error(e2); finJeu29(false,'Épreuve interrompue'); }
   }
   try{ animerPromenade29(d); }catch(e3){ console.warn('promenade :',e3); }
+  try{ appliquerCadre29(d); }catch(e4){ console.warn('cadrage :',e4); CADRE29.actif=false; }
 };
 /* pour les essais : ouvrir le menu, lancer une épreuve, donner un chien */
 window.ESPACE3D.maitreChien={ouvrir:function(){ var v=null; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien' && !v) v=k; }); if(v) ouvrirMC29(v); return !!v; },
   jouer:function(id){ var v=null; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien' && !v) v=k; }); if(!v) return false; MC29.v=v; lancerJeu29(id); return true; },
   gagner:function(id){ MC29.gagnes[id]=true; MC29.promene=true; majPromenade29(true); },
-  etat:function(){ return {jeu:JEU29.actif?JEU29.actif.def.id:null, gagnes:Object.keys(MC29.gagnes), chiens:MC29.chiens.length, decor:DECOR29.length}; }};
+  /* poser un Maître chien en mètres locaux (cap en degrés, sens de J.cap), sans passer par la carte */
+  poser:function(x,z,cap){ if(!window.CARTE || !CARTE.ajouterVehicule) return null;
+    var v=CARTE.ajouterVehicule('maitre_chien',laDeZ(z),loDeX(x),cap||0); majVehicules3D(); return {x:pX(v.lo), z:pZ(v.la), ang:v.ang}; },
+  etat:function(){ return {jeu:JEU29.actif?JEU29.actif.def.id:null, gagnes:Object.keys(MC29.gagnes), chiens:MC29.chiens.length, decor:DECOR29.length}; },
+  abandonner:function(){ finJeu29(false,null); },
+  retirer:function(){ var L=[]; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien') L.push(k); }); L.forEach(function(v){ CARTE.supprimerVehicule(v); }); majVehicules3D(); OCC29.cx=1e9; },
+  /* des lieux d'essai le long du parcours, au bord de la rue : regard le long
+     de la rue, puis vers la façade la plus proche */
+  lieuxEssai:function(n){
+    var L=[];
+    for(var k=0;k<n;k++){
+      var d=LONGUEUR*(k+0.5)/n, p=pointSur(d), c=capSur(d), l=[-Math.sin(c),Math.cos(c)], pris=null;
+      cartePlace29(p[0],p[1],30);
+      for(var t=3;t<=7 && !pris;t+=1) for(var sg=-1;sg<=1 && !pris;sg+=2){
+        var x=p[0]+l[0]*t*sg, z=p[1]+l[1]*t*sg;
+        if(!occupe29(x,z) && !occupe29(x+0.8,z) && !occupe29(x-0.8,z) && !occupe29(x,z+0.8) && !occupe29(x,z-0.8)) pris=[x,z,sg];
+      }
+      if(!pris) pris=[p[0],p[1],1];
+      /* la façade la plus proche : de quel côté du lieu ? */
+      var mur=null;
+      for(var r=2;r<=25 && mur===null;r+=1) for(var q=0;q<16;q++){ var a=q/16*2*PI; if(occupe29(pris[0]+Math.cos(a)*r,pris[1]+Math.sin(a)*r)){ mur=a; break; } }
+      var capRue=c*180/PI;
+      L.push({x:pris[0], z:pris[1], cap:(k%2===0||mur===null)?capRue:mur*180/PI, quoi:(k%2===0||mur===null)?'le long de la rue':'face à un mur'});
+    }
+    return L;
+  },
+  /* ce qui, de l'épreuve en cours, tombe là où l'on ne peut pas jouer */
+  bilan:function(){
+    var G=JEU29.actif; if(!G) return null;
+    /* la balle au repos est cachée à l'origine du monde : seul compte ce qui se voit */
+    var objs=G.objets.filter(function(o){ return o.visible; }).map(function(o){ return o.position; })
+      .concat(G.chiens.map(function(c){ return c.racine.position; }));
+    var dansMur=0, M=G.R.mc||G.R;
+    /* une carte neuve, centrée sur le Maître chien : on ne juge pas avec
+       celle qui a servi à choisir */
+    PLACE29.occ=null; OCC29.cx=1e9;
+    cartePlace29(M.x,M.z,50);
+    var fautifs=[];
+    /* jugé au plus juste : la grille du coureur et les contours exacts, sans
+       la carte au demi-mètre qui arrondit vers l'occupé */
+    function gene(x,z){
+      if(bloquer(x,z)) return 'grille';
+      var q=null;
+      OCC29.liste.forEach(function(o){ if(!q && distObst22(o,x,z)<0.15) q=(o.t===1?'barrière/rubalise':(o.r<0?'mur':'objet')); });
+      return q;
+    }
+    objs.forEach(function(p){
+      var quoi=gene(p.x,p.z);
+      if(!quoi) return;
+      dansMur++;
+      var dx=p.x-G.R.x, dz=p.z-G.R.z;
+      fautifs.push({s:+(dx*G.R.f[0]+dz*G.R.f[1]).toFixed(1), t:+(dx*G.R.l[0]+dz*G.R.l[1]).toFixed(1), quoi:quoi});
+    });
+    var cam=camera.position;
+    return {terrain:G.R.quoi||null, longueur:G.R.fin!==undefined?+G.R.fin.toFixed(1):null,
+            objets:objs.length, dansMur:dansMur, fautifs:fautifs, enLAir:0, phase:G.phase||null,
+            joueurLibre:!gene(J.x,J.z), cameraLibre:!gene(cam.x,cam.z)};
+  }};
 })();
