@@ -23548,6 +23548,7 @@ function majDecor29(dt){
       e.o.add(c.racine);
       e.chien=c; allure29(c,'Idle'); c.acte.time=Math.random()*3;
     }
+    if(e.libre30) return;
     var c2=e.chien, d=Math.hypot(e.o.position.x-cx,e.o.position.z-cz);
     if(e.v.t==='maitre_chien'){
       tournerMC29(e,dt);
@@ -23606,12 +23607,10 @@ var MC29={v:null, dernierGlisse:0, edition:false, gagnes:{}, promene:false, chie
 addEventListener('pointerup',function(){ if(VM.drag && VM.drag.bouge) MC29.dernierGlisse=performance.now(); },true);
 var _selVeh29=selectionnerVeh;
 selectionnerVeh=function(v){
-  if(v && v.t==='spitz'){
+  /* un spitz posé qu'on touche (sans le faire glisser) se met à suivre */
+  if(v && v.t==='spitz' && !(VM.drag && VM.drag.bouge)){
     var e=entreeDecor29(v);
-    if(e && e.chien && !(VM.drag && VM.drag.bouge)){
-      aboyer29(e.o.position.x,e.o.position.z,1.4);
-      allure29(e.chien,'Attack',0.1); e.chien.acte.setEffectiveTimeScale(1.4); e.t=1.1;
-    }
+    if(e && e.chien && !e.libre30){ suivreDecor30(e); return; }
   }
   if(v && v.t==='maitre_chien'){
     var glisse=(VM.drag && VM.drag.bouge) || performance.now()-MC29.dernierGlisse<500;
@@ -23624,13 +23623,15 @@ selectionnerVeh=function(v){
 /* Au téléphone, la vue garde tous les touchers pour le joystick et la
    caméra : un toucher bref y est relayé ici, avant les jalonneurs. */
 function toucherObjet29(ev){
-  if(JEU29.actif || !VM.objs || !VM.objs.size) return false;
+  if(JEU29.actif) return false;
+  if(toucherVivant30(ev)) return true;
+  if(!VM.objs || !VM.objs.size) return false;
   var v=viserVeh(ev);
   if(!v) return false;
   if(v.t==='maitre_chien'){ ouvrirMC29(v); return true; }
   if(v.t==='spitz'){
     var e=entreeDecor29(v);
-    if(e && e.chien){ aboyer29(e.o.position.x,e.o.position.z,1.4); allure29(e.chien,'Attack',0.1); e.chien.acte.setEffectiveTimeScale(1.4); e.t=1.1; }
+    if(e && e.chien && !e.libre30) suivreDecor30(e);
     return true;
   }
   return false;
@@ -23678,9 +23679,12 @@ function styleMC29(){
     '#e3 #e3-jeu-act button:active{transform:scale(.94)}',
     '#e3-jeu-glisse{position:absolute;inset:0;z-index:21;display:none;touch-action:none}',
     '#e3-jeu-msg{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);z-index:24;font:700 40px "Oswald","Arial Narrow",Arial,sans-serif;color:#fff;text-shadow:0 3px 12px rgba(0,0,0,.8);pointer-events:none;text-align:center;display:none}',
-    '#e3-promene{position:absolute;left:10px;bottom:150px;z-index:9;display:none}',
-    '#e3 #e3-promene button{padding:8px 11px;font-size:13px}',
-    '#e3 #e3-promene button.on{border-color:#F2B33D;color:#F2B33D}',
+    '#e3-vol{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,calc(100vw - 20px));z-index:25;background:rgba(14,20,31,.97);border:1px solid #3a4a63;border-radius:16px;padding:14px;box-shadow:0 14px 40px rgba(0,0,0,.6);color:#dfe6f0;font:13px/1.45 Arial,Helvetica,sans-serif}',
+    '#e3-vol h3{margin:0;font:700 20px "Oswald","Arial Narrow",Arial,sans-serif;color:#F2B33D}',
+    '#e3-vol .mc-tete{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}',
+    '#e3-vol p{margin:4px 0 12px}',
+    '#e3-vol .mc-pied{display:flex;gap:8px;flex-wrap:wrap}',
+    '#e3 #e3-vol .mc-pied button{flex:1;padding:10px}',
     /* téléphone à l'horizontale : moins de hauteur, tout se resserre */
     '@media (max-height:420px){ #e3-jeu{top:46px;padding-top:3px;padding-bottom:4px} #e3 #e3-jeu-act button{width:104px;height:104px;font-size:18px;border-width:3px} }'
   ].join('\n');
@@ -23707,7 +23711,7 @@ function ouvrirMC29(v){
       else if(a==='deplacer'){ fermerMC29(); MC29.edition=true; selectionnerVeh(MC29.v); dire('Fais glisser le Maître chien pour le déplacer, R pour le tourner.'); }
     });
   }
-  var n=Object.keys(MC29.gagnes).length, h='';
+  var n=MC29.meute.length, h='';
   h+='<div class="mc-tete"><h3>🦮 Maître chien</h3><button data-a="fermer" title="Fermer">✕</button></div>';
   h+='<p>Réussis mes épreuves et je te confie un spitz. Chaque épreuve gagnée : un nouveau chien, d’une autre couleur, avec sa laisse. Tu pourras ensuite courir avec eux.</p>';
   JEUX29.forEach(function(j){
@@ -24056,7 +24060,6 @@ function lancerJeu29(id){
   PERF.t=0;
   if(G.zone) degagerZone29(G.zone);
   infoJeu29(def.icone+' '+def.nom,null,def.regle);
-  if(MC29.promene) MC29.chiens.forEach(function(c){ c.racine.visible=false; c.laisse.visible=false; });
 }
 /* après l'épreuve, on revient devant le Maître chien : c'est lui qui
    confie le chien gagné, et c'est là qu'on rejoue */
@@ -24094,10 +24097,10 @@ function finJeu29(gagne,msg){
     messageJeu29('Bravo !',2.2);
     dire(neuf ? 'Gagné ! Tu adoptes un spitz '+ROBES29[G.def.robe].nom+' avec sa laisse '+G.def.laisse[0]+'. Il court avec toi.'
               : 'Gagné, encore ! Ton spitz '+ROBES29[G.def.robe].nom+' est fier de toi.');
+    ajouterMeute29('jeu:'+G.def.id,G.def.robe,G.def.laisse[1],G.def.nom);
     MC29.promene=true;
-    majPromenade29(true);
+    majPromenade29();
   } else if(msg){ messageJeu29(msg.length<22?msg:'Raté',1.6); dire(msg+'. Retente ta chance auprès du Maître chien.'); }
-  if(MC29.promene) MC29.chiens.forEach(function(c){ c.racine.visible=true; c.laisse.visible=true; });
   majBoutonPromene29();
 }
 function chrono29(s){
@@ -24481,10 +24484,29 @@ majJoueur=function(dt){
   _majJoueur29(dt);
 };
 
-/* ---------- promener ses chiens ---------- */
-/* Les chiens gagnés courent avec le coureur, chacun à sa place autour de
-   lui, laisse à la main droite ou gauche selon le côté. */
-var PLACES29=[[0.5,0.7],[0.5,-0.7],[-0.1,1.15],[-0.1,-1.15],[1.0,0.35]];
+/* ---------- promener ses chiens : la meute ---------- */
+/* Nicolas, 2 oct. 2026 :
+   - toutes les laisses dans la main droite ;
+   - en marche, les chiens se tiennent à côté du coureur ou un peu devant,
+     et s'y déplacent comme des chiens : chacun a sa place, qui flotte et
+     qu'il échange de temps en temps avec un autre — ils se croisent ; ils
+     tournent sans pivoter d'un coup, ralentissent pour se laisser
+     rattraper au lieu de faire demi-tour ;
+   - à l'arrêt, chacun s'occupe : il s'assied, renifle, fait quelques pas
+     au bout de sa laisse, tourne sur lui-même, regarde autour ;
+   - le bouton des chiens vit dans « Afficher », dès qu'on en a un ;
+   - un spitz posé dans la ville suit le coureur quand on le touche, sans
+     laisse ; touché de nouveau, il s'arrête et gagne le trottoir le plus
+     proche ;
+   - toucher un passant qui promène un spitz : « Voler son chien ».
+   Les chiens de la meute sont décrits dans MC29.meute (robe, couleur de
+   laisse) ; MC29.chiens en est la forme animée, refaite à la demande. */
+MC29.meute=[]; MC29.suiveurs=[]; MC29.vols=0;
+function ajouterMeute29(cle,robe,coul,nom){
+  for(var i=0;i<MC29.meute.length;i++) if(MC29.meute[i].cle===cle) return false;
+  MC29.meute.push({cle:cle, robe:robe, coul:coul, nom:nom||''});
+  return true;
+}
 function mainJoueur29(cote){
   if(!joueur) return null;
   var k=cote>0?'_mainD29':'_mainG29';
@@ -24497,69 +24519,444 @@ function mainJoueur29(cote){
 }
 function basculerPromenade29(){
   MC29.promene=!MC29.promene;
-  majPromenade29(true);
+  majPromenade29();
   dire(MC29.promene?'Tes chiens courent avec toi.':'Tes chiens sont rentrés au chenil.');
 }
-function majPromenade29(reconstruire){
-  if(!SPITZ.modele) return;
-  var voulus=JEUX29.filter(function(j){ return MC29.gagnes[j.id]; });
-  if(reconstruire){
-    MC29.chiens.forEach(function(c){ if(c.racine.parent) c.racine.parent.remove(c.racine); if(c.laisse.parent) c.laisse.parent.remove(c.laisse); });
-    MC29.chiens=[];
-    if(!MC29.promene) { majBoutonPromene29(); return; }
-    voulus.forEach(function(j,i){
-      var c=chien29(j.robe), pl=PLACES29[i%PLACES29.length];
-      var lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(27),3));
-      c.laisse=new THREE.Line(lg,new THREE.LineBasicMaterial({color:new THREE.Color(j.laisse[1])}));
-      c.laisse.frustumCulled=false;
-      c.place=pl; c.cote=pl[1]>0?1:-1;
-      var f=[Math.cos(J.cap),Math.sin(J.cap)], l=[-f[1],f[0]];
-      poserChien29(c,J.x+f[0]*pl[0]+l[0]*pl[1],J.z+f[1]*pl[0]+l[1]*pl[1],J.cap);
-      monde.add(c.racine); monde.add(c.laisse);
-      MC29.chiens.push(c);
-    });
-  }
+/* un chien de la meute ou un suiveur : le spitz animé, une boîte pour le
+   toucher, et l'état de sa petite cervelle */
+function chienMeute30(robe,x,z,cap){
+  var c=chien29(robe);
+  var cible=new THREE.Mesh(new THREE.BoxGeometry(0.42,0.45,0.7));
+  cible.visible=false; cible.position.y=0.22; cible.name='cible30';
+  c.racine.add(cible); c.cible=cible; cible.userData.chien30=c;
+  c.etat='suit'; c.slot=null; c.tSlot=1+Math.random()*3; c.comp='regarde'; c.tComp=0.5+Math.random();
+  c.assis=0; c.ph=Math.random()*10; c.but=null; c.vRot=0;
+  c.laisse=null;
+  poserChien29(c,x,z,cap);
+  monde.add(c.racine);
+  return c;
+}
+function laisse30(coul){
+  var lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(27),3));
+  var l=new THREE.Line(lg,new THREE.LineBasicMaterial({color:new THREE.Color(coul)}));
+  l.frustumCulled=false;
+  monde.add(l);
+  return l;
+}
+function oterChien30(c){
+  if(c.racine.parent) c.racine.parent.remove(c.racine);
+  if(c.laisse && c.laisse.parent) c.laisse.parent.remove(c.laisse);
+}
+/* La meute animée suit la liste : on garde les chiens déjà là (pas de saut),
+   on ajoute les nouveaux — à l'endroit donné, pour un chien volé —, on
+   retire ceux qui n'y sont plus ou tous quand on les rentre. */
+function majPromenade29(ou){
+  if(!SPITZ.modele){ majBoutonPromene29(); return; }
+  var voulus=MC29.promene ? MC29.meute : [];
+  MC29.chiens=MC29.chiens.filter(function(c){
+    var garde=voulus.some(function(m){ return m.cle===c.cle; });
+    if(!garde) oterChien30(c);
+    return garde;
+  });
+  var f=[Math.cos(J.cap),Math.sin(J.cap)], l=[-f[1],f[0]];
+  voulus.forEach(function(m,i){
+    if(MC29.chiens.some(function(c){ return c.cle===m.cle; })) return;
+    var x=J.x+f[0]*0.5+l[0]*(0.5+0.3*(i%3)), z=J.z+f[1]*0.5+l[1]*(0.5+0.3*(i%3)), cap=J.cap;
+    if(ou && ou.cle===m.cle){ x=ou.x; z=ou.z; cap=ou.cap; }
+    var c=chienMeute30(m.robe,x,z,cap);
+    c.cle=m.cle; c.laisse=laisse30(m.coul);
+    /* un chien volé accourt depuis là où il était ; la laisse se prend à l'arrivée */
+    if(ou && ou.cle===m.cle){ c.rejoint=true; c.laisse.visible=false; }
+    MC29.chiens.push(c);
+  });
   majBoutonPromene29();
 }
+/* le bouton des chiens, dans « Afficher », dès qu'on en a un */
 function majBoutonPromene29(){
-  styleMC29();
-  var b=$e('e3-promene'), n=Object.keys(MC29.gagnes).length;
+  var n=MC29.meute.length, b=$e('e3-meute');
   if(!b){
-    b=document.createElement('div'); b.id='e3-promene'; b.innerHTML='<button type="button"></button>';
-    $e('e3').appendChild(b);
-    b.addEventListener('pointerdown',function(ev){ ev.stopPropagation(); });
-    b.querySelector('button').addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); basculerPromenade29(); });
+    if(!n) return;
+    var pop=(typeof trouverPop==='function') ? trouverPop(/Afficher|☰|👁/) : null;
+    if(!pop) return;
+    b=document.createElement('button'); b.type='button'; b.id='e3-meute';
+    b.title='Faire courir tes spitz avec toi, ou les rentrer au chenil';
+    b.addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); basculerPromenade29(); });
+    var ch=$e('e3-chien');
+    if(ch && ch.parentNode===pop) pop.insertBefore(b,ch.nextSibling);
+    else { var t=pop.querySelector('.e3-pop-titre'); pop.insertBefore(b,t?t.nextSibling:pop.firstChild); }
   }
-  b.style.display=(n && !JEU29.actif)?'block':'none';
-  var bt=b.querySelector('button');
-  bt.textContent=MC29.promene?'🐕 Rendre mes chiens':'🐕 Promener mes chiens ('+n+')';
-  bt.classList.toggle('on',MC29.promene);
+  b.style.display=n?'':'none';
+  b.textContent=MC29.promene ? '🐕 Mes spitz : avec moi ('+n+')' : '🐕 Mes spitz : au chenil ('+n+')';
+  b.classList.toggle('on',MC29.promene);
 }
-var _vM29=new THREE.Vector3(), _vC29=new THREE.Vector3();
-function animerPromenade29(dt){
-  if(!MC29.promene || !MC29.chiens.length || JEU29.actif) return;
-  var f=[Math.cos(J.cap),Math.sin(J.cap)], l=[-f[1],f[0]];
-  if(joueur) joueur.updateMatrixWorld(true);
-  MC29.chiens.forEach(function(c){
-    var pl=c.place, tx=J.x+f[0]*pl[0]+l[0]*pl[1], tz=J.z+f[1]*pl[0]+l[1]*pl[1];
-    if(bloquer(tx,tz)){ tx=J.x-f[0]*0.8; tz=J.z-f[1]*0.8; }
-    /* au bout de la laisse, il suit à toutes les allures */
-    var v=suivre29(c,tx,tz,dt,Math.max(6,Math.abs(J.v)*1.6),J.cap);
-    cadence29(c,v);
-    c.mix.update(dt);
-    c.mesh.castShadow=QUAL().ombre>0;
-    var main=mainJoueur29(c.cote);
-    if(main) main.getWorldPosition(_vM29);
-    else _vM29.set(J.x+l[0]*c.cote*0.25,hauteur(J.x,J.z)+0.9,J.z+l[1]*c.cote*0.25);
-    c.racine.updateMatrixWorld(true);
-    if(c.cou) c.cou.getWorldPosition(_vC29); else _vC29.copy(c.racine.position);
-    monde.worldToLocal(_vM29); monde.worldToLocal(_vC29);
-    var Lg=_vM29.distanceTo(_vC29), creux=Math.max(0,0.25*(1-Lg/1.3)), A=c.laisse.geometry.attributes.position;
-    for(var k=0;k<9;k++){
-      var t=k/8;
-      A.setXYZ(k,_vM29.x+(_vC29.x-_vM29.x)*t,_vM29.y+(_vC29.y-_vM29.y)*t-creux*4*t*(1-t),_vM29.z+(_vC29.z-_vM29.z)*t);
+
+/* ---------- la pose assise ---------- */
+/* Le chien de Quaternius ne sait pas s'asseoir : on plie son squelette
+   par-dessus l'animation de repos. Le dos se redresse autour de la hanche,
+   les pattes avant reviennent à la verticale, les cuisses se replient sous
+   le ventre et la croupe descend au sol. Les angles sont réglés à l'œil
+   sur des rendus rapprochés (outils/essai_meute.js --vues). */
+var ASSIS30={dos:-0.5, avant:0.5, cuisse:-0.75, jarret:1.25, cou:0.6, queue:0.2, baisse:0.09};
+var _qA30=new THREE.Quaternion(), _qB30=new THREE.Quaternion(), _vX30=new THREE.Vector3();
+function osChien30(c){
+  if(c.os) return c.os;
+  var g=c.g, o={}, repos={};
+  ['Back','FrontShoulderL','FrontShoulderR','BackUpperLegL','BackUpperLegR','BackLowerLegL','BackLowerLegR','Neck1','Tail1'].forEach(function(n){
+    o[n]=g.getObjectByName(n);
+    if(o[n]) repos[n]=o[n].quaternion.clone();
+  });
+  c.osRepos=repos;
+  return (c.os=o);
+}
+/* Les os que l'animation ne mène pas gardent ce qu'on leur a fait : on
+   les remet au repos avant chaque image, sinon la pliure s'additionne. */
+function osAuRepos30(c){
+  var o=osChien30(c);
+  Object.keys(c.osRepos).forEach(function(n){ o[n].quaternion.copy(c.osRepos[n]); });
+}
+/* tourne un os autour d'un axe donné dans le monde */
+function tournerOs30(b,axe,ang){
+  if(!b || !ang) return;
+  b.parent.updateWorldMatrix(true,false);
+  b.parent.getWorldQuaternion(_qA30).invert();
+  _vX30.copy(axe).applyQuaternion(_qA30).normalize();
+  _qB30.setFromAxisAngle(_vX30,ang);
+  b.quaternion.premultiply(_qB30);
+  b.updateMatrixWorld(true);
+}
+var _axe30=new THREE.Vector3();
+function poseAssise30(c,w){
+  c.g.position.y=-ASSIS30.baisse*w;
+  if(w<0.01) return;
+  var o=osChien30(c), A=ASSIS30;
+  /* l'axe de tangage du chien : son flanc, dans le monde */
+  c.g.updateWorldMatrix(true,false);
+  c.g.getWorldQuaternion(_qA30);
+  _axe30.set(1,0,0).applyQuaternion(_qA30);
+  tournerOs30(o.Back,_axe30,A.dos*w);
+  tournerOs30(o.FrontShoulderL,_axe30,A.avant*w); tournerOs30(o.FrontShoulderR,_axe30,A.avant*w);
+  tournerOs30(o.BackUpperLegL,_axe30,A.cuisse*w); tournerOs30(o.BackUpperLegR,_axe30,A.cuisse*w);
+  tournerOs30(o.BackLowerLegL,_axe30,A.jarret*w); tournerOs30(o.BackLowerLegR,_axe30,A.jarret*w);
+  tournerOs30(o.Neck1,_axe30,A.cou*w);
+  tournerOs30(o.Tail1,_axe30,A.queue*w);
+}
+
+/* ---------- la cervelle d'un chien ---------- */
+/* Places autour du coureur, en mètres : [devant, à droite]. Les chiens en
+   laisse restent du côté de la main droite, à côté ou un peu devant ; un
+   suiveur sans laisse va où il veut autour de lui. */
+function nouvellePlace30(c,autres){
+  for(var e=0;e<12;e++){
+    var p=c.laisse ? [-0.1+Math.random()*1.2, 0.35+Math.random()*1.05]
+                   : [-1.0+Math.random()*2.4, (Math.random()<0.5?-1:1)*(0.45+Math.random()*1.1)];
+    var ok=autres.every(function(o){ return o===c || !o.slot || Math.hypot(o.slot[0]-p[0],o.slot[1]-p[1])>0.42; });
+    if(ok) return p;
+  }
+  return c.laisse ? [0.4,0.8] : [0.3,-0.9];
+}
+var LAISSE30=1.55;   /* portée au sol de la laisse, de la main au collier */
+/* le pas : vers un but, à une allure voulue, sans pivoter d'un coup ni
+   faire un pas de côté ; rend la vitesse du moment */
+function pas30(c,tx,tz,vVoulue,dt,capRepos){
+  var dx=tx-c.x, dz=tz-c.z, d=Math.hypot(dx,dz);
+  var capV=d>0.06 ? Math.atan2(dz,dx) : (capRepos===undefined?c.cap:capRepos);
+  var ec=ecartAngle(capV-c.cap);
+  /* un chien tourne vite à l'arrêt, plus largement en courant */
+  var tauxMax=5.5-Math.min(3,c.v*0.5);
+  c.vRot+=(Math.max(-tauxMax,Math.min(tauxMax,ec*6))-c.vRot)*Math.min(1,dt*10);
+  c.cap+=c.vRot*dt;
+  /* il ralentit pour tourner, et freine en arrivant */
+  var v=d>0.06 ? vVoulue*Math.max(0.15,Math.cos(Math.min(1.5,Math.abs(ec)))) : 0;
+  c.v+=(v-c.v)*Math.min(1,dt*(v<c.v?7:4));
+  var s=Math.min(c.v*dt,d+0.02);
+  var nx=c.x+Math.cos(c.cap)*s, nz=c.z+Math.sin(c.cap)*s;
+  if(!bloquer(nx,nz)){ c.x=nx; c.z=nz; }
+  else c.v*=0.5;
+  return c.v;
+}
+/* à l'arrêt, une occupation au hasard, quelques secondes */
+function occupation30(c,cx,cz,r,trottoir){
+  var x=Math.random(), comp=x<0.32?'assis':(x<0.52?'renifle':(x<0.74?'flane':(x<0.86?'tourne':'regarde')));
+  c.comp=comp; c.but=null;
+  c.tComp=comp==='assis'?4+Math.random()*6:(comp==='tourne'?1.4+Math.random()*1.4:2.5+Math.random()*3.5);
+  if(comp==='flane'){
+    for(var e=0;e<10 && !c.but;e++){
+      var a=Math.random()*2*PI, rr=0.5+Math.random()*(r-0.5), bx=cx+Math.cos(a)*rr, bz=cz+Math.sin(a)*rr;
+      if(!bloquer(bx,bz) && !(trottoir && surChaussee28(bx,bz))) c.but=[bx,bz];
     }
-    A.needsUpdate=true;
+    if(!c.but) c.comp='regarde';
+  }
+  if(comp==='tourne'){ c.tourneC=[c.x,c.z]; c.tourneA=Math.random()*2*PI; c.tourneS=Math.random()<0.5?1:-1; }
+  if(comp==='renifle') c.renifle=Math.random()<0.6?'Idle_2_HeadLow':'Eating';
+  if(comp==='regarde') c.regarde=Math.random()<0.5?'Idle':'Idle_2';
+}
+/* l'animation qui va avec ce qu'il fait */
+function animer30(c,dt){
+  var assis=(c.v<0.05 && c.comp==='assis' && c.etat!=='suit-marche');
+  c.assis+=((assis?1:0)-c.assis)*Math.min(1,dt*(assis?2.6:5));
+  if(c.v>0.12) cadence29(c,c.v);
+  else if(c.comp==='renifle') allure29(c,c.renifle,0.35);
+  else if(c.comp==='regarde') allure29(c,c.regarde,0.35);
+  else allure29(c,'Idle',0.35);
+  osAuRepos30(c);
+  c.mix.update(dt);
+  poseAssise30(c,c.assis);
+  c.mesh.castShadow=QUAL().ombre>0;
+}
+/* repos ou marche, pour un chien qui accompagne le coureur */
+var MEUTE30={x:null, z:null, v:0, arret:0};
+function accompagner30(c,dt,f,l,main,i,tous){
+  var bouge=MEUTE30.v>0.35;
+  c.ph+=dt;
+  if(bouge){
+    c.etat='suit-marche';
+    c.tSlot-=dt;
+    if(!c.slot || c.tSlot<=0){
+      /* changer de place, ou l'échanger avec un voisin : ils se croisent */
+      var autre=tous.length>1 && Math.random()<0.45 ? tous[Math.floor(Math.random()*tous.length)] : null;
+      if(autre && autre!==c && autre.slot && !!autre.laisse===!!c.laisse){ var t=c.slot; c.slot=autre.slot; autre.slot=t||nouvellePlace30(autre,tous); autre.tSlot=3+Math.random()*4; }
+      else c.slot=nouvellePlace30(c,tous);
+      c.tSlot=c.laisse?3+Math.random()*5:2+Math.random()*3;
+    }
+    /* la place flotte un peu : personne ne marche au cordeau */
+    var av=c.slot[0]+Math.sin(c.ph*0.9+i)*0.18+MEUTE30.v*0.06, dr=c.slot[1]+Math.sin(c.ph*0.63+i*2)*0.14;
+    var tx=J.x+f[0]*av+l[0]*dr, tz=J.z+f[1]*av+l[1]*dr;
+    if(bloquer(tx,tz)){ tx=J.x+f[0]*av-l[0]*dr; tz=J.z+f[1]*av-l[1]*dr; }
+    /* en avance sur sa place : il ralentit et se laisse rejoindre */
+    var dx=tx-c.x, dz=tz-c.z, d=Math.hypot(dx,dz), devant=dx*f[0]+dz*f[1];
+    var v=MEUTE30.v+d*1.8;
+    if(devant<-0.1){ v=Math.max(MEUTE30.v*0.55,MEUTE30.v+devant*1.5); tx=c.x+f[0]*2; tz=c.z+f[1]*2; }
+    pas30(c,tx,tz,Math.min(v,MEUTE30.v*1.7+2.5),dt);
+    c.comp='marche'; c.tComp=0.4+Math.random()*1.2;
+  } else {
+    c.etat='suit-repos';
+    c.tComp-=dt;
+    var cx=main.x, cz=main.z, r=c.laisse?LAISSE30*0.9:2.6;
+    if(c.tComp<=0 || c.comp==='marche') occupation30(c,cx,cz,r);
+    if(c.comp==='flane' && c.but){
+      pas30(c,c.but[0],c.but[1],0.75,dt);
+      if(Math.hypot(c.but[0]-c.x,c.but[1]-c.z)<0.12) c.comp='regarde', c.regarde='Idle_2';
+    } else if(c.comp==='tourne'){
+      /* il tourne sur lui-même, deux ou trois fois, avant de s'asseoir */
+      c.tourneA+=c.tourneS*dt*3.4;
+      pas30(c,c.tourneC[0]+Math.cos(c.tourneA)*0.16,c.tourneC[1]+Math.sin(c.tourneA)*0.16,0.55,dt);
+      if(c.tComp<=0.05){ c.comp='assis'; c.tComp=4+Math.random()*5; }
+    } else {
+      /* assis, il regarde son maître ; sinon il garde son cap */
+      var regard=c.comp==='assis' ? Math.atan2(J.z-c.z,J.x-c.x) : undefined;
+      pas30(c,c.x,c.z,0,dt,regard);
+    }
+  }
+}
+/* la laisse : de la main droite au collier, plus ou moins tendue */
+var _vM29=new THREE.Vector3(), _vC29=new THREE.Vector3();
+function tendreLaisse30(c,main){
+  if(c.cou){ c.racine.updateMatrixWorld(true); c.cou.getWorldPosition(_vC29); monde.worldToLocal(_vC29); }
+  else _vC29.set(c.x,hauteur(c.x,c.z)+0.25,c.z);
+  var Lg=main.distanceTo(_vC29), creux=Math.max(0,0.3*(1-Lg/1.75)), A=c.laisse.geometry.attributes.position;
+  for(var k=0;k<9;k++){
+    var t=k/8, x=main.x+(_vC29.x-main.x)*t, z=main.z+(_vC29.z-main.z)*t;
+    var y=main.y+(_vC29.y-main.y)*t-creux*4*t*(1-t);
+    A.setXYZ(k,x,Math.max(y,hauteur(x,z)+0.12),z);
+  }
+  A.needsUpdate=true;
+}
+function animerPromenade29(dt){
+  if(!MEUTE30.branche) brancherClics30();
+  if(MC29.meute.length && !$e('e3-meute')) majBoutonPromene29();
+  var cache=!!JEU29.actif, tous=MC29.chiens.concat(MC29.suiveurs.filter(function(c){ return c.etat!=='va' && c.etat!=='seul'; }));
+  MC29.chiens.concat(MC29.suiveurs).forEach(function(c){ c.racine.visible=!cache; if(c.laisse) c.laisse.visible=!cache && !c.rejoint; });
+  if(cache) return;
+  /* l'allure réelle du coureur, quel que soit ce qui le fait avancer */
+  if(MEUTE30.x===null){ MEUTE30.x=J.x; MEUTE30.z=J.z; }
+  var dep=Math.hypot(J.x-MEUTE30.x,J.z-MEUTE30.z);
+  MEUTE30.x=J.x; MEUTE30.z=J.z;
+  var saut=dep>6;
+  if(!saut && dt>0) MEUTE30.v+=(dep/dt-MEUTE30.v)*Math.min(1,dt*4);
+  var f=[Math.cos(J.cap),Math.sin(J.cap)], l=[-f[1],f[0]];
+  /* la main droite, d'où partent toutes les laisses */
+  var mainD=mainJoueur29(1);
+  if(joueur && mainD && joueur.visible){ joueur.updateMatrixWorld(true); mainD.getWorldPosition(_vM29); monde.worldToLocal(_vM29); }
+  else _vM29.set(J.x+l[0]*0.28+f[0]*0.1,hauteur(J.x,J.z)+0.95,J.z+l[1]*0.28+f[1]*0.1);
+  tous.forEach(function(c,i){
+    /* le coureur a sauté (téléporté) : ses chiens le rejoignent */
+    if(saut || Math.hypot(c.x-J.x,c.z-J.z)>45){ c.x=J.x+l[0]*(0.6+0.25*i)+f[0]*0.3; c.z=J.z+l[1]*(0.6+0.25*i)+f[1]*0.3; c.v=0; c.cap=J.cap; c.rejoint=false; }
+    if(c.rejoint){
+      pas30(c,_vM29.x,_vM29.z,Math.max(5,MEUTE30.v*1.6),dt);
+      if(Math.hypot(c.x-_vM29.x,c.z-_vM29.z)<1.3){ c.rejoint=false; c.slot=null; }
+      return;
+    }
+    accompagner30(c,dt,f,l,_vM29,i,tous);
+    /* au bout de la laisse, il ne va pas plus loin */
+    if(c.laisse){
+      var dx=c.x-_vM29.x, dz=c.z-_vM29.z, d=Math.hypot(dx,dz);
+      if(d>LAISSE30){ c.x=_vM29.x+dx/d*LAISSE30; c.z=_vM29.z+dz/d*LAISSE30; }
+    }
+  });
+  /* deux chiens ne se marchent pas dessus, mais se croisent */
+  for(var a=0;a<tous.length;a++) for(var b=a+1;b<tous.length;b++){
+    var A=tous[a], B=tous[b], ex=B.x-A.x, ez=B.z-A.z, dd=Math.hypot(ex,ez);
+    if(dd<0.3 && dd>1e-4){ var k=(0.3-dd)*0.5/dd; A.x-=ex*k; A.z-=ez*k; B.x+=ex*k; B.z+=ez*k; }
+  }
+  MC29.chiens.concat(MC29.suiveurs).forEach(function(c){
+    if(c.etat==='va' || c.etat==='seul') animerSeul30(c,dt);
+    poserChien29(c,c.x,c.z,c.cap);
+    animer30(c,dt);
+    if(c.laisse && !c.rejoint) tendreLaisse30(c,_vM29);
+  });
+  MC29.suiveurs=MC29.suiveurs.filter(function(c){
+    if(c.decor && !c.decor.o.parent){ oterChien30(c); return false; }
+    return true;
+  });
+}
+
+/* ---------- un spitz posé qui suit le coureur, sans laisse ---------- */
+/* Touché, il quitte sa place et suit ; touché de nouveau, il s'arrête et
+   gagne le trottoir le plus proche, où il reste à s'occuper. Sa place
+   enregistrée avec le parcours ne bouge pas. */
+function trottoirProche30(x,z){
+  for(var r=0;r<=24;r+=0.75) for(var k=0;k<(r?16:1);k++){
+    var a=k/16*2*PI, px=x+Math.cos(a)*r, pz=z+Math.sin(a)*r;
+    if(!surChaussee28(px,pz) && !bloquer(px,pz) && !bloquer(px+0.5,pz) && !bloquer(px-0.5,pz) && !bloquer(px,pz+0.5) && !bloquer(px,pz-0.5)) return [px,pz];
+  }
+  return [x,z];
+}
+function suivreDecor30(e){
+  var c0=e.chien;
+  if(!c0) return;
+  /* le chien posé devient un chien libre, au même endroit */
+  e.o.updateMatrixWorld(true);
+  var p=new THREE.Vector3(); c0.racine.getWorldPosition(p); monde.worldToLocal(p);
+  var cap=-e.o.rotation.y;
+  c0.racine.parent.remove(c0.racine);
+  c0.detache=true;
+  var c=chienMeute30(c0.robe,p.x,p.z,cap);
+  c.decor=e; e.libre30=c;
+  /* sa place posée ne se touche plus : c'est lui qu'on touche */
+  e.o.traverse(function(m){ if(m.isMesh) m.layers.set(31); });
+  MC29.suiveurs.push(c);
+  aboyer29(c.x,c.z,1.2);
+  dire('Le spitz te suit. Touche-le encore pour qu’il s’arrête.');
+}
+function basculerSuiveur30(c){
+  aboyer29(c.x,c.z,1);
+  if(c.etat==='va' || c.etat==='seul'){
+    c.etat='suit'; c.slot=null; c.comp='regarde'; c.tComp=0.3;
+    dire('Le spitz te suit de nouveau.');
+  } else {
+    c.etat='va'; c.but=trottoirProche30(c.x,c.z); c.maison=c.but.slice(); c.tVa=0; c.comp='marche'; c.assis=0;
+    dire('Le spitz s’arrête et va sur le trottoir.');
+  }
+}
+/* sur le trottoir, seul : il s'y rend, puis s'y occupe */
+function animerSeul30(c,dt){
+  c.ph+=dt;
+  if(c.etat==='va'){
+    c.tVa+=dt;
+    pas30(c,c.but[0],c.but[1],1.3,dt);
+    /* arrivé — ou, coincé, il abandonne au bout de 30 s */
+    if(Math.hypot(c.but[0]-c.x,c.but[1]-c.z)<0.15 || c.tVa>30){ c.etat='seul'; c.comp='regarde'; c.tComp=1; }
+    return;
+  }
+  c.tComp-=dt;
+  if(c.tComp<=0 || c.comp==='marche') occupation30(c,c.maison[0],c.maison[1],1.3,true);
+  if(c.comp==='flane' && c.but){ pas30(c,c.but[0],c.but[1],0.7,dt); if(Math.hypot(c.but[0]-c.x,c.but[1]-c.z)<0.12){ c.comp='regarde'; c.regarde='Idle_2'; } }
+  else if(c.comp==='tourne'){ c.tourneA+=c.tourneS*dt*3.4; pas30(c,c.tourneC[0]+Math.cos(c.tourneA)*0.16,c.tourneC[1]+Math.sin(c.tourneA)*0.16,0.55,dt); if(c.tComp<=0.05){ c.comp='assis'; c.tComp=5; } }
+  else pas30(c,c.x,c.z,0,dt);
+}
+
+/* ---------- voler le chien d'un passant ---------- */
+var _vP30=new THREE.Vector3();
+function ecran30(x,y,z,r){
+  _vP30.set(x,y,z); monde.localToWorld(_vP30); _vP30.project(camera);
+  if(_vP30.z>1 || _vP30.z<-1) return null;
+  return [r.left+(_vP30.x+1)/2*r.width, r.top+(1-_vP30.y)/2*r.height];
+}
+/* le passant (ou son chien) sous le doigt : on vise sur l'écran, avec de la
+   marge, un personnage étant plus fin que le doigt */
+function viserPieton30(ev){
+  if(!camera || !renderer || !VIE.pietons) return null;
+  var r=renderer.domElement.getBoundingClientRect(), best=null, bd=1e9;
+  VIE.pietons.forEach(function(p){
+    var c=p.spitz;
+    if(!c || !c.racine.visible || !p.rig.g.visible) return;
+    var y0=hauteur(p.x,p.z), pied=ecran30(p.x,y0+0.2,p.z,r), tete=ecran30(p.x,y0+1.75,p.z,r);
+    if(!pied || !tete) return;
+    var h=pied[1]-tete[1], w=Math.max(16,h*0.3), dist=Math.hypot(p.x-camera.position.x,p.z-camera.position.z);
+    var touche=ev.clientX>pied[0]-w && ev.clientX<pied[0]+w && ev.clientY>tete[1]-8 && ev.clientY<pied[1]+10;
+    var ch=ecran30(c.x,hauteur(c.x,c.z)+0.2,c.z,r);
+    if(!touche && ch) touche=Math.hypot(ev.clientX-ch[0],ev.clientY-ch[1])<Math.max(22,h*0.2);
+    if(touche && dist<bd && dist<70){ bd=dist; best=p; }
+  });
+  return best;
+}
+/* un chien de la meute ou un suiveur sous le doigt */
+function viserChien30(ev){
+  var L=MC29.suiveurs.map(function(c){ return c.cible; });
+  if(!L.length || !raycaster) return null;
+  raycaster.setFromCamera(ndc(ev),camera);
+  var h=raycaster.intersectObjects(L,false);
+  return h.length ? h[0].object.userData.chien30 : null;
+}
+function fermerVol30(){ var p=$e('e3-vol'); if(p) p.hidden=true; }
+function ouvrirVol30(pt){
+  if(JEU29.actif || !pt.spitz) return;
+  styleMC29();
+  var p=$e('e3-vol');
+  if(!p){
+    p=document.createElement('div'); p.id='e3-vol';
+    $e('e3').appendChild(p);
+    ['pointerdown','pointerup','click','wheel','touchstart'].forEach(function(t){ p.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+    p.addEventListener('click',function(ev){
+      var b=ev.target.closest ? ev.target.closest('button') : null;
+      if(!b) return;
+      if(b.dataset.a==='voler' && p.pieton) volerChien30(p.pieton);
+      fermerVol30();
+    });
+  }
+  p.pieton=pt;
+  var robe=pt.spitz.mesh.material===SPITZ.robes[1] ? 'blanc' : 'roux';
+  p.innerHTML='<div class="mc-tete"><h3>🧍 Un passant</h3><button data-a="fermer" title="Fermer">✕</button></div>'+
+    '<p>Il promène son spitz '+robe+' en laisse.</p>'+
+    '<div class="mc-pied"><button data-a="voler">🐕 Voler son chien</button><button data-a="fermer">Laisser tranquille</button></div>';
+  p.hidden=false;
+}
+function volerChien30(pt){
+  var s=pt.spitz;
+  if(!s) return;
+  var robe=s.mesh.material===SPITZ.robes[1] ? 'blanc' : 'roux', x=s.x, z=s.z, cap=s.cap;
+  libererSpitz(s);
+  pt.vole30=true;
+  var cle='vol:'+(++MC29.vols);
+  ajouterMeute29(cle,robe,'#6e1c22','volé à un passant');
+  MC29.promene=true;
+  majPromenade29({cle:cle, x:x, z:z, cap:cap});
+  aboyer29(x,z,1.3);
+  dire('Tu as volé le spitz '+robe+' d’un passant. « Hé ! Rendez-moi mon chien ! »');
+}
+/* Toucher un chien libre ou un passant promeneur : avant tout le reste.
+   Rend vrai si le toucher a servi. */
+function toucherVivant30(ev){
+  if(JEU29.actif) return false;
+  var c=viserChien30(ev);
+  if(c){ basculerSuiveur30(c); return true; }
+  var p=viserPieton30(ev);
+  if(p){ ouvrirVol30(p); return true; }
+  return false;
+}
+/* à la souris : un clic bref sur la vue (au doigt, c'est toucherObjet29) */
+function brancherClics30(){
+  var vue=$e('e3-vue');
+  if(!vue) return;
+  MEUTE30.branche=true;
+  var bas=null;
+  vue.addEventListener('pointerdown',function(e){ bas=(e.button===0 && e.pointerType!=='touch') ? {x:e.clientX, y:e.clientY, t:performance.now()} : null; });
+  vue.addEventListener('pointerup',function(e){
+    if(!bas || e.pointerType==='touch') return;
+    var court=Math.hypot(e.clientX-bas.x,e.clientY-bas.y)<5 && performance.now()-bas.t<450;
+    bas=null;
+    if(!court || VM.mode || EQ.mode || VUE==='jal') return;
+    toucherVivant30(e);
   });
 }
 
@@ -24578,13 +24975,74 @@ animerDecor=function(dt,cx,cz){
   try{ appliquerCadre29(d); }catch(e4){ console.warn('cadrage :',e4); CADRE29.actif=false; }
 };
 /* pour les essais : ouvrir le menu, lancer une épreuve, donner un chien */
+/* pour les essais : la meute, la pose assise, un passant promeneur */
+window.ESPACE3D.meute={
+  donner:function(robe){ var cle='essai:'+MC29.meute.length; ajouterMeute29(cle,robe||'roux','#c62828','essai'); MC29.promene=true; majPromenade29(); return MC29.meute.length; },
+  reglerAssis:function(o){ Object.keys(o||{}).forEach(function(k){ ASSIS30[k]=o[k]; }); return ASSIS30; },
+  /* un spitz seul, figé dans la pose voulue (assis de 0 à 1), pour les vues */
+  poser:function(o){
+    if(!SPITZ.modele) return null;
+    var c=MEUTE30.essai;
+    if(!c){ c=MEUTE30.essai=chien29(o.robe||'roux'); monde.add(c.racine); }
+    poserChien29(c,o.x,o.z,o.cap||0);
+    c.mix.stopAllAction(); c.acte=null; allure29(c,o.anim||'Idle',0); c.acte.time=o.t||0;
+    osAuRepos30(c);
+    c.mix.update(0.001);
+    poseAssise30(c,o.assis||0);
+    return {xz:[c.x,c.z], y:hauteurSol(c.x,c.z,99)};
+  },
+  etat:function(){
+    var f=[Math.cos(J.cap),Math.sin(J.cap)], l=[-f[1],f[0]];
+    function rel(c){ var dx=c.x-J.x, dz=c.z-J.z; return {devant:+(dx*f[0]+dz*f[1]).toFixed(2), droite:+(dx*l[0]+dz*l[1]).toFixed(2), v:+c.v.toFixed(2), comp:c.comp, etat:c.etat, assis:+c.assis.toFixed(2), rejoint:!!c.rejoint}; }
+    return {vCoureur:+MEUTE30.v.toFixed(2), chiens:MC29.chiens.map(rel), suiveurs:MC29.suiveurs.map(rel),
+            bouton:$e('e3-meute')?{texte:$e('e3-meute').textContent, visible:$e('e3-meute').style.display!=='none', dansAfficher:!!(trouverPop(/Afficher|☰|👁/)||{contains:function(){return false;}}).contains($e('e3-meute'))}:null};
+  },
+  /* un spitz posé dans la ville, touché : il suit ; touché encore : trottoir */
+  poserSpitz:function(x,z,cap){ if(!window.CARTE || !CARTE.ajouterVehicule) return null; var v=CARTE.ajouterVehicule('spitz',laDeZ(z),loDeX(x),cap||0); majVehicules3D(); return {x:pX(v.lo), z:pZ(v.la)}; },
+  ecranSpitzPose:function(){ var e=DECOR29.filter(function(x){ return x.v.t==='spitz' && x.chien && !x.libre30; })[0]; if(!e) return null;
+    var r=renderer.domElement.getBoundingClientRect(), p=e.o.position; return ecran30(p.x,p.y+0.2,p.z,r); },
+  ecranSuiveur:function(){ var c=MC29.suiveurs[0]; if(!c) return null; var r=renderer.domElement.getBoundingClientRect(); return ecran30(c.x,hauteurSol(c.x,c.z,99)+0.2,c.z,r); },
+  suivreDecor:function(){ var e=DECOR29.filter(function(x){ return x.v.t==='spitz' && x.chien && !x.libre30; })[0]; if(!e) return false; suivreDecor30(e); return true; },
+  lacher:function(){ var c=MC29.suiveurs[0]; if(!c) return false; basculerSuiveur30(c); return true; },
+  suiveur:function(){ var c=MC29.suiveurs[0]; if(!c) return null; return {x:c.x, z:c.z, etat:c.etat, surChaussee:surChaussee28(c.x,c.z), dJ:+Math.hypot(c.x-J.x,c.z-J.z).toFixed(2)}; },
+  /* un passant promeneur à l'écran, et le vol de son chien par le panneau */
+  pietonAvecChien:function(){
+    var r=renderer.domElement.getBoundingClientRect(), best=null;
+    (VIE.pietons||[]).forEach(function(p){ if(!p.spitz || best || !p.spitz.racine.visible) return; var y0=hauteur(p.x,p.z), e=ecran30(p.x,y0+1.0,p.z,r); if(e && e[0]>r.left+20 && e[0]<r.right-20 && e[1]>r.top+45 && e[1]<r.bottom-20 && Math.hypot(p.x-camera.position.x,p.z-camera.position.z)<65) best={x:e[0], y:e[1]}; });
+    return best;
+  },
+  /* donner un spitz à un passant visible, pour ne pas attendre le hasard */
+  chienAuPieton:function(){
+    var r=renderer.domElement.getBoundingClientRect(), best=null, bd=1e9;
+    (VIE.pietons||[]).forEach(function(p){
+      if(p.spitz || !p.rig.g.visible) return;
+      var e=ecran30(p.x,hauteur(p.x,p.z)+1,p.z,r), d=Math.hypot(p.x-camera.position.x,p.z-camera.position.z);
+      if(e && e[0]>r.left+40 && e[0]<r.right-60 && e[1]>r.top+50 && e[1]<r.bottom-30 && d<bd && d<65){ bd=d; best=p; }
+    });
+    /* personne dans le cadre : le plus proche, et la caméra se tourne vers lui */
+    if(!best){
+      bd=1e9;
+      (VIE.pietons||[]).forEach(function(p){ var d=Math.hypot(p.x-J.x,p.z-J.z); if(!p.spitz && p.rig.g.visible && d>6 && d<bd && d<50){ bd=d; best=p; } });
+      if(best){ CAM.yaw=Math.atan2(best.z-J.z,best.x-J.x); CAM.libre=CAM_LIBRE*4; CAM.vYaw=0; }
+    }
+    if(!best || !SPITZ.modele) return false;
+    var cap=NB_SPITZ[PERF.qualite], c=null;
+    for(var i=0;i<Math.min(cap,SPITZ.chiens.length);i++) if(!SPITZ.chiens[i].p){ c=SPITZ.chiens[i]; break; }
+    if(!c && SPITZ.chiens.length<cap){ c=nouveauSpitz(false); SPITZ.chiens.push(c); }
+    if(!c){ c=SPITZ.chiens[0]; libererSpitz(c); }
+    attacherSpitz(c,best); best.spitzVu=true;
+    return true;
+  },
+  posePieton:function(){ var p=(VIE.pietons||[]).filter(function(q){ return q.spitz; })[0]; if(!p) return null; return {x:p.x, z:p.z}; }
+};
 window.ESPACE3D.maitreChien={ouvrir:function(){ var v=null; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien' && !v) v=k; }); if(v) ouvrirMC29(v); return !!v; },
   jouer:function(id){ var v=null; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien' && !v) v=k; }); if(!v) return false; MC29.v=v; lancerJeu29(id); return true; },
-  gagner:function(id){ MC29.gagnes[id]=true; MC29.promene=true; majPromenade29(true); },
+  gagner:function(id){ var j=JEUX29.filter(function(x){ return x.id===id; })[0]; if(!j) return false;
+    MC29.gagnes[id]=true; ajouterMeute29('jeu:'+id,j.robe,j.laisse[1],j.nom); MC29.promene=true; majPromenade29(); return true; },
   /* poser un Maître chien en mètres locaux (cap en degrés, sens de J.cap), sans passer par la carte */
   poser:function(x,z,cap){ if(!window.CARTE || !CARTE.ajouterVehicule) return null;
     var v=CARTE.ajouterVehicule('maitre_chien',laDeZ(z),loDeX(x),cap||0); majVehicules3D(); return {x:pX(v.lo), z:pZ(v.la), ang:v.ang}; },
-  etat:function(){ return {jeu:JEU29.actif?JEU29.actif.def.id:null, gagnes:Object.keys(MC29.gagnes), chiens:MC29.chiens.length, decor:DECOR29.length}; },
+  etat:function(){ return {jeu:JEU29.actif?JEU29.actif.def.id:null, gagnes:Object.keys(MC29.gagnes), chiens:MC29.chiens.length, meute:MC29.meute.length, suiveurs:MC29.suiveurs.length, decor:DECOR29.length}; },
   abandonner:function(){ finJeu29(false,null); },
   retirer:function(){ var L=[]; VM.objs.forEach(function(o,k){ if(k.t==='maitre_chien') L.push(k); }); L.forEach(function(v){ CARTE.supprimerVehicule(v); }); majVehicules3D(); OCC29.cx=1e9; },
   /* des lieux d'essai le long du parcours, au bord de la rue : regard le long

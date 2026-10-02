@@ -708,6 +708,40 @@ recours se joue sur le parcours le plus proche. Le banc refait la carte
 des obstacles de zéro pour juger : il ne se contente pas de celle qui a
 servi à choisir.
 
+## `essai_meute.js`
+
+Les spitz qu'on promène, ceux qui suivent, celui qu'on vole.
+
+```sh
+node outils/essai_meute.js           # comportement et touchers
+node outils/essai_meute.js --vues    # et les vues de la pose assise
+SORTIE_MEUTE=/tmp/meute node outils/essai_meute.js
+```
+
+Au format téléphone, avec de vrais touchers d'écran, le banc donne trois
+spitz au coureur et vérifie :
+
+- **en course**, les chiens restent du côté de la main droite (celle qui
+  tient toutes les laisses), à côté du coureur ou jusqu'à un peu plus d'un
+  mètre devant, et changent de place entre eux ;
+- **à l'arrêt**, ils s'occupent : assis, à renifler, à flâner au bout de la
+  laisse, à tourner sur eux-mêmes, à regarder autour ;
+- **le bouton des chiens** n'existe pas sans chien, puis vit dans
+  « Afficher » et rentre ou ressort la meute ;
+- **un spitz posé**, touché, suit sans laisse ; touché encore, il gagne le
+  trottoir le plus proche et y reste ;
+- **un passant promeneur**, touché, ouvre « Voler son chien », et le chien
+  volé rejoint la meute.
+
+**La pose assise est fabriquée.** Le chien de Quaternius, dont le spitz
+emprunte le squelette, ne sait pas s'asseoir. On plie donc ses os par-dessus
+l'animation de repos : le dos se redresse autour de la hanche, les pattes
+avant reviennent à la verticale, les cuisses se replient et la croupe
+descend. Les angles ont été réglés sur les vues de `--vues`. Une leçon au
+passage : les os que l'animation ne mène pas gardent ce qu'on leur fait, et
+la pliure s'additionnait d'une image à l'autre jusqu'à tordre le chien. On
+les remet au repos avant chaque image.
+
 ## `essai_musique_auto.js`
 
 La musique part-elle avec la 3D, et se tait-elle quand on la coupe ?
