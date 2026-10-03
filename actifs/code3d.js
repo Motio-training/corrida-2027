@@ -23494,15 +23494,36 @@ function aboyer29(x,z,force){
 
 /* ---------- Spitz et Maître chien dans le menu Poser ---------- */
 VEH_DEF.spitz={nom:'Spitz', icone:'🐶', spitz:true};
-VEH_DEF.maitre_chien={avatar:'Military_Male_02', nom:'Maître chien', icone:'🦮', h:1.80};
-/* sa tenue est celle du coureur : le camouflage centre-Europe repeint */
+/* Le Maître chien n'est pas le coureur : c'est un autre militaire de
+   Rocketbox (Military_Male_01, licence MIT), casqué, en gilet tactique,
+   que l'on reconnaît de loin. Son camouflage ACU est repeint en
+   centre-Europe comme celui du coureur, teinte par teinte, avec la table
+   tirée de la tenue du coureur (sm024 ACU → CE). Ses fichiers arrivent en
+   différé : la ville ne l'attend pas, il apparaît à leur arrivée. Sur une
+   page qui ne les charge pas, il reprend la tenue du coureur. */
+VEH_DEF.maitre_chien={avatar:'Military_Male_01', nom:'Maître chien', icone:'🦮', h:1.80};
 var _chargerAvatar29=chargerAvatar;
 chargerAvatar=function(nom,remplace){
   if(nom==='Military_Male_02' && !remplace) remplace={sm024_body_color_acu:'sm024_body_color_ce',sm024_head_color_acu:'sm024_head_color_ce'};
+  if(nom==='Military_Male_01' && !remplace) remplace={sm002_body_color_acu:'sm002_body_color_ce',sm002_equipment_color_acu:'sm002_equipment_color_ce',sm002_helmet_color_acu:'sm002_helmet_color_ce'};
   return _chargerAvatar29(nom,remplace);
 };
+function avatarMCPrevu29(){
+  var C=window.CHARGEMENT_3D;
+  return !!(C && C.actifs && C.actifs.some(function(a){ return a[0]==='Military_Male_01.fbx'; }));
+}
 var _prepVeh29=preparerModeleVehicule;
 preparerModeleVehicule=function(t){
+  if(t==='maitre_chien'){
+    var D=VEH_DEF[t];
+    if(window.ACTIFS && ACTIFS['Military_Male_01.fbx']){ D.avatar='Military_Male_01'; return _prepVeh29(t); }
+    if(!avatarMCPrevu29() || !window.ACTIFS_DIFFERES){ D.avatar='Military_Male_02'; return _prepVeh29(t); }
+    ACTIFS_DIFFERES.then(function(){
+      D.avatar=ACTIFS['Military_Male_01.fbx'] ? 'Military_Male_01' : 'Military_Male_02';
+      return _prepVeh29(t);
+    }).then(function(){ majVehicules3D(); }).catch(function(e){ console.error('Maître chien',e); });
+    return Promise.resolve();
+  }
   if(!VEH_DEF[t].spitz) return _prepVeh29(t);
   /* tant que le chien n'est pas arrivé, un repère de sa taille */
   var pivot=new THREE.Group();
