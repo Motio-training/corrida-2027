@@ -16,12 +16,12 @@
    Écrit les textures WebP 1024 dans actifs/bin/ (*_bme.webp).
 
    Usage : node outils/repeindre_bme.js [échelle] [clarté]
-           échelle : pixels du motif par texel (1,45 par défaut ; plus = motif plus fin)
+           échelle : pixels du motif par texel (3,6 par défaut ; plus = motif plus fin)
            clarté  : 1 par défaut                                                     */
 const {chromium}=require('/opt/node22/lib/node_modules/playwright');
 const fs=require('fs'), path=require('path'), https=require('https');
 const RACINE=path.resolve(__dirname,'..'), CACHE=process.env.CACHE_ROCKETBOX||'/tmp/rocketbox';
-const K=+(process.argv[2]||1.45), CLARTE=+(process.argv[3]||1);
+const K=+(process.argv[2]||3.6), CLARTE=+(process.argv[3]||1);
 const DEPOT='https://raw.githubusercontent.com/microsoft/Microsoft-Rocketbox/master/Assets/Avatars/Professions/';
 /* [avatar, texture d'origine, texture écrite, décalage dans le motif, drapeau ?] */
 const TEXTURES=[
@@ -106,14 +106,16 @@ function moitie(I){
       for(let k=0;k<3;k++) I.rgba[i*4+k]=Math.max(0,Math.min(255,c[k]*s));
     }
   }
-  function drapeau(I){
+  /* le drapeau est repéré sur la texture d'origine : après le repeint, des
+     taches bordeaux du BME passeraient pour son rouge */
+  function reperer(I){
     const w=I.w, pts=[];
     for(let y=500;y<640;y++) for(let x=100;x<260;x++){
       const i=(y*w+x)*4, r=I.rgba[i], g=I.rgba[i+1], b=I.rgba[i+2];
       const rouge=r>130&&g<100&&b<100, bleu=b>80&&b>r+30&&b>g+15, orange=r>160&&g>90&&b<90&&r-g>35;
       if(rouge||bleu||orange) pts.push([x,y]);
     }
-    if(pts.length<200) return 'drapeau introuvable';
+    if(pts.length<200) return null;
     let cx=0, cy=0; pts.forEach(p=>{ cx+=p[0]; cy+=p[1]; }); cx/=pts.length; cy/=pts.length;
     let sxx=0, syy=0, sxy=0; pts.forEach(p=>{ const dx=p[0]-cx, dy=p[1]-cy; sxx+=dx*dx; syy+=dy*dy; sxy+=dx*dy; });
     const a=0.5*Math.atan2(2*sxy,sxx-syy), ux=Math.cos(a), uy=Math.sin(a), vx=-uy, vy=ux;
@@ -121,7 +123,11 @@ function moitie(I){
     const u0=pu[Math.floor(pu.length*0.005)], u1=pu[Math.floor(pu.length*0.995)], v0=pv[Math.floor(pv.length*0.005)], v1=pv[Math.floor(pv.length*0.995)];
     /* le bleu côté hampe : là où étaient les étoiles */
     let bu=0, nbu=0; pts.forEach(p=>{ const i=(p[1]*w+p[0])*4, r=I.rgba[i], g=I.rgba[i+1], b=I.rgba[i+2]; if(b>80&&b>r+30&&b>g+15){ bu+=(p[0]-cx)*ux+(p[1]-cy)*uy; nbu++; } });
-    const hampe=bu/nbu>0?1:-1, bord=1.6;
+    return {cx, cy, ux, uy, vx, vy, u0, u1, v0, v1, a, hampe:bu/nbu>0?1:-1};
+  }
+  function drapeau(I,D){
+    if(!D) return 'drapeau introuvable';
+    const w=I.w, {cx, cy, ux, uy, vx, vy, u0, u1, v0, v1, a, hampe}=D, bord=1.6;
     for(let y=Math.floor(cy-40);y<cy+40;y++) for(let x=Math.floor(cx-70);x<cx+70;x++){
       const u=(x+0.5-cx)*ux+(y+0.5-cy)*uy, v=(x+0.5-cx)*vx+(y+0.5-cy)*vy;
       if(u<u0||u>u1||v<v0||v>v1) continue;
@@ -137,8 +143,9 @@ function moitie(I){
     const tga=path.join(CACHE,src+'.tga');
     if(!fs.existsSync(tga)){ console.log('  téléchargement de '+src+'.tga'); await telecharger(DEPOT+av+'/Textures/'+src+'.tga',tga); }
     const I=moitie(lireTGA(tga));
+    const D=dr?reperer(I):null;
     repeindre(I,dec);
-    const msg=dr?drapeau(I):'';
+    const msg=dr?drapeau(I,D):'';
     const n=await ecrire(I,path.join(RACINE,'actifs/bin',dst+'.webp'));
     console.log(dst+'.webp  '+I.w+'×'+I.h+'  '+Math.round(n/1024)+' Ko  '+msg);
   }

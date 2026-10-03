@@ -748,8 +748,8 @@ Les tenues du coureur et du Maître chien en bariolage multi-environnement
 (BME) de l'armée française, drapeau tricolore à l'épaule.
 
 ```sh
-node outils/repeindre_bme.js            # échelle 1,45, clarté 1
-node outils/repeindre_bme.js 1.8 0.95   # motif plus fin, un peu plus sombre
+node outils/repeindre_bme.js            # échelle 3,6, clarté 1
+node outils/repeindre_bme.js 4.5 0.95   # motif plus fin, un peu plus sombre
 CACHE_ROCKETBOX=/chemin node outils/repeindre_bme.js
 ```
 
@@ -760,7 +760,7 @@ pour le Maître chien) arrivent en camouflage américain ACU, drapeau des
 peu saturés ; la peau, les bottes et les insignes restent —, en garde
 l'ombrage (les plis) mais pas le motif, et y pose le motif BME de
 `bme_motif.jpg`. Sur la tenue, il retrouve le drapeau américain par ses
-couleurs, mesure son inclinaison (13 à 16°) et peint à sa place un
+couleurs (sur la texture d’origine, avant le repeint), mesure son inclinaison (14° environ) et peint à sa place un
 tricolore à liseré kaki, le bleu côté hampe, là où étaient les étoiles.
 
 Il écrit les textures dans `actifs/bin/` (`*_bme.webp`, 1024 px) ; leurs
