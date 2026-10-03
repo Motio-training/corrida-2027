@@ -5676,7 +5676,7 @@ preparerPersonnages=function(){
     }).catch(function(e){ console.error('Jalonneur '+nom,e); });
   });
   p=p.then(function(){
-    return chargerAvatar('Military_Male_02',{sm024_body_color_acu:'sm024_body_color_ce',sm024_head_color_acu:'sm024_head_color_ce'});
+    return chargerAvatar('Military_Male_02',{sm024_body_color_acu:'sm024_body_color_bme',sm024_head_color_acu:'sm024_head_color_bme'});
   }).then(function(f){
     PERSO.coureurFbx=f;
     return Promise.all(['m_idle_neutral_01','m_walk_neutral_01','m_run_neutral_01'].map(chargerClip));
@@ -23496,16 +23496,18 @@ function aboyer29(x,z,force){
 VEH_DEF.spitz={nom:'Spitz', icone:'🐶', spitz:true};
 /* Le Maître chien n'est pas le coureur : c'est un autre militaire de
    Rocketbox (Military_Male_01, licence MIT), casqué, en gilet tactique,
-   que l'on reconnaît de loin. Son camouflage ACU est repeint en
-   centre-Europe comme celui du coureur, teinte par teinte, avec la table
-   tirée de la tenue du coureur (sm024 ACU → CE). Ses fichiers arrivent en
+   que l'on reconnaît de loin. Comme le coureur, il porte le bariolage
+   multi-environnement (BME) de l'armée française et un petit drapeau
+   tricolore à l'épaule : les textures ACU de Rocketbox sont repeintes hors
+   ligne — le motif BME posé sur le tissu, dont on garde les plis, et le
+   drapeau américain de la manche remplacé. Ses fichiers arrivent en
    différé : la ville ne l'attend pas, il apparaît à leur arrivée. Sur une
    page qui ne les charge pas, il reprend la tenue du coureur. */
 VEH_DEF.maitre_chien={avatar:'Military_Male_01', nom:'Maître chien', icone:'🦮', h:1.80};
 var _chargerAvatar29=chargerAvatar;
 chargerAvatar=function(nom,remplace){
-  if(nom==='Military_Male_02' && !remplace) remplace={sm024_body_color_acu:'sm024_body_color_ce',sm024_head_color_acu:'sm024_head_color_ce'};
-  if(nom==='Military_Male_01' && !remplace) remplace={sm002_body_color_acu:'sm002_body_color_ce',sm002_equipment_color_acu:'sm002_equipment_color_ce',sm002_helmet_color_acu:'sm002_helmet_color_ce'};
+  if(nom==='Military_Male_02' && !remplace) remplace={sm024_body_color_acu:'sm024_body_color_bme',sm024_head_color_acu:'sm024_head_color_bme'};
+  if(nom==='Military_Male_01' && !remplace) remplace={sm002_body_color_acu:'sm002_body_color_bme',sm002_equipment_color_acu:'sm002_equipment_color_bme',sm002_helmet_color_acu:'sm002_helmet_color_bme'};
   return _chargerAvatar29(nom,remplace);
 };
 function avatarMCPrevu29(){
