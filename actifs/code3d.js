@@ -28124,4 +28124,75 @@ quitterCourse31=function(){
   if(r) r.style.display='none'; if(b) b.style.opacity='0';
 };
 window.ESPACE3D.live.calque=function(){ return {barrieres:LIVEB34.im?LIVEB34.im.count:0, segments:LIVEB34.segs.length}; };
+
+/* ===== 35. les jalonneurs en treillis, gilet jaune ===== */
+/* Nicolas, 4 oct. 2026 : tous les jalonneurs sont des militaires en treillis
+   avec un gilet réfléchissant jaune, partout dans l'espace 3D. Le modèle est
+   celui du coureur (Rocketbox Military_Male_02, camouflage centre-Europe),
+   chargé une seule fois ; le gilet garde ses deux bandes réfléchissantes et
+   ne distingue plus indispensable et facultatif (la carte le fait). La
+   silhouette simplifiée, vue de loin, suit : gilet jaune, bras et pantalon
+   vert armée. */
+var _prepPerso35=preparerPersonnages;
+VARIANTES=['Military_Male_02','Military_Male_02','Military_Male_02','Military_Male_02'];
+preparerPersonnages=function(){
+  _prepAncien();
+  if(!EXT.FBXLoader || !window.ACTIFS || !ACTIFS['Military_Male_02.fbx']) return;
+  var p=chargerAvatar('Military_Male_02').then(function(f){
+    var g=normaliserAvatar(f,1.78), R=reposOs(g);
+    ['d','g','n','x'].forEach(function(bras){
+      restaurerOs(R); g.updateMatrixWorld(true);
+      poserBrasJalon(g,bras);
+      var fige=figerAvatar(g);
+      var e={parts:fige.map(function(q){ return {geo:q.geo, mat:q.mat}; }), chas:geoChasuble(fige)};
+      for(var vi=0;vi<4;vi++) PERSO.jal[vi+bras]=e;
+    });
+    restaurerOs(R); g.updateMatrixWorld(true);
+    PERSO.gabarits=PERSO.gabarits||{};
+    PERSO.gabarits['Military_Male_02']={g:g, f:f, rest:R};
+  }).catch(function(e){ console.error('Jalonneur militaire',e); });
+  p=p.then(function(){ return chargerAvatar('Military_Male_02'); }).then(function(f){
+    PERSO.coureurFbx=f;
+    return Promise.all(['m_idle_neutral_01','m_walk_neutral_01','m_run_neutral_01'].map(chargerClip));
+  }).then(function(c){
+    PERSO.clips={idle:c[0], walk:c[1], run:c[2]};
+    PERSO.pret=true;
+  }).catch(function(e){ console.error('Coureur réaliste indisponible',e); PERSO.pret=false; });
+  return p;
+};
+ETAPES.forEach(function(e){ if(e[1]===_prepPerso35) e[1]=preparerPersonnages; });
+/* les jalonneurs animés (près de la caméra) prennent le même gabarit */
+var _creerRig35=creerRig;
+creerRig=function(nom){
+  if(VIE.modeles[nom] || !PERSO.gabarits || !PERSO.gabarits[nom] || nom.indexOf('Military')!==0) return _creerRig35(nom);
+  var gb=PERSO.gabarits[nom];
+  VIE.modeles[nom]={g:gb.g, f:gb.f, rest:gb.rest, femme:false};
+  try{ return _creerRig35(nom); } finally { delete VIE.modeles[nom]; }
+};
+matChasuble=function(niv){
+  if(!TEX_CHASUBLE) TEX_CHASUBLE=faireTexChasuble();
+  if(!MAT.chasJaune) MAT.chasJaune=new THREE.MeshStandardMaterial({color:0xe4ee12, map:TEX_CHASUBLE,
+    roughness:0.55, metalness:0, emissive:0x2c3000, side:THREE.DoubleSide});
+  return MAT.chasJaune;
+};
+geoJalonSimple=function(niv,bras){
+  var cle='sj'+bras;
+  if(CACHE_GEO[cle]) return CACHE_GEO[cle];
+  var t=new Tas(4096), m=teinte(0xe4ee12), kaki=teinte(0x4f5638), peau=teinte(0xc99a72), s=bras==='d'?1:-1;
+  tube(t,0,0.93,0.095, 0,0.03,0.105, 0.085,0.05,6,kaki,true,true);
+  tube(t,0,0.93,-0.095, 0,0.03,-0.105, 0.085,0.05,6,kaki,true,true);
+  tube(t,0,0.86,0, 0,1.46,0, 0.155,0.19,8,m,true,true);
+  boule(t,0.01,1.665,0,0.11,1.08,8,peau);
+  if(bras==='n'){
+    tube(t,0,1.40,0.19, 0.03,0.86,0.22, 0.055,0.042,6,kaki,true,true);
+    tube(t,0,1.40,-0.19, 0.03,0.86,-0.22, 0.055,0.042,6,kaki,true,true);
+  } else if(bras==='x'){
+    tube(t,0,1.40,0.19, 0.42,1.52,-0.14, 0.055,0.042,6,kaki,true,true);
+    tube(t,0,1.40,-0.19, 0.40,1.50,0.14, 0.055,0.042,6,kaki,true,true);
+  } else {
+    tube(t,0,1.40,s*0.19, 0,1.43,s*0.86, 0.055,0.042,6,kaki,true,true);
+    tube(t,0,1.40,-s*0.19, 0.03,0.86,-s*0.22, 0.055,0.042,6,kaki,true,true);
+  }
+  return (CACHE_GEO[cle]=t.geo());
+};
 })();
