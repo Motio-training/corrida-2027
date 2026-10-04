@@ -27412,7 +27412,7 @@ window.ESPACE3D.live.avatar=function(av){ return revetirJoueur32(av||monAvatar32
    vertical qui se balance, paume vers l'avant. Le geste se superpose à
    l'animation en cours avec un poids qui monte et redescend en un tiers
    de seconde : le bras se lève et se repose, il ne saute pas. */
-var _qU32=new THREE.Quaternion(), _qF32=new THREE.Quaternion(), _qH32=new THREE.Quaternion();
+var _qU32=new THREE.Quaternion(), _qF32=new THREE.Quaternion(), _qH32=new THREE.Quaternion(), _qC32=new THREE.Quaternion();
 coucou31=function(g,t,w){
   if(w===undefined){
     var reste=LIVE.coucouT, fait=2.6-reste;
@@ -27424,11 +27424,16 @@ coucou31=function(g,t,w){
   var b1=B.Bip01_R_UpperArm, b2=B.Bip01_R_Forearm, b3=B.Bip01_R_Hand, f2=B.Bip01_R_Finger2||B.Bip01_R_Finger1;
   if(!b1 || !b2 || !b3) return;
   /* la pose de l'animation, gardée pour le mélange */
+  var cl=B.Bip01_R_Clavicle;
   _qU32.copy(b1.quaternion); _qF32.copy(b2.quaternion); _qH32.copy(b3.quaternion);
+  if(cl) _qC32.copy(cl.quaternion);
   g.updateWorldMatrix(true,true);
   var q=new THREE.Quaternion(); g.getWorldQuaternion(q);
   var droite=new THREE.Vector3(0,0,1).applyQuaternion(q), avant=new THREE.Vector3(1,0,0).applyQuaternion(q), haut=new THREE.Vector3(0,1,0);
-  var dU=droite.clone().multiplyScalar(0.84).add(haut.clone().multiplyScalar(0.38)).add(avant.clone().multiplyScalar(0.2)).normalize();
+  /* la clavicule monte avec le bras (élévation de l'épaule), sinon
+     l'humérus pend sous l'épaule comme s'il était déboîté */
+  if(cl) orienterOs(cl,b1,droite.clone().multiplyScalar(0.93).add(haut.clone().multiplyScalar(0.34)).add(avant.clone().multiplyScalar(0.06)).normalize());
+  var dU=droite.clone().multiplyScalar(0.84).add(haut.clone().multiplyScalar(0.42)).add(avant.clone().multiplyScalar(0.2)).normalize();
   var a=Math.sin(t*7.5)*0.36;
   var dF=haut.clone().multiplyScalar(Math.cos(a)).add(droite.clone().multiplyScalar(Math.sin(a))).add(avant.clone().multiplyScalar(0.12)).normalize();
   orienterOs(b1,b2,dU); orienterOs(b2,b3,dF); if(f2) orienterOs(b3,f2,dF);
@@ -27439,11 +27444,13 @@ coucou31=function(g,t,w){
     var ph=b3.getWorldPosition(new THREE.Vector3()), p1=i1.getWorldPosition(new THREE.Vector3()), p4=i4.getWorldPosition(new THREE.Vector3()), pm=f2.getWorldPosition(new THREE.Vector3());
     var le=pm.sub(ph).normalize(), tr=p1.sub(p4).normalize(), n=new THREE.Vector3().crossVectors(le,tr).normalize();
     var np=n.clone().sub(dF.clone().multiplyScalar(n.dot(dF))).normalize();
-    var cible=avant.clone().sub(dF.clone().multiplyScalar(avant.dot(dF))).normalize();
+    /* n sort du dos de la main : on le tourne vers l'arrière pour que la paume regarde devant */
+    var cible=avant.clone().negate().sub(dF.clone().multiplyScalar(-avant.dot(dF))).normalize();
     var ang=Math.atan2(new THREE.Vector3().crossVectors(np,cible).dot(dF), np.dot(cible));
     tournerOsMonde(b2,dF,ang*0.5); tournerOsMonde(b3,dF,ang*0.5);
   }
   /* mélange entre l'animation et le salut */
+  if(cl) cl.quaternion.copy(_qC32.slerp(cl.quaternion,w));
   b1.quaternion.copy(_qU32.slerp(b1.quaternion,w));
   b2.quaternion.copy(_qF32.slerp(b2.quaternion,w));
   b3.quaternion.copy(_qH32.slerp(b3.quaternion,w));
