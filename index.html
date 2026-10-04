@@ -215443,9 +215443,6 @@ function ouvrirWordZJ(){
 CARTE.zonesJalonnement=function(){ return ZJ; };
 zjRedessiner=function(){ SELZ=null; dessinerZJ(); zjListePlusTard(); };
 zjRedessiner();
-})();
-</script>
-<script>
 /* ---------------------------------------------------------------
    Calque « course en live » (Nicolas, 4 oct. 2026). Des barrières posées
    pour la course en live seulement, et des lignes invisibles qui
@@ -215594,7 +215591,7 @@ function panneau(){
   var s=document.createElement('style');
   s.textContent=[
     'body.mode-live .equip{opacity:.35}',
-    '#lv-carte{position:fixed;left:12px;top:64px;z-index:40;width:270px;background:var(--nuit,#0E141F);color:var(--creme,#F4F4F0);border:1px solid #F2B33D;border-radius:8px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12.5px;line-height:1.4}',
+    '#lv-carte{position:fixed;left:12px;top:100px;z-index:40;width:270px;background:var(--nuit,#0E141F);color:var(--creme,#F4F4F0);border:1px solid #F2B33D;border-radius:8px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12.5px;line-height:1.4}',
     '#lv-carte h3{margin:0 0 4px;font-size:14px;color:#F2B33D}',
     '#lv-carte p{margin:4px 0 8px;opacity:.85}',
     '#lv-carte .l{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}',
@@ -215724,6 +215721,7 @@ setTimeout(function(){
   pa.appendChild(sp); pa.appendChild(ti); pa.appendChild(b);
 },60);
 CARTE.modeLive=function(on){ basculerMode(on); return UI.on; };
+})();
 })();
 </script>
 <script>
