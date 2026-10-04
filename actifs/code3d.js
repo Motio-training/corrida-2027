@@ -26161,4 +26161,562 @@ window.ESPACE3D.surprises={
   poserChar:function(x,z,cap){ var v=CARTE.ajouterVehicule('char',laDeZ(z),loDeX(x),cap||0); majVehicules3D(); return !!v; },
   oublierInsignes:function(){ INS30.trouves={}; try{ localStorage.removeItem('corrida3d-insignes'); }catch(e){} INS30.liste.forEach(function(I){ I.g.visible=true; }); majChip30(); }
 };
+/* ===== 31. la course en live : vagues, inscription, course stratégique ===== */
+/* Nicolas, 4 oct. 2026. Le jour J, chacun s'inscrit sur une vague (30
+   coureurs au plus), se présente sur la ligne et court contre les autres,
+   en réseau. Le parcours complet se boucle en 7 à 8 minutes : la vitesse
+   de jeu est d'environ cinq fois l'allure réelle.
+
+   Ce qui départage :
+   - une réserve d'énergie : au-dessus de l'allure de croisière elle se
+     vide, en dessous elle se recharge ; vide, c'est le coup de bambou ;
+   - le dénivelé : la montée la vide bien plus vite, la descente ménage ;
+   - l'aspiration : dans le sillage d'un autre, on dépense moins ;
+   - les chocs : barrière, rubalise, arbre, véhicule, mur, autre coureur,
+     tout arrête net, et coûte un peu d'énergie ;
+   - pas de raccourci : seule compte la progression le long du tracé.
+   Pendant la course la ville est la même pour tous : ni piétons, ni
+   voitures, ni coureurs d'ambiance, ni chiens.
+
+   Le serveur (Supabase, fonctions live_*) garde les inscriptions, borne
+   la progression de chacun à ce qu'un coureur peut vraiment parcourir et
+   donne le temps officiel. Chaque coureur envoie sa position une fois par
+   seconde et reçoit celles des autres dans la même réponse. */
+var LIVE_REG={CS:17, VCROIS:17, VSPRINT:22, VRECUP:12, DMAX:320, PENTE:6, ASPI:0.82, CHOC:0.2, COUT_CHOC:15, COULOIR:12, K_REEL:17/3.47};
+var LIVE={ins:null, moi:null, enCours:false, etat:'repos', depart:0, decal:0, d:0, D:320, epuise:false, px:null, pz:null,
+          tChoc:0, tEnvoi:0, req:false, adv:new Map(), sauv:null, slot:null, vMes:0, msg:'', tMsg:0, aspi:false, rang:0, arrivee:null, ecart:0};
+var CLE_LIVE='corrida-live';
+try{ LIVE.ins=JSON.parse(localStorage.getItem(CLE_LIVE)||'null'); }catch(e){ LIVE.ins=null; }
+function garderInscription31(o){ LIVE.ins=o; try{ if(o) localStorage.setItem(CLE_LIVE,JSON.stringify(o)); else localStorage.removeItem(CLE_LIVE); }catch(e){} }
+
+function rpcLive(nom,args){
+  var S=window.SYNCHRO;
+  if(!S || !S.url) return Promise.reject(new Error('la base n’est pas joignable depuis cette page'));
+  var t0=Date.now();
+  return fetch(S.url+'/rest/v1/rpc/'+nom,{method:'POST', headers:{apikey:S.cle,'Content-Type':'application/json'}, body:JSON.stringify(args||{}), cache:'no-store'})
+    .then(function(r){
+      return r.text().then(function(t){
+        var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
+        if(!r.ok){ throw new Error((j && (j.message||j.hint)) || ('erreur '+r.status)); }
+        /* l'horloge du serveur, à la latence près */
+        if(j && j.now){ var d=j.now-(t0+Date.now())/2; LIVE.decal=LIVE.decal ? LIVE.decal*0.7+d*0.3 : d; }
+        return j;
+      });
+    });
+}
+function maintenant31(){ return Date.now()+LIVE.decal; }
+function chronoLive31(ms,dixiemes){
+  var neg=ms<0; ms=Math.abs(ms);
+  var s=Math.floor(ms/1000), m=Math.floor(s/60), h=Math.floor(m/60);
+  var t=(h?h+':'+String(m%60).padStart(2,'0'):String(m))+':'+String(s%60).padStart(2,'0');
+  if(dixiemes) t+=','+Math.floor((ms%1000)/100);
+  return (neg?'-':'')+t;
+}
+function dateVague31(ms){
+  var d=new Date(ms);
+  return d.toLocaleDateString('fr-FR',{weekday:'short', day:'numeric', month:'short'})+' à '+d.toLocaleTimeString('fr-FR',{hour:'2-digit', minute:'2-digit'});
+}
+function echap31(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+/* ---------- le panneau « Course en live » ---------- */
+function styleLive31(){
+  if($e('e3-style-live')) return;
+  var s=document.createElement('style'); s.id='e3-style-live';
+  s.textContent=[
+    '#e3-live{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100vw - 20px));max-height:calc(100% - 20px);overflow:auto;z-index:26;background:rgba(14,20,31,.97);border:1px solid #3a4a63;border-radius:16px;padding:14px;box-shadow:0 14px 40px rgba(0,0,0,.6);color:#dfe6f0;font:13px/1.45 Arial,Helvetica,sans-serif}',
+    '#e3-live h3{margin:0;font:700 20px "Oswald","Arial Narrow",Arial,sans-serif;color:#F2B33D}',
+    '#e3-live h4{margin:12px 0 6px;font:700 14px "Oswald","Arial Narrow",Arial,sans-serif;color:#fff;letter-spacing:.3px}',
+    '#e3-live .lv-tete{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}',
+    '#e3-live p{margin:4px 0 8px}',
+    '#e3-live .lv-carte{border:1px solid #2c3a50;border-radius:12px;padding:10px;margin-bottom:8px;background:rgba(255,255,255,.03)}',
+    '#e3-live .lv-v{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid #2c3a50;border-radius:10px;margin-bottom:6px;cursor:pointer}',
+    '#e3-live .lv-v.on{border-color:#F2B33D;background:rgba(242,179,61,.1)}',
+    '#e3-live .lv-v.plein{opacity:.45;cursor:default}',
+    '#e3-live .lv-v b{flex:1;color:#fff}',
+    '#e3-live .lv-v small{color:#98A3B6}',
+    '#e3-live input{width:100%;box-sizing:border-box;padding:9px 10px;border-radius:9px;border:1px solid #3a4a63;background:#0e1520;color:#fff;font-size:15px;margin:4px 0 8px}',
+    '#e3-live .lv-ligne{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}',
+    '#e3 #e3-live .lv-ligne button{flex:1;padding:10px;min-width:120px}',
+    '#e3 #e3-live button.lv-go{background:#F2B33D;color:#14202f;border-color:#F2B33D;font-weight:700}',
+    '#e3-live .lv-err{color:#ff8a80;font-weight:700;margin:6px 0}',
+    '#e3-live .lv-ok{color:#4ade80;font-weight:700}',
+    '#e3-live table{width:100%;border-collapse:collapse;font-size:12.5px}',
+    '#e3-live td{padding:3px 4px;border-bottom:1px solid #222d3d}',
+    '#e3-live td.t{text-align:right;font-variant-numeric:tabular-nums}',
+    '#e3-live .lv-podium{display:flex;gap:6px;align-items:flex-end;justify-content:center;margin:8px 0}',
+    '#e3-live .lv-marche{flex:1;text-align:center;border-radius:9px 9px 0 0;padding:6px 4px;color:#14202f;font-weight:700;font-size:12px}',
+    '#e3-live .lv-marche span{display:block;font:700 18px "Oswald","Arial Narrow",Arial,sans-serif}',
+    '#e3-live-hud{position:absolute;left:50%;top:52px;transform:translateX(-50%);z-index:20;display:none;gap:6px;align-items:stretch;color:#fff;font:12px/1.2 Arial,Helvetica,sans-serif;pointer-events:none}',
+    '#e3-live-hud .h{background:rgba(14,20,31,.88);border:1px solid #3a4a63;border-radius:10px;padding:5px 9px;text-align:center;min-width:64px}',
+    '#e3-live-hud .h i{display:block;font-style:normal;font-size:9px;letter-spacing:.5px;color:#98A3B6;text-transform:uppercase}',
+    '#e3-live-hud .h b{font:700 17px "Oswald","Arial Narrow",Arial,sans-serif;font-variant-numeric:tabular-nums}',
+    '#e3-live-hud .jauge{width:110px;height:9px;border-radius:5px;background:#2a3446;overflow:hidden;margin-top:4px}',
+    '#e3-live-hud .jauge div{height:100%;background:#4ade80;transition:background .3s}',
+    '#e3-live-msg{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);z-index:20;font:700 34px "Oswald","Arial Narrow",Arial,sans-serif;color:#fff;text-shadow:0 3px 12px rgba(0,0,0,.85);pointer-events:none;text-align:center;display:none;white-space:nowrap}',
+    '#e3-live-quit{position:absolute;left:10px;top:100px;z-index:20;display:none}',
+    '@media (max-width:600px){#e3-live-hud .h{min-width:48px;padding:4px 6px} #e3-live-hud .h b{font-size:14px} #e3-live-hud .jauge{width:70px}}'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+function panneauLive31(){
+  styleLive31();
+  var p=$e('e3-live');
+  if(p) return p;
+  p=document.createElement('div'); p.id='e3-live'; p.hidden=true;
+  $e('e3').appendChild(p);
+  ['pointerdown','pointerup','wheel','touchstart','keydown'].forEach(function(t){ p.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+  p.addEventListener('click',function(ev){
+    ev.stopPropagation();
+    var b=ev.target.closest ? ev.target.closest('[data-a]') : null;
+    if(!b) return;
+    actionLive31(b.dataset.a,b.dataset);
+  });
+  return p;
+}
+var VUE31={page:'accueil', vagues:[], choix:null, err:'', info:'', admin:null, inscrits:{}};
+function ouvrirLive31(page){
+  var p=panneauLive31();
+  VUE31.page=page||'accueil'; VUE31.err=''; VUE31.info='';
+  p.hidden=false;
+  rafraichirLive31();
+}
+function fermerLive31(){ var p=$e('e3-live'); if(p) p.hidden=true; }
+function rafraichirLive31(){
+  var p=panneauLive31();
+  p.innerHTML='<div class="lv-tete"><h3>🏁 Course en live</h3><button data-a="fermer" title="Fermer">✕</button></div><p>Chargement…</p>';
+  var att=[rpcLive('live_vagues_liste').then(function(v){ VUE31.vagues=v||[]; })];
+  if(LIVE.ins) att.push(rpcLive('live_moi',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton}).then(function(m){ LIVE.moi=m; })
+    .catch(function(e){ if(/inconnue/.test(e.message)){ garderInscription31(null); LIVE.moi=null; } else throw e; }));
+  if(VUE31.page==='resultats') att.push(rpcLive('live_resultats').then(function(r){ VUE31.resultats=r; }));
+  Promise.all(att).then(dessinerLive31).catch(function(e){ VUE31.err='Connexion impossible : '+e.message; dessinerLive31(); });
+}
+function vagueParId31(id){ for(var i=0;i<VUE31.vagues.length;i++) if(VUE31.vagues[i].id===id) return VUE31.vagues[i]; return null; }
+function dessinerLive31(){
+  var p=panneauLive31(), h='', now=maintenant31();
+  h+='<div class="lv-tete"><h3>🏁 Course en live</h3><button data-a="fermer" title="Fermer">✕</button></div>';
+  if(VUE31.err) h+='<div class="lv-err">'+echap31(VUE31.err)+'</div>';
+  if(VUE31.info) h+='<div class="lv-ok">'+echap31(VUE31.info)+'</div>';
+  if(VUE31.page==='resultats'){ h+=htmlResultats31(); }
+  else if(VUE31.page==='admin'){ h+=htmlAdmin31(); }
+  else if(LIVE.ins && LIVE.moi){
+    var m=LIVE.moi, dep=m.depart, ouvert=now>=dep-15*60000 && now<=dep+20*60000;
+    h+='<div class="lv-carte"><b style="font-size:15px;color:#fff">'+echap31(m.pseudo)+'</b><br>'+echap31(m.nom)+' · départ '+dateVague31(dep)+'<br>';
+    if(m.arrivee_ms) h+='<span class="lv-ok">Arrivé en '+chronoLive31(m.arrivee_ms,true)+'</span>';
+    else if(now<dep) h+='Départ dans <b>'+chronoLive31(dep-now)+'</b>';
+    else if(now<=dep+20*60000) h+='<b style="color:#F2B33D">Course lancée depuis '+chronoLive31(now-dep)+'</b> : tu pars avec le chrono déjà lancé.';
+    else h+='Cette vague est terminée.';
+    h+='</div>';
+    if(!m.arrivee_ms) h+='<div class="lv-ligne"><button class="lv-go" data-a="rejoindre" '+(ouvert?'':'disabled')+'>🏁 Rejoindre la ligne de départ</button></div>'+
+       (ouvert?'':'<p style="color:#98A3B6;font-size:12px">La ligne de départ ouvre 15 minutes avant le départ.</p>');
+    h+='<div class="lv-ligne"><button data-a="changer">Changer de vague</button><button data-a="desinscrire">Se désinscrire</button></div>';
+    if(VUE31.page==='changer'){
+      h+='<h4>Rejoindre une autre vague</h4>'+htmlVagues31(m.vague,true)+'<div class="lv-ligne"><button class="lv-go" data-a="confirmerChanger">Valider</button></div>';
+    }
+  } else {
+    h+='<p>Inscris-toi sur une vague. Le jour J, présente-toi sur la ligne de départ : au coup d’envoi, tu cours contre les autres inscrits de ta vague, en direct.</p>';
+    h+='<h4>1. Choisis ta vague</h4>'+htmlVagues31(null,false);
+    h+='<h4>2. Ton pseudo</h4><input id="lv-pseudo" maxlength="20" placeholder="2 à 20 caractères" autocomplete="off">';
+    h+='<div class="lv-ligne"><button class="lv-go" data-a="inscrire">S’inscrire</button></div>';
+  }
+  h+='<div class="lv-ligne">'+(VUE31.page!=='resultats'?'<button data-a="resultats">🏆 Résultats</button>':'<button data-a="accueil">← Retour</button>')+
+     (!window.CONSULTATION && VUE31.page!=='admin'?'<button data-a="admin">⚙️ Gérer les vagues</button>':'')+'</div>';
+  p.innerHTML=h;
+}
+function htmlVagues31(exclure,pourChanger){
+  var now=maintenant31(), L=VUE31.vagues.filter(function(v){ return v.depart+20*60000>now && v.id!==exclure; }), h='';
+  if(!L.length) return '<p style="color:#98A3B6">Aucune vague ouverte pour le moment.</p>';
+  L.forEach(function(v){
+    var plein=v.inscrits>=v.capacite, lance=now>v.depart;
+    h+='<div class="lv-v'+(plein?' plein':'')+(VUE31.choix===v.id?' on':'')+'" data-a="choisir" data-id="'+v.id+'"><b>'+echap31(v.nom)+'</b><small>'+dateVague31(v.depart)+
+       (lance?' · <span style="color:#F2B33D">lancée</span>':'')+'<br>'+(plein?'complète':(v.capacite-v.inscrits)+' place'+(v.capacite-v.inscrits>1?'s':'')+' sur '+v.capacite)+'</small></div>';
+  });
+  return h;
+}
+function htmlResultats31(){
+  var R=VUE31.resultats||{vagues:[],general:[]}, h='';
+  function podium(L){
+    if(!L.length) return '<p style="color:#98A3B6">Pas encore d’arrivée.</p>';
+    var c=['#C9CED6','#F2B33D','#C98B5A'], o=[1,0,2], hgt=[52,70,40], s='<div class="lv-podium">';
+    o.forEach(function(k){ var e=L[k]; s+='<div class="lv-marche" style="background:'+c[o.indexOf(k)===1?1:(k===1?0:2)]+';min-height:'+hgt[o.indexOf(k)]+'px">'+(e?'<span>'+(k+1)+'</span>'+echap31(e.p)+'<br>'+chronoLive31(e.t,true):'')+'</div>'; });
+    return s+'</div>';
+  }
+  h+='<h4>🏆 Toutes vagues</h4>'+podium(R.general||[]);
+  if((R.general||[]).length>3){ h+='<table>'; R.general.slice(3,10).forEach(function(e,i){ h+='<tr><td>'+(i+4)+'</td><td>'+echap31(e.p)+'</td><td>'+echap31(e.vague)+'</td><td class="t">'+chronoLive31(e.t,true)+'</td></tr>'; }); h+='</table>'; }
+  (R.vagues||[]).forEach(function(v){
+    if(!v.classement.length) return;
+    h+='<h4>'+echap31(v.nom)+'</h4>'+podium(v.classement);
+    if(v.classement.length>3){ h+='<table>'; v.classement.slice(3).forEach(function(e,i){ h+='<tr><td>'+(i+4)+'</td><td>'+echap31(e.p)+'</td><td class="t">'+chronoLive31(e.t,true)+'</td></tr>'; }); h+='</table>'; }
+  });
+  return h;
+}
+/* la gestion des vagues : le code est celui de l'enregistrement de la carte */
+function codeAdmin31(){ try{ return localStorage.getItem('corrida-code-secret')||''; }catch(e){ return ''; } }
+function htmlAdmin31(){
+  var h='<h4>⚙️ Gérer les vagues</h4>';
+  if(!VUE31.admin){
+    h+='<p>Ton code d’enregistrement de la carte :</p><input id="lv-code" type="password" autocomplete="off" value=""><div class="lv-ligne"><button class="lv-go" data-a="adminCode">Valider</button></div>';
+    return h;
+  }
+  h+='<div class="lv-carte"><b style="color:#fff">Nouvelle vague</b><input id="lv-nom" placeholder="Nom (ex. Vague 1)" maxlength="40"><input id="lv-date" type="datetime-local"><input id="lv-cap" type="number" min="2" max="60" value="30" placeholder="Places"><div class="lv-ligne"><button class="lv-go" data-a="creerVague">Créer la vague</button></div></div>';
+  VUE31.vagues.forEach(function(v){
+    var I=VUE31.inscrits[v.id];
+    h+='<div class="lv-carte"><b style="color:#fff">'+echap31(v.nom)+'</b> · '+dateVague31(v.depart)+' · '+v.inscrits+'/'+v.capacite+
+       '<div class="lv-ligne"><button data-a="voirInscrits" data-id="'+v.id+'">Inscrits</button><button data-a="supprimerVague" data-id="'+v.id+'">Supprimer la vague</button></div>';
+    if(I){
+      if(!I.length) h+='<p style="color:#98A3B6">Personne pour l’instant.</p>';
+      else { h+='<table>'; I.forEach(function(e){ h+='<tr><td>'+echap31(e.pseudo)+'</td><td class="t">'+(e.arrivee_ms?chronoLive31(e.arrivee_ms,true):'')+'</td><td class="t"><button data-a="retirer" data-id="'+e.id+'" data-v="'+v.id+'" title="Retirer">✕</button></td></tr>'; }); h+='</table>'; }
+    }
+    h+='</div>';
+  });
+  return h;
+}
+function actionLive31(a,ds){
+  VUE31.err=''; VUE31.info='';
+  if(a==='fermer'){ fermerLive31(); return; }
+  if(a==='accueil' || a==='resultats' || a==='admin'){ VUE31.page=a; if(a==='admin' && !VUE31.admin && codeAdmin31()){ VUE31.admin=codeAdmin31(); } rafraichirLive31(); return; }
+  if(a==='choisir'){ VUE31.choix=+ds.id; var pseudo=$e('lv-pseudo'), val=pseudo?pseudo.value:''; dessinerLive31(); if($e('lv-pseudo')) $e('lv-pseudo').value=val; return; }
+  if(a==='inscrire'){
+    var ps=($e('lv-pseudo')||{}).value||'';
+    if(!VUE31.choix){ VUE31.err='Choisis d’abord une vague.'; dessinerLive31(); return; }
+    rpcLive('live_inscrire',{p_vague:VUE31.choix, p_pseudo:ps.trim(), p_avatar:{}}).then(function(r){
+      garderInscription31({id:r.id, jeton:r.jeton, vague:r.vague, pseudo:ps.trim()});
+      VUE31.info='Inscription enregistrée. Garde cette page : ton inscription est retenue sur cet appareil.';
+      VUE31.page='accueil'; rafraichirLive31();
+    }).catch(function(e){ VUE31.err=messageErreur31(e); dessinerLive31(); if($e('lv-pseudo')) $e('lv-pseudo').value=ps; });
+    return;
+  }
+  if(a==='changer'){ VUE31.page=VUE31.page==='changer'?'accueil':'changer'; VUE31.choix=null; dessinerLive31(); return; }
+  if(a==='confirmerChanger'){
+    if(!VUE31.choix){ VUE31.err='Choisis une vague.'; dessinerLive31(); return; }
+    rpcLive('live_changer_vague',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton, p_vague:VUE31.choix}).then(function(m){
+      LIVE.ins.vague=m.vague; garderInscription31(LIVE.ins); VUE31.page='accueil'; VUE31.info='Tu cours maintenant dans « '+m.nom+' ».'; rafraichirLive31();
+    }).catch(function(e){ VUE31.err=messageErreur31(e); dessinerLive31(); });
+    return;
+  }
+  if(a==='desinscrire'){
+    if(!confirm('Te désinscrire de la course ?')) return;
+    rpcLive('live_desinscrire',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton}).catch(function(){}).then(function(){ garderInscription31(null); LIVE.moi=null; VUE31.info='Désinscription faite.'; rafraichirLive31(); });
+    return;
+  }
+  if(a==='rejoindre'){ fermerLive31(); entrerCourse31(); return; }
+  if(a==='adminCode'){
+    var c=($e('lv-code')||{}).value||'';
+    rpcLive('live_admin',{p_code:c, p_action:'inscrits', p_args:{vague:0}}).then(function(){ VUE31.admin=c; try{ localStorage.setItem('corrida-code-secret',c); }catch(e){} rafraichirLive31(); })
+      .catch(function(e){ VUE31.err=messageErreur31(e); dessinerLive31(); });
+    return;
+  }
+  if(a==='creerVague'){
+    var nom=($e('lv-nom')||{}).value||'', dt=($e('lv-date')||{}).value||'', cap=+(($e('lv-cap')||{}).value||30);
+    if(!dt){ VUE31.err='Indique la date et l’heure du départ.'; dessinerLive31(); return; }
+    rpcLive('live_admin',{p_code:VUE31.admin, p_action:'creer', p_args:{nom:nom, depart:new Date(dt).toISOString(), capacite:cap, longueur:Math.round(LONGUEUR)}})
+      .then(function(){ VUE31.info='Vague créée.'; rafraichirLive31(); }).catch(function(e){ VUE31.err=messageErreur31(e); dessinerLive31(); });
+    return;
+  }
+  if(a==='supprimerVague'){
+    if(!confirm('Supprimer cette vague et ses inscrits ?')) return;
+    rpcLive('live_admin',{p_code:VUE31.admin, p_action:'supprimer', p_args:{id:+ds.id}}).then(function(){ VUE31.info='Vague supprimée.'; rafraichirLive31(); })
+      .catch(function(e){ VUE31.err=messageErreur31(e); dessinerLive31(); });
+    return;
+  }
+  if(a==='voirInscrits'){
+    rpcLive('live_admin',{p_code:VUE31.admin, p_action:'inscrits', p_args:{vague:+ds.id}}).then(function(L){ VUE31.inscrits[+ds.id]=L||[]; dessinerLive31(); })
+      .catch(function(e){ VUE31.err=messageErreur31(e); dessinerLive31(); });
+    return;
+  }
+  if(a==='retirer'){
+    if(!confirm('Retirer cet inscrit ?')) return;
+    rpcLive('live_admin',{p_code:VUE31.admin, p_action:'retirer', p_args:{id:ds.id}}).then(function(){ delete VUE31.inscrits[+ds.v]; VUE31.info='Inscrit retiré.'; rafraichirLive31(); })
+      .catch(function(e){ VUE31.err=messageErreur31(e); dessinerLive31(); });
+    return;
+  }
+}
+function messageErreur31(e){
+  var m=String(e && e.message || e);
+  if(/pseudo refusé/.test(m)) return 'Ce pseudo n’est pas accepté. Choisis-en un autre (2 à 20 lettres ou chiffres).';
+  if(/déjà pris/.test(m)) return 'Ce pseudo est déjà pris dans cette vague.';
+  if(/complète/.test(m)) return 'Cette vague est complète.';
+  if(/terminée/.test(m)) return 'Cette vague est terminée.';
+  if(/code refusé/.test(m)) return 'Code refusé.';
+  return m;
+}
+
+/* ---------- la course ---------- */
+function slotDepart31(){
+  var k=0, s=LIVE.ins?LIVE.ins.id:'x';
+  for(var i=0;i<s.length;i++) k=(k*31+s.charCodeAt(i))>>>0;
+  k%=30;
+  var p=pointArrondi(0), c=capArrondi(0), f=[Math.cos(c),Math.sin(c)], l=[-f[1],f[0]];
+  var row=Math.floor(k/5), col=k%5-2;
+  var x=p[0]-f[0]*(2.5+row*1.6)+l[0]*col*1.25, z=p[1]-f[1]*(2.5+row*1.6)+l[1]*col*1.25;
+  if(bloquer(x,z)){ x=p[0]-f[0]*(2.5+row*1.6); z=p[1]-f[1]*(2.5+row*1.6); }
+  return {x:x, z:z, cap:c};
+}
+function entrerCourse31(){
+  if(!LIVE.ins){ ouvrirLive31(); return; }
+  rpcLive('live_moi',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton}).then(function(m){
+    LIVE.moi=m;
+    if(m.arrivee_ms){ dire('Tu as déjà couru cette vague : '+chronoLive31(m.arrivee_ms,true)+'.'); return; }
+    LIVE.depart=m.depart;
+    if(LIVE.enCours) return;
+    if(typeof JEU29!=='undefined' && JEU29.actif) finJeu29(false,null);
+    LIVE.sauv={vitesse:VITESSE, traf:TRAF.mode, pietons:NB_PIETONS, coureurs:NB_COUREURS, chien:CHIEN_VOULU, peloton:PELOTON.voulu, coll:collisions,
+               promene:(typeof MC29!=='undefined')?MC29.promene:false};
+    NB_PIETONS=[0,0,0]; NB_COUREURS=[0,0,0]; TRAF.mode=0; PELOTON.voulu=false; collisions=true;
+    if(CHIEN){ CHIEN.visible=false; } CHIEN_VOULU=false;
+    if(typeof MC29!=='undefined' && MC29.promene){ MC29.promene=false; majPromenade29(true); }
+    if(VUE==='jal') sortirVueJal();
+    if(auto) basculerAuto();
+    if(VUE==='fp') basculerVue();
+    LIVE.slot=slotDepart31();
+    J.x=LIVE.slot.x; J.z=LIVE.slot.z; J.cap=LIVE.slot.cap; J.v=0; CAM.yaw=J.cap; CAM.libre=0; CAM.capPrec=null;
+    LIVE.enCours=true; LIVE.etat='attente'; LIVE.d=Math.max(0,m.d_valide||0); LIVE.D=LIVE_REG.DMAX; LIVE.epuise=false;
+    LIVE.px=J.x; LIVE.pz=J.z; LIVE.arrivee=null; LIVE.tEnvoi=0; OBST22.ver++;
+    hudLive31(true);
+    dire(maintenant31()<LIVE.depart ? 'Tu es sur la ligne de départ. Attends le coup d’envoi !' : 'La course est lancée : fonce, ton chrono tourne déjà !');
+  }).catch(function(e){ dire('Course en live : '+messageErreur31(e)); });
+}
+function quitterCourse31(){
+  if(!LIVE.enCours) return;
+  LIVE.enCours=false; LIVE.etat='repos';
+  var S=LIVE.sauv||{};
+  VITESSE=S.vitesse||VITESSE; TRAF.mode=S.traf; NB_PIETONS=S.pietons||NB_PIETONS; NB_COUREURS=S.coureurs||NB_COUREURS;
+  PELOTON.voulu=S.peloton!==false; collisions=S.coll!==false; CHIEN_VOULU=!!S.chien; if(CHIEN) CHIEN.visible=CHIEN_VOULU;
+  if(S.promene && typeof MC29!=='undefined'){ MC29.promene=true; majPromenade29(true); }
+  LIVE.adv.forEach(function(a){ libererAdv31(a); }); LIVE.adv.clear();
+  OBST22.ver++;
+  hudLive31(false);
+}
+function hudLive31(montrer){
+  styleLive31();
+  var h=$e('e3-live-hud');
+  if(!h){
+    h=document.createElement('div'); h.id='e3-live-hud';
+    h.innerHTML='<div class="h"><i>Chrono</i><b id="lv-chrono">0:00</b></div><div class="h"><i>Rang</i><b id="lv-rang">–</b></div>'+
+      '<div class="h"><i>Parcours</i><b id="lv-km">0,00</b></div><div class="h"><i>Énergie</i><div class="jauge"><div id="lv-jauge" style="width:100%"></div></div><span id="lv-allure" style="font-size:10px;color:#c8d1de"></span></div>';
+    $e('e3').appendChild(h);
+    var m=document.createElement('div'); m.id='e3-live-msg'; $e('e3').appendChild(m);
+    var q=document.createElement('div'); q.id='e3-live-quit'; q.innerHTML='<button type="button">✕ Quitter la course</button>';
+    $e('e3').appendChild(q);
+    q.addEventListener('pointerdown',function(ev){ ev.stopPropagation(); });
+    q.querySelector('button').addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); if(LIVE.etat==='arrive' || confirm('Quitter la course ?')) quitterCourse31(); });
+  }
+  h.style.display=montrer?'flex':'none';
+  $e('e3-live-quit').style.display=montrer?'block':'none';
+  if(!montrer) $e('e3-live-msg').style.display='none';
+}
+function messageLive31(t,duree){
+  var m=$e('e3-live-msg'); if(!m) return;
+  m.textContent=t; m.style.display=t?'block':'none';
+  LIVE.tMsg=duree||0;
+}
+
+/* la progression : la projection sur le tracé la plus proche, dans une
+   fenêtre autour de la position courante (un tracé qui repasse par la
+   même rue ne fait pas sauter de passage), et jamais en reculant */
+function progresLive31(){
+  var a=Math.max(0,LIVE.d-12), b=Math.min(LONGUEUR,LIVE.d+45), best=1e9, bd=LIVE.d;
+  for(var dd=a; dd<=b; dd+=1.5){
+    var p=pointArrondi(dd), e=Math.hypot(p[0]-J.x,p[1]-J.z);
+    if(e<best){ best=e; bd=dd; }
+  }
+  LIVE.ecart=best;
+  if(best<=LIVE_REG.COULOIR && bd>LIVE.d) LIVE.d=Math.min(LONGUEUR,bd);
+  return best;
+}
+/* le coureur tel que le prévoit la dernière nouvelle reçue */
+function predireAdv31(a,now){
+  var dt=Math.min(2.5,Math.max(0,(now-a.recu)/1000+a.age/1000));
+  if(a.arrive) dt=0;
+  return [a.x+Math.cos(a.c)*a.v*dt, a.z+Math.sin(a.c)*a.v*dt];
+}
+var _majJoueur31=majJoueur;
+majJoueur=function(dt){
+  if(LIVE.enCours && dt) try{ piloterCourse31(dt); }catch(e){ console.error('course live :',e); }
+  _majJoueur31(dt);
+};
+function piloterCourse31(dt){
+  var R=LIVE_REG, now=maintenant31();
+  var vMes=(LIVE.px===null)?0:Math.hypot(J.x-LIVE.px,J.z-LIVE.pz)/dt;
+  LIVE.vMes+= (vMes-LIVE.vMes)*Math.min(1,dt*6);
+  if(LIVE.tMsg>0){ LIVE.tMsg-=dt; if(LIVE.tMsg<=0) messageLive31(''); }
+  if(LIVE.etat==='attente'){
+    if(now<LIVE.depart){
+      /* sur la ligne : on attend le coup d'envoi */
+      J.x=LIVE.slot.x; J.z=LIVE.slot.z; J.v=0;
+      var r=Math.ceil((LIVE.depart-now)/1000);
+      if(r<=10) messageLive31(String(r),0.3); else if(r<=60) messageLive31('Départ dans '+r+' s',0.3);
+      $e('lv-chrono').textContent=chronoLive31(now-LIVE.depart);
+    } else { LIVE.etat='course'; messageLive31('Partez !',1.2); }
+  }
+  if(LIVE.etat==='course'){
+    /* les chocs : le pas voulu n'a pas eu lieu, l'élan est perdu */
+    LIVE.tChoc-=dt;
+    if(J.v>4 && vMes<J.v*0.45 && LIVE.tChoc<=0){
+      J.v*=R.CHOC; LIVE.D=Math.max(0,LIVE.D-R.COUT_CHOC); LIVE.tChoc=0.5;
+      messageLive31('Choc !',0.6);
+    }
+    /* la pente sous les pieds, dans le sens de la course */
+    var c=J.cap, h0=hauteur(J.x,J.z), h1=hauteur(J.x+Math.cos(c)*2,J.z+Math.sin(c)*2), pente=(h1-h0)/2;
+    var cout=Math.max(0.6,Math.min(2.2,1+R.PENTE*pente));
+    /* l'aspiration : un coureur juste devant, dans l'axe */
+    LIVE.aspi=false;
+    LIVE.adv.forEach(function(a){
+      if(a.arrive) return;
+      var q=predireAdv31(a,now), dx=q[0]-J.x, dz=q[1]-J.z, av=dx*Math.cos(c)+dz*Math.sin(c), lat=Math.abs(-dx*Math.sin(c)+dz*Math.cos(c));
+      if(av>0.6 && av<4 && lat<0.9) LIVE.aspi=true;
+    });
+    if(LIVE.aspi) cout*=R.ASPI;
+    var vEff=LIVE.vMes*cout;
+    if(vEff>R.CS) LIVE.D-=(vEff-R.CS)*dt; else LIVE.D+=(R.CS-vEff)*0.55*dt;
+    LIVE.D=Math.max(0,Math.min(R.DMAX,LIVE.D));
+    if(LIVE.D<=0 && !LIVE.epuise){ LIVE.epuise=true; messageLive31('Coup de bambou !',1.5); }
+    if(LIVE.epuise && LIVE.D>R.DMAX*0.3) LIVE.epuise=false;
+    /* l'allure de l'image suivante : croisière, sprint (Maj ou joystick à
+       fond), ou récupération forcée quand la réserve est vide */
+    var base=LIVE.epuise?R.VRECUP:R.VCROIS;
+    VITESSE=touches['shift'] ? (LIVE.epuise?R.VRECUP:R.VSPRINT)/1.6 : base;
+    var e=progresLive31();
+    if(e>R.COULOIR && LIVE.tMsg<=0) messageLive31('Hors parcours : reviens sur le tracé',0.4);
+    $e('lv-chrono').textContent=chronoLive31(now-LIVE.depart);
+    if(LIVE.d>=LONGUEUR-1.5) arriveeLive31();
+  }
+  if(LIVE.etat==='arrive'){ J.v*=Math.max(0,1-dt*1.5); VITESSE=0.01; }
+  /* tableau de bord */
+  $e('lv-km').textContent=(LIVE.d/1000).toFixed(2).replace('.',',')+' / '+(LONGUEUR/1000).toFixed(1).replace('.',',');
+  var j=$e('lv-jauge'), f=LIVE.D/R.DMAX;
+  j.style.width=Math.round(f*100)+'%'; j.style.background=LIVE.epuise?'#ef4444':(f<0.3?'#f59e0b':'#4ade80');
+  $e('lv-allure').textContent='≈ '+(LIVE.vMes/R.K_REEL*3.6).toFixed(1).replace('.',',')+' km/h'+(LIVE.aspi?' · aspiration':'');
+  var devant=0; LIVE.adv.forEach(function(a){ if(a.a ? (!LIVE.arrivee || a.a<LIVE.arrivee) : (!LIVE.arrivee && a.d>LIVE.d)) devant++; });
+  LIVE.rang=devant+1;
+  $e('lv-rang').textContent=LIVE.rang+(LIVE.rang===1?'er':'e')+' / '+(LIVE.adv.size+1);
+  LIVE.px=J.x; LIVE.pz=J.z;
+  /* le réseau : une position par seconde, le peloton en retour */
+  LIVE.tEnvoi-=dt;
+  if(LIVE.tEnvoi<=0 && !LIVE.req && LIVE.ins){
+    LIVE.tEnvoi=1; LIVE.req=true;
+    rpcLive('live_course',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton, p_x:J.x, p_z:J.z, p_cap:J.cap, p_v:LIVE.etat==='course'?LIVE.vMes:0, p_d:LIVE.d})
+      .then(recevoirPeloton31).catch(function(e){ console.warn('course live :',e.message); })
+      .then(function(){ LIVE.req=false; });
+  }
+  majAdversaires31(dt,now);
+}
+function arriveeLive31(){
+  if(LIVE.etat==='arrive') return;
+  LIVE.etat='arrive';
+  messageLive31('Arrivée !',2);
+  var essai=function(n){
+    rpcLive('live_arrivee',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton}).then(function(r){
+      LIVE.arrivee=r.arrivee_ms;
+      messageLive31(chronoLive31(r.arrivee_ms,true)+' · '+r.rang+(r.rang===1?'er':'e'),6);
+      dire('Arrivée en '+chronoLive31(r.arrivee_ms,true)+', '+r.rang+(r.rang===1?'er':'e')+' de ta vague. Bravo !');
+      setTimeout(function(){ ouvrirLive31('resultats'); },4000);
+    }).catch(function(e){
+      /* la dernière position n'est peut-être pas encore arrivée au serveur */
+      if(n<4) setTimeout(function(){ essai(n+1); },1200);
+      else dire('Arrivée non validée : '+messageErreur31(e));
+    });
+  };
+  setTimeout(function(){ essai(0); },1100);
+}
+
+/* ---------- les adversaires ---------- */
+function recevoirPeloton31(r){
+  if(!r || !r.coureurs) return;
+  var moi=LIVE.ins?LIVE.ins.id.slice(0,8):'', vus=new Set(), t=Date.now();
+  r.coureurs.forEach(function(c){
+    if(c.i===moi || c.x===null) return;
+    vus.add(c.i);
+    var a=LIVE.adv.get(c.i);
+    if(!a){ a={i:c.i, p:c.p, rx:c.x, rz:c.z, rc:c.c||0, rig:null}; LIVE.adv.set(c.i,a); }
+    a.x=c.x; a.z=c.z; a.c=c.c||0; a.v=c.v||0; a.d=c.d||0; a.a=c.a; a.arrive=!!c.a; a.age=c.age||0; a.recu=t;
+  });
+  LIVE.adv.forEach(function(a,k){ if(!vus.has(k)){ libererAdv31(a); LIVE.adv.delete(k); } });
+  if(r.depart) LIVE.depart=r.depart;
+}
+function etiquetteAdv31(nom){
+  var cv=document.createElement('canvas'); cv.width=256; cv.height=64;
+  var g=cv.getContext('2d');
+  g.font='700 34px "Oswald","Arial Narrow",Arial,sans-serif';
+  var w=Math.min(250,g.measureText(nom).width+24);
+  g.fillStyle='rgba(14,20,31,0.8)'; g.fillRect((256-w)/2,8,w,48);
+  g.fillStyle='#ffffff'; g.textAlign='center'; g.textBaseline='middle'; g.fillText(nom,128,33);
+  var t=new THREE.CanvasTexture(cv); if(t.colorSpace!==undefined) t.colorSpace=THREE.SRGBColorSpace;
+  var s=new THREE.Sprite(new THREE.SpriteMaterial({map:t, transparent:true, depthWrite:false}));
+  s.scale.set(1.4,0.35,1); s.renderOrder=6;
+  return s;
+}
+function rigAdv31(a){
+  var noms=FOULE.pret?Object.keys(FOULE.modeles):[];
+  if(!noms.length || !FOULE.run) return null;
+  var k=0; for(var i=0;i<a.i.length;i++) k=(k*31+a.i.charCodeAt(i))>>>0;
+  var rig=creerRigCoureur(noms[k%noms.length]);
+  if(!rig) return null;
+  var ac=rig.mix.clipAction(FOULE.run); ac.play();
+  rig.act=ac; rig.g.visible=true;
+  /* l'étiquette vit dans la scène : le modèle est mis à l'échelle à l'intérieur */
+  rig.etiq=etiquetteAdv31(a.p); monde.add(rig.etiq);
+  return rig;
+}
+function libererAdv31(a){ if(a.rig){ if(a.rig.g.parent) a.rig.g.parent.remove(a.rig.g); if(a.rig.etiq && a.rig.etiq.parent) a.rig.etiq.parent.remove(a.rig.etiq); a.rig=null; } }
+function majAdversaires31(dt,now){
+  var ombre=QUAL().ombre>0;
+  LIVE.adv.forEach(function(a){
+    var q=predireAdv31(a,now);
+    /* la position affichée rattrape la prévision sans sauter */
+    var k=Math.min(1,dt*4);
+    if(Math.hypot(q[0]-a.rx,q[1]-a.rz)>25){ a.rx=q[0]; a.rz=q[1]; }
+    a.rx+=(q[0]-a.rx)*k; a.rz+=(q[1]-a.rz)*k; a.rc+=ecartAngle(a.c-a.rc)*k;
+    if(!a.rig) a.rig=rigAdv31(a);
+    if(!a.rig) return;
+    var g=a.rig.g;
+    g.position.set(a.rx,hauteurSol(a.rx,a.rz,0),a.rz);
+    g.rotation.y=-a.rc;
+    a.rig.etiq.position.set(a.rx,g.position.y+2.15,a.rz);
+    a.rig.act.setEffectiveTimeScale(a.arrive?0.4:Math.max(0.5,Math.min(2.4,a.v/7)));
+    a.rig.mix.update(dt);
+    a.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
+  });
+}
+
+/* ---------- arbres et coureurs : des obstacles comme les autres ---------- */
+function octogone31(x,z,r){ var P=[]; for(var i=0;i<8;i++){ var t=i/8*2*PI; P.push(x+Math.cos(t)*r,z+Math.sin(t)*r); } return {t:2,p:P,r:0}; }
+var _construireObst31=construireObst22;
+construireObst22=function(cx,cz){
+  _construireObst31(cx,cz);
+  if(!LIVE.enCours) return;
+  var L=OBST22.liste, A=ARB.liste||[];
+  for(var i=0;i<A.length;i++){ var t=A[i]; if(Math.abs(t.x-cx)<17 && Math.abs(t.z-cz)<17) L.push(octogone31(t.x,t.z,t.v===4?0.42:0.3)); }
+};
+var _heurte31=heurte22;
+heurte22=function(x,z){
+  var o=_heurte31(x,z);
+  if(o || !LIVE.enCours || !LIVE.adv.size) return o;
+  var R=OBST22.rJ+0.32, res=null;
+  LIVE.adv.forEach(function(a){
+    if(res || a.arrive) return;
+    var dn=Math.hypot(x-a.rx,z-a.rz), dc=Math.hypot(J.x-a.rx,J.z-a.rz);
+    if(dn<R && (dc>=R || dn<dc-1e-4)) res=octogone31(a.rx,a.rz,0.32);
+  });
+  return res;
+};
+
+/* ---------- le bouton dans la barre ---------- */
+function boutonLive31(){
+  if($e('e3-live-b')) return;
+  var barre=document.querySelector('#e3 .e3-barre');
+  if(!barre) return;
+  var b=document.createElement('button'); b.type='button'; b.id='e3-live-b'; b.textContent='🏁 Live'; b.title='Course en live : inscription, départ, résultats';
+  b.addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); if(LIVE.enCours) return; ouvrirLive31(); });
+  barre.insertBefore(b,barre.firstChild);
+}
+var _animDecor31=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _animDecor31(dt,cx,cz);
+  try{ boutonLive31(); }catch(e){}
+};
+window.ESPACE3D.live={ouvrir:ouvrirLive31, entrer:entrerCourse31, quitter:quitterCourse31, etat:function(){ return {enCours:LIVE.enCours, etat:LIVE.etat, d:LIVE.d, D:LIVE.D, adv:LIVE.adv.size, rang:LIVE.rang, ins:!!LIVE.ins}; }};
+/* pendant la course, le chien qui suit le joueur dort : invisible, il
+   pourrait encore lui sauter au visage */
+var _majChien31=majChien;
+majChien=function(dt){ if(LIVE.enCours) return; return _majChien31(dt); };
 })();
