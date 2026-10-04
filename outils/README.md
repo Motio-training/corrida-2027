@@ -733,6 +733,13 @@ spitz au coureur et vérifie :
 - **un passant promeneur**, touché, ouvre « Voler son chien », et le chien
   volé rejoint la meute.
 
+Depuis, deux réglages. **Un spitz posé vit sa vie** : il flâne à quelques
+mètres de sa place, s'assoit, renifle, tourne, repart, sans jamais poser la
+patte sur la chaussée ni traverser un mur, une voiture ou un passant (les
+obstacles proches sont relus toutes les quatre secondes). **En course, chaque
+chien a sa foulée** : un slalom à lui (deux fréquences, deux amplitudes, une
+nervosité), large au pas, presque droit quand on court vite.
+
 **La pose assise est fabriquée.** Le chien de Quaternius, dont le spitz
 emprunte le squelette, ne sait pas s'asseoir. On plie donc ses os par-dessus
 l'animation de repos : le dos se redresse autour de la hanche, les pattes
@@ -741,6 +748,31 @@ descend. Les angles ont été réglés sur les vues de `--vues`. Une leçon au
 passage : les os que l'animation ne mène pas gardent ce qu'on leur fait, et
 la pliure s'additionnait d'une image à l'autre jusqu'à tordre le chien. On
 les remet au repos avant chaque image.
+
+## `essai_surprises.js`
+
+Les surprises cachées dans la ville, que l'aide de la 3D tait exprès.
+
+```sh
+node outils/essai_surprises.js
+SORTIE_SURPRISES=/tmp/surprises node outils/essai_surprises.js
+```
+
+Le banc vérifie, au format téléphone :
+
+- **le code secret** : sur le joystick, un tour complet dans le sens
+  inverse des aiguilles d'une montre en partant du haut, puis on redescend
+  tout droit (« on tourne et on abaisse ») ; tout le monde salue. Le même
+  tour dans l'autre sens ne fait rien. Le geste est joué par des
+  `PointerEvent` dans la page : au rythme du rendu logiciel, des touchers
+  CDP mettent plus que les dix secondes que le geste s'accorde ;
+- **le lever des couleurs** au mât de la place d'armes (seul, le matin) ;
+- **le char** qui tourne sa tourelle vers le coureur, tire à blanc, revient ;
+- **les canards de la Sèvre**, qui s'envolent, et le canard d'or ;
+- **les six insignes** cachés à l'écart du parcours, jamais dans un mur, et
+  le compteur qui apparaît au premier trouvé ;
+- **le record** sous les trente minutes : feu d'artifice et « Jeunes Chefs » ;
+- **le spitz au dossard n° 27** qui court la Corrida.
 
 ## `repeindre_bme.js`
 
