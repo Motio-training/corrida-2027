@@ -5725,7 +5725,7 @@ majJoueur=function(dt){
 };
 
 majJalonneur=function(o,n){
-  var j=o.j, or=CARTE.orientation(j), vi=((j._vis||0)%4+4)%4, R=PERSO.jal[vi+or.bras];
+  var j=o.j, or=CARTE.orientation(j), vi=varJal35(j), R=PERSO.jal[vi+or.bras];
   if(!R) return _majJalAncien(o,n);
   var x=pX(j.lo), z=pZ(j.la), y=hauteur(x,z);
   var cle='R'+j.niv+or.bras+vi;
@@ -7621,7 +7621,7 @@ function majJalonsAnimes(dt){
     cands.forEach(function(c){
       var o=c[1];
       if(VIE.jal.some(function(s){ return s.o===o; })) return;
-      var nom=VARIANTES[((o.j._vis||0)%4+4)%4];
+      var nom=VARIANTES[varJal35(o.j)];
       var s=VIE.jal.filter(function(x){ return !x.o && x.rig.nom===nom; })[0];
       if(!s){
         if(VIE.jal.length>=NB_JAL_ANIMES[2]+2) return;
@@ -7920,7 +7920,7 @@ function majFrontales(dt){
     var tete=!(VUE==='jal' && VUEJAL===o);
     if(f.cle!==cle){
       /* jalonneur posé, déplacé ou tourné : on recalcule la tache au sol (coûteux, rare) */
-      var femme=VARIANTES[((o.j._vis||0)%4+4)%4].indexOf('Female')===0;
+      var femme=VARIANTES[varJal35(o.j)].indexOf('Female')===0;
       f.lampeFixe=lampeJalonFixe(o)||[o.x+fx2*0.12, hauteurSol(o.x,o.z)+(femme?1.60:1.68), o.z+fz2*0.12];
       f.cible=placerFrontale(f,f.lampeFixe[0],f.lampeFixe[1],f.lampeFixe[2],fx2,fz2,true,tete);
       f.cle=cle;
@@ -8108,7 +8108,7 @@ majJalonneur=function(o,n){
   _majJalT(o,n);
   if(o.haut && o.haut.isGroup && !o.haut.userData.frontaleAjoutee){
     o.haut.userData.frontaleAjoutee=true;
-    var v=frontaleVariante(VARIANTES[((o.j._vis||0)%4+4)%4]);
+    var v=frontaleVariante(VARIANTES[varJal35(o.j)]);
     if(v){
       var m=matsFrontale(), me=new THREE.Mesh(v.equip,m.equip), ml=new THREE.Mesh(v.lentille,m.lentille);
       o.haut.add(me); o.haut.add(ml);
@@ -28126,31 +28126,127 @@ quitterCourse31=function(){
 window.ESPACE3D.live.calque=function(){ return {barrieres:LIVEB34.im?LIVEB34.im.count:0, segments:LIVEB34.segs.length}; };
 
 /* ===== 35. les jalonneurs en treillis, gilet jaune ===== */
-/* Nicolas, 4 oct. 2026 : tous les jalonneurs sont des militaires en treillis
-   avec un gilet réfléchissant jaune, partout dans l'espace 3D. Le modèle est
-   celui du coureur (Rocketbox Military_Male_02, camouflage centre-Europe),
-   chargé une seule fois ; le gilet garde ses deux bandes réfléchissantes et
-   ne distingue plus indispensable et facultatif (la carte le fait). La
+/* Nicolas, 4-5 oct. 2026 : tous les jalonneurs sont des militaires en
+   treillis avec un gilet réfléchissant jaune, partout dans l'espace 3D, et
+   au moins six visages : quatre hommes, deux femmes. Rocketbox n'a qu'un
+   militaire (Military_Male_02, camouflage centre-Europe) : les cinq autres
+   sont des civils à manches longues et pantalon long dont les vêtements
+   sont repeints en camouflage (la peau, le visage et les chaussures sombres
+   restent). Les civils ne sont chargés que sur ordinateur : sur téléphone,
+   seul le militaire existe. Le gilet garde ses deux bandes réfléchissantes
+   et ne distingue plus indispensable et facultatif (la carte le fait). La
    silhouette simplifiée, vue de loin, suit : gilet jaune, bras et pantalon
-   vert armée. */
+   vert armée. Chaque jalonneur tire sa variante de sa position. */
+var JAL35=[['Military_Male_02','Military_Male_02'],['Male_Adult_08','Male_Adult_08_tr'],['Male_Adult_06','Male_Adult_06_tr'],
+           ['Male_Adult_02','Male_Adult_02_tr'],['Female_Adult_07','Female_Adult_07_tr'],['Female_Adult_04','Female_Adult_04_tr']];
+function varJal35(j){
+  var n=VARIANTES.length||1;
+  return Math.abs(Math.round((j.la||0)*1e5)*7+Math.round((j.lo||0)*1e5)*13)%n;
+}
+/* le motif : quatre teintes en taches superposées, dessinées une fois */
+var CAMO35=null;
+function motifCamo35(){
+  if(CAMO35) return CAMO35;
+  var S=512, c=toile(S,S), g=c.getContext('2d');
+  g.fillStyle='#6f6a4b'; g.fillRect(0,0,S,S);
+  var x=12345;
+  function al(){ x=(x*1103515245+12345)&0x7fffffff; return x/0x7fffffff; }
+  [['#4d5536',70,26],['#5e4b33',60,22],['#2e2d25',55,14],['#8b8560',30,10]].forEach(function(L){
+    g.fillStyle=L[0];
+    for(var i=0;i<L[1];i++){
+      var cx=al()*S, cy=al()*S, r=L[2]*(0.6+al()*0.9);
+      for(var k=0;k<5;k++){
+        var ox=cx+(al()-0.5)*r*1.6, oy=cy+(al()-0.5)*r*1.6, rx=r*(0.5+al()*0.6), ry=r*(0.3+al()*0.5);
+        for(var dx=-1;dx<=1;dx++) for(var dy=-1;dy<=1;dy++){ g.beginPath(); g.ellipse(ox+dx*S,oy+dy*S,rx,ry,al()*PI,0,2*PI); g.fill(); }
+      }
+    }
+  });
+  return (CAMO35=g.getImageData(0,0,S,S).data);
+}
+function texTreillis35(tex,ref){
+  var im=tex.image;
+  if(!im || !im.width) return null;
+  var W=im.width, H=im.height, c=toile(W,H), g=c.getContext('2d',{willReadFrequently:true});
+  g.drawImage(im,0,0);
+  var D=g.getImageData(0,0,W,H), P=D.data, M=motifCamo35(), ech=Math.max(1,W/1024), n=W*H, i, s=0, k=0;
+  var L=new Float32Array(n), habit=new Uint8Array(n);
+  for(i=0;i<n;i++){
+    var r=P[i*4], gg=P[i*4+1], b=P[i*4+2];
+    L[i]=(0.299*r+0.587*gg+0.114*b)/255;
+    var sm=r+gg+b+1e-6, peau=estPeau32(r,gg,b) && (!ref || Math.hypot(r/sm-ref[0],gg/sm-ref[1])<0.035);
+    if(peau || L[i]<0.025) continue;
+    habit[i]=1; s+=L[i]; k++;
+  }
+  var moy=k?s/k:0.5;
+  for(i=0;i<n;i++){
+    if(!habit[i]) continue;
+    var px=i%W, py=(i/W)|0, mx=((px/ech)|0)&511, my=((py/ech)|0)&511, q=(my*512+mx)*4;
+    var f=Math.max(0.6,Math.min(1.25,0.85+0.45*(L[i]/moy-1)));
+    P[i*4]=Math.min(255,M[q]*f); P[i*4+1]=Math.min(255,M[q+1]*f); P[i*4+2]=Math.min(255,M[q+2]*f);
+  }
+  g.putImageData(D,0,0);
+  var t=new THREE.CanvasTexture(c);
+  t.flipY=tex.flipY; t.wrapS=tex.wrapS; t.wrapT=tex.wrapT; t.anisotropy=tex.anisotropy;
+  if(tex.colorSpace!==undefined) t.colorSpace=tex.colorSpace;
+  return t;
+}
+/* la teinte de la peau, prise sur le visage : un pull beige ne passe plus pour de la peau */
+function peauRef35(f){
+  var ref=null;
+  f.traverse(function(o){
+    if(ref || !o.isMesh) return;
+    (Array.isArray(o.material)?o.material:[o.material]).forEach(function(m){
+      if(ref || !m || !/head/i.test(m.name||"") || !m.map || !m.map.image || !m.map.image.width) return;
+      var im=m.map.image, c=toile(128,128), g=c.getContext("2d",{willReadFrequently:true}); g.drawImage(im,0,0,128,128);
+      var P=g.getImageData(0,0,128,128).data, a=0, b2=0, k=0;
+      for(var i=0;i<P.length;i+=4){ var s=P[i]+P[i+1]+P[i+2]+1e-6; if(estPeau32(P[i],P[i+1],P[i+2])){ a+=P[i]/s; b2+=P[i+1]/s; k++; } }
+      if(k>50) ref=[a/k,b2/k];
+    });
+  });
+  return ref;
+}
+function treillis35(f){
+  var ref=peauRef35(f);
+  f.traverse(function(o){
+    if(!o.isMesh) return;
+    var multi=Array.isArray(o.material), ms=multi?o.material:[o.material];
+    ms=ms.map(function(m){
+      if(!m || !/body/i.test(m.name||'') || !m.map) return m;
+      var t=texTreillis35(m.map,ref);
+      if(!t) return m;
+      var nm=m.clone(); nm.map=t; nm.needsUpdate=true;
+      return nm;
+    });
+    o.material=multi?ms:ms[0];
+  });
+}
 var _prepPerso35=preparerPersonnages;
-VARIANTES=['Military_Male_02','Military_Male_02','Military_Male_02','Military_Male_02'];
+VARIANTES=['Military_Male_02'];
 preparerPersonnages=function(){
   _prepAncien();
   if(!EXT.FBXLoader || !window.ACTIFS || !ACTIFS['Military_Male_02.fbx']) return;
-  var p=chargerAvatar('Military_Male_02').then(function(f){
-    var g=normaliserAvatar(f,1.78), R=reposOs(g);
-    ['d','g','n','x'].forEach(function(bras){
+  var faits=[], p=Promise.resolve();
+  JAL35.forEach(function(e){
+    var nom=e[0], alias=e[1];
+    if(!ACTIFS[nom+'.fbx']) return;
+    p=p.then(function(){ return chargerAvatar(nom); }).then(function(f){
+      if(alias!==nom) treillis35(f);
+      var femme=nom.indexOf('Female')===0;
+      var g=normaliserAvatar(f,femme?1.70:1.78), R=reposOs(g);
+      var vi=faits.length;
+      ['d','g','n','x'].forEach(function(bras){
+        restaurerOs(R); g.updateMatrixWorld(true);
+        poserBrasJalon(g,bras);
+        var fige=figerAvatar(g);
+        PERSO.jal[vi+bras]={parts:fige.map(function(q){ return {geo:q.geo, mat:q.mat}; }), chas:geoChasuble(fige)};
+      });
       restaurerOs(R); g.updateMatrixWorld(true);
-      poserBrasJalon(g,bras);
-      var fige=figerAvatar(g);
-      var e={parts:fige.map(function(q){ return {geo:q.geo, mat:q.mat}; }), chas:geoChasuble(fige)};
-      for(var vi=0;vi<4;vi++) PERSO.jal[vi+bras]=e;
-    });
-    restaurerOs(R); g.updateMatrixWorld(true);
-    PERSO.gabarits=PERSO.gabarits||{};
-    PERSO.gabarits['Military_Male_02']={g:g, f:f, rest:R};
-  }).catch(function(e){ console.error('Jalonneur militaire',e); });
+      PERSO.gabarits=PERSO.gabarits||{};
+      PERSO.gabarits[alias]={g:g, f:f, rest:R, femme:femme};
+      faits.push(alias);
+    }).catch(function(er){ console.error('Jalonneur '+nom,er); });
+  });
+  p=p.then(function(){ if(faits.length) VARIANTES=faits; });
   p=p.then(function(){ return chargerAvatar('Military_Male_02'); }).then(function(f){
     PERSO.coureurFbx=f;
     return Promise.all(['m_idle_neutral_01','m_walk_neutral_01','m_run_neutral_01'].map(chargerClip));
@@ -28161,12 +28257,12 @@ preparerPersonnages=function(){
   return p;
 };
 ETAPES.forEach(function(e){ if(e[1]===_prepPerso35) e[1]=preparerPersonnages; });
-/* les jalonneurs animés (près de la caméra) prennent le même gabarit */
+/* les jalonneurs animés (près de la caméra) prennent les mêmes gabarits */
 var _creerRig35=creerRig;
 creerRig=function(nom){
-  if(VIE.modeles[nom] || !PERSO.gabarits || !PERSO.gabarits[nom] || nom.indexOf('Military')!==0) return _creerRig35(nom);
-  var gb=PERSO.gabarits[nom];
-  VIE.modeles[nom]={g:gb.g, f:gb.f, rest:gb.rest, femme:false};
+  var gb=PERSO.gabarits && PERSO.gabarits[nom];
+  if(VIE.modeles[nom] || !gb || !(nom.indexOf('Military')===0 || /_tr$/.test(nom))) return _creerRig35(nom);
+  VIE.modeles[nom]={g:gb.g, f:gb.f, rest:gb.rest, femme:!!gb.femme};
   try{ return _creerRig35(nom); } finally { delete VIE.modeles[nom]; }
 };
 matChasuble=function(niv){
