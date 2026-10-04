@@ -26163,28 +26163,33 @@ window.ESPACE3D.surprises={
 };
 /* ===== 31. la course en live : vagues, inscription, course stratégique ===== */
 /* Nicolas, 4 oct. 2026. Le jour J, chacun s'inscrit sur une vague (30
-   coureurs au plus), se présente sur la ligne et court contre les autres,
-   en réseau. Le parcours complet se boucle en 7 à 8 minutes : la vitesse
-   de jeu est d'environ cinq fois l'allure réelle.
+   coureurs au plus), se présente dans le sas et court contre les autres,
+   en réseau. Le parcours complet (8,08 km) se boucle en 9 minutes au plus.
 
    Ce qui départage :
-   - une réserve d'énergie : au-dessus de l'allure de croisière elle se
-     vide, en dessous elle se recharge ; vide, c'est le coup de bambou ;
-   - le dénivelé : la montée la vide bien plus vite, la descente ménage ;
+   - la relance : un bouton (à droite, ou Espace) la lance et la coupe ; elle
+     puise dans une jauge ronde qui se remplit sur le plat et en descente ;
+   - le dénivelé : la montée vide la jauge même à l'allure de croisière ;
+     jauge vide en montée, c'est le coup de bambou ;
    - l'aspiration : dans le sillage d'un autre, on dépense moins ;
-   - les chocs : barrière, rubalise, arbre, véhicule, mur, autre coureur,
-     tout arrête net, et coûte un peu d'énergie ;
-   - pas de raccourci : seule compte la progression le long du tracé.
-   Pendant la course la ville est la même pour tous : ni piétons, ni
-   voitures, ni coureurs d'ambiance, ni chiens.
+   - les chocs contre le décor (barrière, rubalise, arbre, véhicule, mur) :
+     l'élan est perdu. Les coureurs, eux, se traversent : aucune gêne ;
+   - la zone de course, invisible, à 20 m autour du tracé : au-delà, l'image
+     passe au noir et blanc et l'on ne dépasse plus 8 km/h ;
+   - la distance courue est comptée : moins de 7,7 km, pas de classement.
+   Dans le sas et après l'arrivée, on marche (5 km/h). Pendant la course,
+   la ville est la même pour tous : ni piétons, ni voitures, ni coureurs
+   d'ambiance, ni chiens ; coucher de soleil pour tout le monde.
 
-   Le serveur (Supabase, fonctions live_*) garde les inscriptions, borne
-   la progression de chacun à ce qu'un coureur peut vraiment parcourir et
-   donne le temps officiel. Chaque coureur envoie sa position une fois par
-   seconde et reçoit celles des autres dans la même réponse. */
-var LIVE_REG={CS:17, VCROIS:17, VSPRINT:22, VRECUP:12, DMAX:320, PENTE:6, ASPI:0.82, CHOC:0.2, COUT_CHOC:15, COULOIR:12, K_REEL:17/3.47};
-var LIVE={ins:null, moi:null, enCours:false, etat:'repos', depart:0, decal:0, d:0, D:320, epuise:false, px:null, pz:null,
-          tChoc:0, tEnvoi:0, req:false, adv:new Map(), sauv:null, slot:null, vMes:0, msg:'', tMsg:0, aspi:false, rang:0, arrivee:null, ecart:0};
+   Le serveur (Supabase, fonctions live_*) garde les inscriptions, borne la
+   progression et le compteur de chacun à ce qu'un coureur peut vraiment
+   parcourir et donne le temps officiel. Chaque coureur envoie sa position
+   une fois par seconde et reçoit celles des autres dans la même réponse. */
+var LIVE_REG={CS:15, VCROIS:15, VSPRINT:19.5, VRECUP:10.5, DMAX:220, PENTE:6, ASPI:0.82, CHOC:0.2, COUT_CHOC:12,
+              RECHARGE:7, ZONE:20, ZONE_NOIR:10, V_ZONE:8/3.6, V_MARCHE:5/3.6, FENETRE:30, ODO_MIN:7700, COUCOU_FIN:15000};
+var LIVE={ins:null, moi:null, enCours:false, etat:'repos', depart:0, decal:0, d:0, D:220, epuise:false, relance:false, px:null, pz:null,
+          tChoc:0, tEnvoi:0, req:false, adv:new Map(), sauv:null, slot:null, vMes:0, aspi:false, rang:0, arrivee:null, ecart:0,
+          odo:0, coucouT:0, tFin:null, ligne:null, sPrec:null, statut:'', tStatut:0};
 var CLE_LIVE='corrida-live';
 try{ LIVE.ins=JSON.parse(localStorage.getItem(CLE_LIVE)||'null'); }catch(e){ LIVE.ins=null; }
 function garderInscription31(o){ LIVE.ins=o; try{ if(o) localStorage.setItem(CLE_LIVE,JSON.stringify(o)); else localStorage.removeItem(CLE_LIVE); }catch(e){} }
@@ -26253,7 +26258,7 @@ function styleLive31(){
     '#e3-live-hud .jauge{width:110px;height:9px;border-radius:5px;background:#2a3446;overflow:hidden;margin-top:4px}',
     '#e3-live-hud .jauge div{height:100%;background:#4ade80;transition:background .3s}',
     '#e3-live-msg{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);z-index:20;font:700 34px "Oswald","Arial Narrow",Arial,sans-serif;color:#fff;text-shadow:0 3px 12px rgba(0,0,0,.85);pointer-events:none;text-align:center;display:none;white-space:nowrap}',
-    '#e3-live-quit{position:absolute;left:10px;top:100px;z-index:20;display:none}',
+    '#e3 #e3-live-quit{border-color:#ef4444;color:#fecaca}',
     '@media (max-width:600px){#e3-live-hud .h{min-width:48px;padding:4px 6px} #e3-live-hud .h b{font-size:14px} #e3-live-hud .jauge{width:70px}}'
   ].join('\n');
   document.head.appendChild(s);
@@ -26441,15 +26446,57 @@ function messageErreur31(e){
 }
 
 /* ---------- la course ---------- */
+function styleCourse31(){
+  if($e('e3-style-course')) return;
+  var s=document.createElement('style'); s.id='e3-style-course';
+  s.textContent=[
+    '#e3-relance{position:absolute;right:18px;bottom:120px;z-index:21;width:96px;height:96px;display:none;touch-action:manipulation;-webkit-user-select:none;user-select:none}',
+    '#e3-relance svg{position:absolute;inset:0;width:96px;height:96px;transform:rotate(-90deg)}',
+    '#e3 #e3-relance button{position:absolute;left:9px;top:9px;width:78px;height:78px;border-radius:50%;padding:0;background:rgba(14,20,31,.85);border:2px solid #3a4a63;color:#fff;font:700 13px "Oswald","Arial Narrow",Arial,sans-serif;letter-spacing:.4px;line-height:1.1}',
+    '#e3 #e3-relance.on button{background:#F2B33D;color:#14202f;border-color:#fff;box-shadow:0 0 18px rgba(242,179,61,.75)}',
+    '#e3 #e3-relance.vide button{opacity:.5}',
+    '#e3-coucou{position:absolute;right:18px;bottom:120px;z-index:21;display:none}',
+    '#e3 #e3-coucou button{width:84px;height:84px;border-radius:50%;padding:0;font-size:34px;background:rgba(14,20,31,.85);border:2px solid #3a4a63}',
+    '#e3-live-hud .statut{display:none;align-self:center;background:#b91c1c;border-color:#fecaca;font-weight:700;font-size:12px}',
+    '@media (orientation:landscape) and (max-height:520px){#e3-relance,#e3-coucou{bottom:70px;right:12px}}'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+/* le sas : un rectangle derrière la ligne, dans l'axe du départ */
+function repereDepart31(){
+  var p=pointArrondi(0), c=capArrondi(0);
+  return {x:p[0], z:p[1], f:[Math.cos(c),Math.sin(c)], l:[-Math.sin(c),Math.cos(c)], c:c};
+}
 function slotDepart31(){
   var k=0, s=LIVE.ins?LIVE.ins.id:'x';
   for(var i=0;i<s.length;i++) k=(k*31+s.charCodeAt(i))>>>0;
   k%=30;
-  var p=pointArrondi(0), c=capArrondi(0), f=[Math.cos(c),Math.sin(c)], l=[-f[1],f[0]];
-  var row=Math.floor(k/5), col=k%5-2;
-  var x=p[0]-f[0]*(2.5+row*1.6)+l[0]*col*1.25, z=p[1]-f[1]*(2.5+row*1.6)+l[1]*col*1.25;
-  if(bloquer(x,z)){ x=p[0]-f[0]*(2.5+row*1.6); z=p[1]-f[1]*(2.5+row*1.6); }
-  return {x:x, z:z, cap:c};
+  var R=repereDepart31(), row=Math.floor(k/5), col=k%5-2;
+  var x=R.x-R.f[0]*(2.5+row*1.6)+R.l[0]*col*1.25, z=R.z-R.f[1]*(2.5+row*1.6)+R.l[1]*col*1.25;
+  if(bloquer(x,z)){ x=R.x-R.f[0]*(2.5+row*1.6); z=R.z-R.f[1]*(2.5+row*1.6); }
+  return {x:x, z:z, cap:R.c};
+}
+function confinerSas31(){
+  var R=repereDepart31(), dx=J.x-R.x, dz=J.z-R.z, s=dx*R.f[0]+dz*R.f[1], t=dx*R.l[0]+dz*R.l[1];
+  var s2=Math.max(-18,Math.min(-0.4,s)), t2=Math.max(-7,Math.min(7,t));
+  if(s2!==s || t2!==t){ J.x=R.x+R.f[0]*s2+R.l[0]*t2; J.z=R.z+R.f[1]*s2+R.l[1]*t2; }
+}
+/* La ligne d'arrivée : l'arche d'arrivée posée près de la fin du tracé, sinon
+   la fin du tracé elle-même. On l'a franchie quand on passe de l'autre côté,
+   dans sa largeur, une fois presque tout le parcours couvert. */
+function ligneArrivee31(){
+  var fin=pointArrondi(LONGUEUR), best=null;
+  try{
+    VM.objs.forEach(function(o,v){
+      if(!v || v.t!=='arche') return;
+      var d=Math.hypot(o.position.x-fin[0],o.position.z-fin[1]);
+      if(d<150 && (!best || d<best.d)) best={x:o.position.x, z:o.position.z, d:d};
+    });
+  }catch(e){}
+  var x=best?best.x:fin[0], z=best?best.z:fin[1], dL=LONGUEUR, m=1e9;
+  for(var dd=Math.max(0,LONGUEUR-200); dd<=LONGUEUR; dd+=1){ var p=pointArrondi(dd), e=Math.hypot(p[0]-x,p[1]-z); if(e<m){ m=e; dL=dd; } }
+  var c=capArrondi(Math.min(dL,LONGUEUR-0.5));
+  return {x:x, z:z, f:[Math.cos(c),Math.sin(c)], d:dL};
 }
 function entrerCourse31(){
   if(!LIVE.ins){ ouvrirLive31(); return; }
@@ -26459,20 +26506,33 @@ function entrerCourse31(){
     LIVE.depart=m.depart;
     if(LIVE.enCours) return;
     if(typeof JEU29!=='undefined' && JEU29.actif) finJeu29(false,null);
+    var hud=document.querySelector('#e3 .e3-hud'), allure=document.querySelector('#e3 .e3-allure'), liste=$e('e3-liste');
     LIVE.sauv={vitesse:VITESSE, traf:TRAF.mode, pietons:NB_PIETONS, coureurs:NB_COUREURS, chien:CHIEN_VOULU, peloton:PELOTON.voulu, coll:collisions,
-               promene:(typeof MC29!=='undefined')?MC29.promene:false};
+               promene:(typeof MC29!=='undefined')?MC29.promene:false, nuit:nuit, moment:MOMENT.cle,
+               hud:hud?hud.style.display:null, allure:allure?allure.style.display:null, liste:liste?liste.style.display:null};
     NB_PIETONS=[0,0,0]; NB_COUREURS=[0,0,0]; TRAF.mode=0; PELOTON.voulu=false; collisions=true;
     if(CHIEN){ CHIEN.visible=false; } CHIEN_VOULU=false;
     if(typeof MC29!=='undefined' && MC29.promene){ MC29.promene=false; majPromenade29(true); }
+    /* la vitesse affichée n'aurait pas de sens : on court cinq fois trop vite */
+    if(hud) hud.style.display='none'; if(allure) allure.style.display='none'; if(liste) liste.style.display='none';
+    /* coucher de soleil pour tout le monde */
+    nuit=false; MOMENT.cle='coucher'; appliquerCiel();
     if(VUE==='jal') sortirVueJal();
     if(auto) basculerAuto();
     if(VUE==='fp') basculerVue();
     LIVE.slot=slotDepart31();
     J.x=LIVE.slot.x; J.z=LIVE.slot.z; J.cap=LIVE.slot.cap; J.v=0; CAM.yaw=J.cap; CAM.libre=0; CAM.capPrec=null;
-    LIVE.enCours=true; LIVE.etat='attente'; LIVE.d=Math.max(0,m.d_valide||0); LIVE.D=LIVE_REG.DMAX; LIVE.epuise=false;
-    LIVE.px=J.x; LIVE.pz=J.z; LIVE.arrivee=null; LIVE.tEnvoi=0; OBST22.ver++;
+    LIVE.enCours=true; LIVE.etat='attente'; LIVE.d=0; LIVE.D=LIVE_REG.DMAX; LIVE.epuise=false; LIVE.relance=false;
+    LIVE.odo=Math.max(0,(m.odo||0)); LIVE.px=J.x; LIVE.pz=J.z; LIVE.arrivee=null; LIVE.tFin=null; LIVE.tEnvoi=0;
+    LIVE.ligne=ligneArrivee31(); LIVE.sPrec=null; LIVE.coucouT=0;
+    /* une course interrompue reprend là où on en était, compteur compris */
+    if(maintenant31()>=LIVE.depart && (m.d_valide||0)>20 && m.x!==null && m.x!==undefined){
+      J.x=m.x; J.z=m.z; J.cap=m.cap||J.cap; CAM.yaw=J.cap; LIVE.px=J.x; LIVE.pz=J.z;
+      LIVE.d=m.d_valide; LIVE.odo=m.odo||0; LIVE.etat='course';
+    }
+    OBST22.ver++;
     hudLive31(true);
-    dire(maintenant31()<LIVE.depart ? 'Tu es sur la ligne de départ. Attends le coup d’envoi !' : 'La course est lancée : fonce, ton chrono tourne déjà !');
+    dire(maintenant31()<LIVE.depart ? 'Tu es dans le sas. Tu peux marcher et saluer les autres en attendant le départ.' : 'La course est lancée : fonce, ton chrono tourne déjà !');
   }).catch(function(e){ dire('Course en live : '+messageErreur31(e)); });
 }
 function quitterCourse31(){
@@ -26482,82 +26542,173 @@ function quitterCourse31(){
   VITESSE=S.vitesse||VITESSE; TRAF.mode=S.traf; NB_PIETONS=S.pietons||NB_PIETONS; NB_COUREURS=S.coureurs||NB_COUREURS;
   PELOTON.voulu=S.peloton!==false; collisions=S.coll!==false; CHIEN_VOULU=!!S.chien; if(CHIEN) CHIEN.visible=CHIEN_VOULU;
   if(S.promene && typeof MC29!=='undefined'){ MC29.promene=true; majPromenade29(true); }
+  var hud=document.querySelector('#e3 .e3-hud'), allure=document.querySelector('#e3 .e3-allure'), liste=$e('e3-liste');
+  if(hud) hud.style.display=S.hud||''; if(allure) allure.style.display=S.allure||''; if(liste) liste.style.display=S.liste||'';
+  if(S.moment){ nuit=!!S.nuit; MOMENT.cle=S.moment; appliquerCiel(); }
   LIVE.adv.forEach(function(a){ libererAdv31(a); }); LIVE.adv.clear();
+  zoneVisuelle31(0);
   OBST22.ver++;
   hudLive31(false);
 }
 function hudLive31(montrer){
-  styleLive31();
+  styleLive31(); styleCourse31();
   var h=$e('e3-live-hud');
   if(!h){
     h=document.createElement('div'); h.id='e3-live-hud';
     h.innerHTML='<div class="h"><i>Chrono</i><b id="lv-chrono">0:00</b></div><div class="h"><i>Rang</i><b id="lv-rang">–</b></div>'+
-      '<div class="h"><i>Parcours</i><b id="lv-km">0,00</b></div><div class="h"><i>Énergie</i><div class="jauge"><div id="lv-jauge" style="width:100%"></div></div><span id="lv-allure" style="font-size:10px;color:#c8d1de"></span></div>';
+      '<div class="h"><i>Parcours</i><b id="lv-km">0,00</b></div><div class="h statut" id="lv-statut"></div>';
     $e('e3').appendChild(h);
-    var m=document.createElement('div'); m.id='e3-live-msg'; $e('e3').appendChild(m);
-    var q=document.createElement('div'); q.id='e3-live-quit'; q.innerHTML='<button type="button">✕ Quitter la course</button>';
-    $e('e3').appendChild(q);
+    /* « Quitter la course » rejoint la barre du haut */
+    var q=document.createElement('button'); q.type='button'; q.id='e3-live-quit'; q.textContent='✕ Quitter la course';
+    var barre=document.querySelector('#e3 .e3-barre');
+    if(barre) barre.insertBefore(q,barre.firstChild); else $e('e3').appendChild(q);
     q.addEventListener('pointerdown',function(ev){ ev.stopPropagation(); });
-    q.querySelector('button').addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); if(LIVE.etat==='arrive' || confirm('Quitter la course ?')) quitterCourse31(); });
+    q.addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); if(LIVE.etat==='arrive' || confirm('Quitter la course ?')) quitterCourse31(); });
+    /* la relance : un anneau qui se vide et se remplit, un bouton au centre */
+    var r=document.createElement('div'); r.id='e3-relance';
+    r.innerHTML='<svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="44" fill="none" stroke="rgba(14,20,31,.7)" stroke-width="7"/>'+
+      '<circle id="lv-anneau" cx="48" cy="48" r="44" fill="none" stroke="#4ade80" stroke-width="7" stroke-linecap="round" stroke-dasharray="276.5" stroke-dashoffset="0"/></svg>'+
+      '<button type="button">RELANCE</button>';
+    $e('e3').appendChild(r);
+    var bt=r.querySelector('button');
+    bt.addEventListener('pointerdown',function(ev){ ev.preventDefault(); ev.stopPropagation(); basculerRelance31(); });
+    ['pointerup','click','touchstart'].forEach(function(t){ bt.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+    var cc=document.createElement('div'); cc.id='e3-coucou'; cc.innerHTML='<button type="button" title="Faire coucou">👋</button>';
+    $e('e3').appendChild(cc);
+    var bc=cc.querySelector('button');
+    bc.addEventListener('pointerdown',function(ev){ ev.preventDefault(); ev.stopPropagation(); LIVE.coucouT=2.6; });
+    ['pointerup','click','touchstart'].forEach(function(t){ bc.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
   }
   h.style.display=montrer?'flex':'none';
-  $e('e3-live-quit').style.display=montrer?'block':'none';
-  if(!montrer) $e('e3-live-msg').style.display='none';
+  $e('e3-live-quit').style.display=montrer?'':'none';
+  if(!montrer){ $e('e3-relance').style.display='none'; $e('e3-coucou').style.display='none'; }
+  uiCourse31(montrer);
 }
-function messageLive31(t,duree){
-  var m=$e('e3-live-msg'); if(!m) return;
-  m.textContent=t; m.style.display=t?'block':'none';
-  LIVE.tMsg=duree||0;
+/* L'habillage de la course : seulement ce qui sert à courir. Tout ce qui
+   est masqué ici est rendu tel quel en quittant la course ; la 3D classique
+   ne change pas. */
+var UI31=null;
+function uiCourse31(on){
+  if(!on){
+    if(UI31){ UI31.caches.forEach(function(c){ c[0].style.display=c[1]; }); if(UI31.musiqueCoupee){ var s0=$e('e3-son'); if(s0 && s0.classList.contains('on')) s0.click(); } }
+    UI31=null; return;
+  }
+  if(UI31) return;
+  UI31={caches:[], musiqueCoupee:false};
+  function cacher(el){ if(el && el.style.display!=='none'){ UI31.caches.push([el,el.style.display]); el.style.display='none'; } }
+  /* barre du haut : ni Live, ni Carte, ni Afficher */
+  cacher($e('e3-live-b')); cacher($e('e3-carte'));
+  document.querySelectorAll('#e3 .e3-menu').forEach(function(m){
+    var b=m.querySelector('.e3-menu-b'), t=b?b.textContent:'';
+    if(/Afficher/.test(t)) cacher(m);
+    /* Vue : la première ou la troisième personne, rien d'autre */
+    if(/Vue/.test(t)) m.querySelectorAll('.e3-pop > *').forEach(function(e){
+      if(e.id==='e3-v-tp' || e.id==='e3-v-fp' || (e.classList.contains('e3-pop-titre') && /Point de vue/.test(e.textContent))) return;
+      cacher(e);
+    });
+  });
+  /* le son : musique et ambiance, avec le volume ; le morceau est « Jeunes Chefs » */
+  document.querySelectorAll('#e3-menu-son .e3-morceau').forEach(function(e){
+    if(/Jeunes Chefs/.test(e.textContent) && !e.classList.contains('on')) e.click();
+    cacher(e);
+  });
+  var son=$e('e3-son');
+  if(son && !son.classList.contains('on')){ son.click(); UI31.musiqueCoupee=true; }
+  /* en bas : ni l'œil, ni la visite, ni le retour au départ */
+  document.querySelectorAll('#e3-tact-btn > *').forEach(function(e){ if(e.id!=='e3-t-plein') cacher(e); });
+  /* ni les insignes trouvés, ni la meute, ni la promenade */
+  cacher($e('e3-insignes30')); cacher($e('e3-meute')); cacher($e('e3-promene'));
+}
+function basculerRelance31(){
+  if(!LIVE.enCours || LIVE.etat!=='course') return;
+  if(!LIVE.relance && (LIVE.D<8 || LIVE.epuise)) return;
+  LIVE.relance=!LIVE.relance;
+}
+addEventListener('keydown',function(e){
+  if(!LIVE.enCours || e.ctrlKey || e.metaKey || e.altKey) return;
+  var tg=e.target; if(tg && (tg.tagName==='INPUT' || tg.tagName==='TEXTAREA')) return;
+  if(e.key===' ' || e.code==='Space'){ e.preventDefault(); e.stopImmediatePropagation(); if(!e.repeat) basculerRelance31(); }
+},true);
+/* un état court, discret, dans le tableau de bord */
+function statutLive31(t,duree){
+  var s=$e('lv-statut'); if(!s) return;
+  if(LIVE.statut===t) { LIVE.tStatut=Math.max(LIVE.tStatut,duree||0); return; }
+  LIVE.statut=t; LIVE.tStatut=duree||0;
+  s.textContent=t||''; s.style.display=t?'block':'none';
+}
+/* hors de la zone, l'image perd ses couleurs */
+function zoneVisuelle31(f){
+  var cv=renderer && renderer.domElement;
+  if(!cv) return;
+  var v=f>0.01 ? 'grayscale('+f.toFixed(2)+') brightness('+(1-0.25*f).toFixed(2)+')' : '';
+  if(cv.style.filter!==v) cv.style.filter=v;
 }
 
 /* la progression : la projection sur le tracé la plus proche, dans une
    fenêtre autour de la position courante (un tracé qui repasse par la
    même rue ne fait pas sauter de passage), et jamais en reculant */
 function progresLive31(){
-  var a=Math.max(0,LIVE.d-12), b=Math.min(LONGUEUR,LIVE.d+45), best=1e9, bd=LIVE.d;
+  var a=Math.max(0,LIVE.d-12), b=Math.min(LONGUEUR,LIVE.d+LIVE_REG.FENETRE), best=1e9, bd=LIVE.d;
   for(var dd=a; dd<=b; dd+=1.5){
     var p=pointArrondi(dd), e=Math.hypot(p[0]-J.x,p[1]-J.z);
     if(e<best){ best=e; bd=dd; }
   }
   LIVE.ecart=best;
-  if(best<=LIVE_REG.COULOIR && bd>LIVE.d) LIVE.d=Math.min(LONGUEUR,bd);
+  if(best<=LIVE_REG.ZONE && bd>LIVE.d) LIVE.d=Math.min(LONGUEUR,bd);
   return best;
 }
 /* le coureur tel que le prévoit la dernière nouvelle reçue */
 function predireAdv31(a,now){
   var dt=Math.min(2.5,Math.max(0,(now-a.recu)/1000+a.age/1000));
-  if(a.arrive) dt=0;
+  if(a.arrive || a.v<0.3) dt=0;
   return [a.x+Math.cos(a.c)*a.v*dt, a.z+Math.sin(a.c)*a.v*dt];
 }
 var _majJoueur31=majJoueur;
 majJoueur=function(dt){
   if(LIVE.enCours && dt) try{ piloterCourse31(dt); }catch(e){ console.error('course live :',e); }
   _majJoueur31(dt);
+  if(LIVE.enCours && LIVE.coucouT>0 && joueur){ try{ coucou31(joueur,performance.now()/1000); }catch(e){} }
 };
+/* le salut : bras droit levé, l'avant-bras qui se balance */
+function coucou31(g,t){
+  var B=g.userData.os||(g.userData.os=osAvatar(g));
+  var b1=B.Bip01_R_UpperArm, b2=B.Bip01_R_Forearm, b3=B.Bip01_R_Hand;
+  if(!b1 || !b2 || !b3) return;
+  g.updateWorldMatrix(true,true);
+  var q=new THREE.Quaternion(); g.getWorldQuaternion(q);
+  var droite=new THREE.Vector3(0,0,1).applyQuaternion(q), avant=new THREE.Vector3(1,0,0).applyQuaternion(q), haut=new THREE.Vector3(0,1,0);
+  var dU=droite.clone().multiplyScalar(0.55).add(haut.clone().multiplyScalar(0.75)).add(avant.clone().multiplyScalar(0.12)).normalize();
+  var b=Math.sin(t*9)*0.45, dF=haut.clone().add(droite.clone().multiplyScalar(b)).add(avant.clone().multiplyScalar(0.1)).normalize();
+  orienterOs(b1,b2,dU); orienterOs(b2,b3,dF); orienterOs(b3,B.Bip01_R_Finger2||B.Bip01_R_Finger1||b3,dF);
+  g.updateMatrixWorld(true);
+}
 function piloterCourse31(dt){
   var R=LIVE_REG, now=maintenant31();
-  var vMes=(LIVE.px===null)?0:Math.hypot(J.x-LIVE.px,J.z-LIVE.pz)/dt;
-  LIVE.vMes+= (vMes-LIVE.vMes)*Math.min(1,dt*6);
-  if(LIVE.tMsg>0){ LIVE.tMsg-=dt; if(LIVE.tMsg<=0) messageLive31(''); }
+  var pas=(LIVE.px===null)?0:Math.hypot(J.x-LIVE.px,J.z-LIVE.pz), vMes=pas/dt;
+  LIVE.vMes+=(vMes-LIVE.vMes)*Math.min(1,dt*6);
+  if(LIVE.tStatut>0){ LIVE.tStatut-=dt; if(LIVE.tStatut<=0) statutLive31(''); }
+  if(LIVE.coucouT>0) LIVE.coucouT-=dt;
+  var cible=R.V_MARCHE;
   if(LIVE.etat==='attente'){
     if(now<LIVE.depart){
-      /* sur la ligne : on attend le coup d'envoi */
-      J.x=LIVE.slot.x; J.z=LIVE.slot.z; J.v=0;
-      var r=Math.ceil((LIVE.depart-now)/1000);
-      if(r<=10) messageLive31(String(r),0.3); else if(r<=60) messageLive31('Départ dans '+r+' s',0.3);
+      /* dans le sas : on marche, on salue, on ne sort pas */
+      confinerSas31();
       $e('lv-chrono').textContent=chronoLive31(now-LIVE.depart);
-    } else { LIVE.etat='course'; messageLive31('Partez !',1.2); }
+      $e('e3-coucou').style.display=(LIVE.depart-now>R.COUCOU_FIN)?'block':'none';
+      $e('e3-relance').style.display='none';
+    } else {
+      LIVE.etat='course'; if(LIVE.d<1) LIVE.odo=0;
+      $e('e3-coucou').style.display='none'; $e('e3-relance').style.display='block';
+    }
   }
   if(LIVE.etat==='course'){
+    if($e('e3-relance').style.display!=='block'){ $e('e3-relance').style.display='block'; $e('e3-coucou').style.display='none'; }
+    LIVE.odo+=pas;
     /* les chocs : le pas voulu n'a pas eu lieu, l'élan est perdu */
     LIVE.tChoc-=dt;
-    if(J.v>4 && vMes<J.v*0.45 && LIVE.tChoc<=0){
-      J.v*=R.CHOC; LIVE.D=Math.max(0,LIVE.D-R.COUT_CHOC); LIVE.tChoc=0.5;
-      messageLive31('Choc !',0.6);
-    }
+    if(J.v>4 && vMes<J.v*0.45 && LIVE.tChoc<=0){ J.v*=R.CHOC; LIVE.D=Math.max(0,LIVE.D-R.COUT_CHOC); LIVE.tChoc=0.5; }
     /* la pente sous les pieds, dans le sens de la course */
     var c=J.cap, h0=hauteur(J.x,J.z), h1=hauteur(J.x+Math.cos(c)*2,J.z+Math.sin(c)*2), pente=(h1-h0)/2;
-    var cout=Math.max(0.6,Math.min(2.2,1+R.PENTE*pente));
     /* l'aspiration : un coureur juste devant, dans l'axe */
     LIVE.aspi=false;
     LIVE.adv.forEach(function(a){
@@ -26565,28 +26716,35 @@ function piloterCourse31(dt){
       var q=predireAdv31(a,now), dx=q[0]-J.x, dz=q[1]-J.z, av=dx*Math.cos(c)+dz*Math.sin(c), lat=Math.abs(-dx*Math.sin(c)+dz*Math.cos(c));
       if(av>0.6 && av<4 && lat<0.9) LIVE.aspi=true;
     });
-    if(LIVE.aspi) cout*=R.ASPI;
-    var vEff=LIVE.vMes*cout;
-    if(vEff>R.CS) LIVE.D-=(vEff-R.CS)*dt; else LIVE.D+=(R.CS-vEff)*0.55*dt;
+    var k=LIVE.aspi?R.ASPI:1, enMouv=LIVE.vMes>2;
+    if(LIVE.relance && enMouv) LIVE.D-=(R.VSPRINT-R.CS)*Math.max(1,1+R.PENTE*pente)*k*dt;
+    else if(pente>0.01 && enMouv) LIVE.D-=R.CS*R.PENTE*pente*0.5*k*dt;
+    else LIVE.D+=R.RECHARGE*(LIVE.aspi?1.2:1)*dt;
     LIVE.D=Math.max(0,Math.min(R.DMAX,LIVE.D));
-    if(LIVE.D<=0 && !LIVE.epuise){ LIVE.epuise=true; messageLive31('Coup de bambou !',1.5); }
-    if(LIVE.epuise && LIVE.D>R.DMAX*0.3) LIVE.epuise=false;
-    /* l'allure de l'image suivante : croisière, sprint (Maj ou joystick à
-       fond), ou récupération forcée quand la réserve est vide */
-    var base=LIVE.epuise?R.VRECUP:R.VCROIS;
-    VITESSE=touches['shift'] ? (LIVE.epuise?R.VRECUP:R.VSPRINT)/1.6 : base;
+    if(LIVE.D<=0){ LIVE.relance=false; if(pente>0.01 && !LIVE.epuise){ LIVE.epuise=true; statutLive31('Coup de bambou',2.5); } }
+    if(LIVE.epuise && LIVE.D>R.DMAX*0.25) LIVE.epuise=false;
     var e=progresLive31();
-    if(e>R.COULOIR && LIVE.tMsg<=0) messageLive31('Hors parcours : reviens sur le tracé',0.4);
+    cible=LIVE.epuise?R.VRECUP:(LIVE.relance?R.VSPRINT:R.VCROIS);
+    /* hors de la zone de course : noir et blanc, et 8 km/h au plus */
+    var f=Math.max(0,Math.min(1,(e-R.ZONE)/R.ZONE_NOIR));
+    zoneVisuelle31(f);
+    if(e>R.ZONE){ cible=Math.min(cible,R.V_ZONE); statutLive31('Hors parcours',0.3); }
     $e('lv-chrono').textContent=chronoLive31(now-LIVE.depart);
-    if(LIVE.d>=LONGUEUR-1.5) arriveeLive31();
+    /* la ligne d'arrivée franchie */
+    var L=LIVE.ligne, sL=(J.x-L.x)*L.f[0]+(J.z-L.z)*L.f[1], tL=Math.abs(-(J.x-L.x)*L.f[1]+(J.z-L.z)*L.f[0]);
+    if(LIVE.d>=L.d-60 && LIVE.sPrec!==null && LIVE.sPrec<0 && sL>=0 && tL<8) arriveeLive31(now);
+    LIVE.sPrec=sL;
+    var an=$e('lv-anneau'), fr=LIVE.D/R.DMAX;
+    if(an){ an.setAttribute('stroke-dashoffset',(276.5*(1-fr)).toFixed(1)); an.setAttribute('stroke',LIVE.epuise?'#ef4444':(fr<0.3?'#f59e0b':'#4ade80')); }
+    var rb=$e('e3-relance'); rb.classList.toggle('on',LIVE.relance); rb.classList.toggle('vide',LIVE.D<8 || LIVE.epuise);
   }
-  if(LIVE.etat==='arrive'){ J.v*=Math.max(0,1-dt*1.5); VITESSE=0.01; }
+  if(LIVE.etat==='arrive'){ zoneVisuelle31(0); $e('lv-chrono').textContent=chronoLive31(LIVE.arrivee!==null?LIVE.arrivee:LIVE.tFin,true); }
+  /* l'allure de l'image suivante : le joystick à fond ne vaut que la
+     croisière, c'est le bouton qui relance */
+  VITESSE=cible/(touches['shift']?1.6:1);
   /* tableau de bord */
-  $e('lv-km').textContent=(LIVE.d/1000).toFixed(2).replace('.',',')+' / '+(LONGUEUR/1000).toFixed(1).replace('.',',');
-  var j=$e('lv-jauge'), f=LIVE.D/R.DMAX;
-  j.style.width=Math.round(f*100)+'%'; j.style.background=LIVE.epuise?'#ef4444':(f<0.3?'#f59e0b':'#4ade80');
-  $e('lv-allure').textContent='≈ '+(LIVE.vMes/R.K_REEL*3.6).toFixed(1).replace('.',',')+' km/h'+(LIVE.aspi?' · aspiration':'');
-  var devant=0; LIVE.adv.forEach(function(a){ if(a.a ? (!LIVE.arrivee || a.a<LIVE.arrivee) : (!LIVE.arrivee && a.d>LIVE.d)) devant++; });
+  $e('lv-km').textContent=(LIVE.d/1000).toFixed(2).replace('.',',')+' / '+(LONGUEUR/1000).toFixed(2).replace('.',',');
+  var devant=0; LIVE.adv.forEach(function(a){ if(a.a ? (!LIVE.arrivee || a.a<LIVE.arrivee) : (LIVE.etat!=='arrive' && a.d>LIVE.d)) devant++; });
   LIVE.rang=devant+1;
   $e('lv-rang').textContent=LIVE.rang+(LIVE.rang===1?'er':'e')+' / '+(LIVE.adv.size+1);
   LIVE.px=J.x; LIVE.pz=J.z;
@@ -26594,29 +26752,38 @@ function piloterCourse31(dt){
   LIVE.tEnvoi-=dt;
   if(LIVE.tEnvoi<=0 && !LIVE.req && LIVE.ins){
     LIVE.tEnvoi=1; LIVE.req=true;
-    rpcLive('live_course',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton, p_x:J.x, p_z:J.z, p_cap:J.cap, p_v:LIVE.etat==='course'?LIVE.vMes:0, p_d:LIVE.d})
+    rpcLive('live_course',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton, p_x:J.x, p_z:J.z, p_cap:J.cap, p_v:LIVE.vMes, p_d:LIVE.d,
+      p_odo:LIVE.etat==='attente'?0:LIVE.odo, p_geste:LIVE.coucouT>0?1:0})
       .then(recevoirPeloton31).catch(function(e){ console.warn('course live :',e.message); })
       .then(function(){ LIVE.req=false; });
   }
   majAdversaires31(dt,now);
 }
-function arriveeLive31(){
+function arriveeLive31(now){
   if(LIVE.etat==='arrive') return;
-  LIVE.etat='arrive';
-  messageLive31('Arrivée !',2);
+  LIVE.etat='arrive'; LIVE.relance=false; LIVE.tFin=now-LIVE.depart;
+  LIVE.d=Math.max(LIVE.d,LIVE.ligne.d);
+  $e('e3-relance').style.display='none';
+  if(LIVE.odo<LIVE_REG.ODO_MIN){
+    statutLive31('Non classé : '+(LIVE.odo/1000).toFixed(2).replace('.',',')+' km courus',30);
+    dire('Arrivée non validée : tu n’as couru que '+(LIVE.odo/1000).toFixed(2).replace('.',',')+' km, il en faut 7,7 au moins. Tu as coupé quelque part.');
+  }
+  /* la position de la ligne part tout de suite, l'arrivée juste après */
+  LIVE.tEnvoi=0;
   var essai=function(n){
     rpcLive('live_arrivee',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton}).then(function(r){
       LIVE.arrivee=r.arrivee_ms;
-      messageLive31(chronoLive31(r.arrivee_ms,true)+' · '+r.rang+(r.rang===1?'er':'e'),6);
+      statutLive31(r.rang+(r.rang===1?'er':'e')+' de ta vague',8);
       dire('Arrivée en '+chronoLive31(r.arrivee_ms,true)+', '+r.rang+(r.rang===1?'er':'e')+' de ta vague. Bravo !');
       setTimeout(function(){ ouvrirLive31('resultats'); },4000);
     }).catch(function(e){
+      if(/insuffisante/.test(e.message)) return;
       /* la dernière position n'est peut-être pas encore arrivée au serveur */
       if(n<4) setTimeout(function(){ essai(n+1); },1200);
       else dire('Arrivée non validée : '+messageErreur31(e));
     });
   };
-  setTimeout(function(){ essai(0); },1100);
+  setTimeout(function(){ essai(0); },1300);
 }
 
 /* ---------- les adversaires ---------- */
@@ -26628,8 +26795,9 @@ function recevoirPeloton31(r){
     vus.add(c.i);
     var a=LIVE.adv.get(c.i);
     if(!a){ a={i:c.i, p:c.p, rx:c.x, rz:c.z, rc:c.c||0, rig:null}; LIVE.adv.set(c.i,a); }
-    a.x=c.x; a.z=c.z; a.c=c.c||0; a.v=c.v||0; a.d=c.d||0; a.a=c.a; a.arrive=!!c.a; a.age=c.age||0; a.recu=t;
+    a.x=c.x; a.z=c.z; a.c=c.c||0; a.v=c.v||0; a.d=c.d||0; a.a=c.a; a.arrive=!!c.a; a.age=c.age||0; a.recu=t; a.g=c.g||0;
   });
+  /* un coureur déconnecté quitte l'écran des autres */
   LIVE.adv.forEach(function(a,k){ if(!vus.has(k)){ libererAdv31(a); LIVE.adv.delete(k); } });
   if(r.depart) LIVE.depart=r.depart;
 }
@@ -26651,8 +26819,12 @@ function rigAdv31(a){
   var k=0; for(var i=0;i<a.i.length;i++) k=(k*31+a.i.charCodeAt(i))>>>0;
   var rig=creerRigCoureur(noms[k%noms.length]);
   if(!rig) return null;
-  var ac=rig.mix.clipAction(FOULE.run); ac.play();
-  rig.act=ac; rig.g.visible=true;
+  /* à l'arrêt il attend, lent il marche, vite il court : jamais de course sur place */
+  var clips={run:FOULE.run};
+  if(typeof VIE!=='undefined' && VIE.clips){ clips.walk=VIE.clips[rig.femme?'fw':'mw']||VIE.clips.mw; clips.idle=VIE.clips[rig.femme?'fi':'mi']||VIE.clips.mi; }
+  rig.acts={}; rig.poids={};
+  Object.keys(clips).forEach(function(n){ if(!clips[n]) return; var ac=rig.mix.clipAction(clips[n]); ac.play(); ac.setEffectiveWeight(n==='idle'?1:0); rig.acts[n]=ac; rig.poids[n]=n==='idle'?1:0; });
+  rig.g.visible=true;
   /* l'étiquette vit dans la scène : le modèle est mis à l'échelle à l'intérieur */
   rig.etiq=etiquetteAdv31(a.p); monde.add(rig.etiq);
   return rig;
@@ -26665,20 +26837,27 @@ function majAdversaires31(dt,now){
     /* la position affichée rattrape la prévision sans sauter */
     var k=Math.min(1,dt*4);
     if(Math.hypot(q[0]-a.rx,q[1]-a.rz)>25){ a.rx=q[0]; a.rz=q[1]; }
+    var ox=a.rx, oz=a.rz;
     a.rx+=(q[0]-a.rx)*k; a.rz+=(q[1]-a.rz)*k; a.rc+=ecartAngle(a.c-a.rc)*k;
     if(!a.rig) a.rig=rigAdv31(a);
     if(!a.rig) return;
-    var g=a.rig.g;
+    var g=a.rig.g, v=a.v;
     g.position.set(a.rx,hauteurSol(a.rx,a.rz,0),a.rz);
     g.rotation.y=-a.rc;
     a.rig.etiq.position.set(a.rx,g.position.y+2.15,a.rz);
-    a.rig.act.setEffectiveTimeScale(a.arrive?0.4:Math.max(0.5,Math.min(2.4,a.v/7)));
+    var cib={idle:0, walk:0, run:0};
+    if(v<0.3 || !a.rig.acts.walk) cib[v<0.3 && a.rig.acts.idle?'idle':'run']=1;
+    else if(v<3) cib.walk=1; else cib.run=1;
+    Object.keys(a.rig.acts).forEach(function(n){ a.rig.poids[n]+=(cib[n]-a.rig.poids[n])*Math.min(1,dt*6); a.rig.acts[n].setEffectiveWeight(a.rig.poids[n]); });
+    if(a.rig.acts.walk) a.rig.acts.walk.setEffectiveTimeScale(Math.max(0.5,Math.min(1.6,v/1.4)));
+    a.rig.acts.run.setEffectiveTimeScale(Math.max(0.6,Math.min(2.6,v/6)));
     a.rig.mix.update(dt);
+    if(a.g) try{ coucou31(g,now/1000); }catch(e){}
     a.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
   });
 }
 
-/* ---------- arbres et coureurs : des obstacles comme les autres ---------- */
+/* ---------- les arbres sont des obstacles ; les coureurs, eux, se traversent ---------- */
 function octogone31(x,z,r){ var P=[]; for(var i=0;i<8;i++){ var t=i/8*2*PI; P.push(x+Math.cos(t)*r,z+Math.sin(t)*r); } return {t:2,p:P,r:0}; }
 var _construireObst31=construireObst22;
 construireObst22=function(cx,cz){
@@ -26687,18 +26866,25 @@ construireObst22=function(cx,cz){
   var L=OBST22.liste, A=ARB.liste||[];
   for(var i=0;i<A.length;i++){ var t=A[i]; if(Math.abs(t.x-cx)<17 && Math.abs(t.z-cz)<17) L.push(octogone31(t.x,t.z,t.v===4?0.42:0.3)); }
 };
-var _heurte31=heurte22;
-heurte22=function(x,z){
-  var o=_heurte31(x,z);
-  if(o || !LIVE.enCours || !LIVE.adv.size) return o;
-  var R=OBST22.rJ+0.32, res=null;
-  LIVE.adv.forEach(function(a){
-    if(res || a.arrive) return;
-    var dn=Math.hypot(x-a.rx,z-a.rz), dc=Math.hypot(J.x-a.rx,J.z-a.rz);
-    if(dn<R && (dc>=R || dn<dc-1e-4)) res=octogone31(a.rx,a.rz,0.32);
-  });
-  return res;
+
+/* ---------- cartes épurées pendant la course : seul le départ reste ---------- */
+var _equipSurMini31=equipSurMini;
+equipSurMini=function(){ if(LIVE.enCours) return; return _equipSurMini31(); };
+function sansParcours31(fn){
+  var tv=TRACE_VISIBLE, jo=JOBJ;
+  TRACE_VISIBLE=false; JOBJ=new Map();
+  try{ return fn(); } finally { TRACE_VISIBLE=tv; JOBJ=jo; }
+}
+var _dessinerMini31=dessinerMini;
+dessinerMini=function(){
+  if(!LIVE.enCours) return _dessinerMini31();
+  sansParcours31(_dessinerMini31);
+  var cv=$e('e3-mini'); if(!cv) return;
+  var g=cv.getContext('2d'), S=220, ech=S/(MINIR*2), p=pointArrondi(0), x=S/2+(p[0]-J.x)*ech, y=S/2+(p[1]-J.z)*ech;
+  if(Math.hypot(x-S/2,y-S/2)<S/2-10){ g.font='15px system-ui'; g.textAlign='center'; g.textBaseline='middle'; g.fillText('🏁',x,y); }
 };
+var _dessinerGM31=dessinerGM;
+dessinerGM=function(){ if(!LIVE.enCours) return _dessinerGM31(); sansParcours31(_dessinerGM31); };
 
 /* ---------- le bouton dans la barre ---------- */
 function boutonLive31(){
