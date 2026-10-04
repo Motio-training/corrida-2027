@@ -215446,6 +215446,287 @@ zjRedessiner();
 })();
 </script>
 <script>
+/* ---------------------------------------------------------------
+   Calque « course en live » (Nicolas, 4 oct. 2026). Des barrières posées
+   pour la course en live seulement, et des lignes invisibles qui
+   empêchent les coureurs de passer (place d'armes, raccourcis) : celui qui
+   suit mal les jalonneurs peut se perdre, celui qui triche est arrêté.
+   Rien de ce calque n'existe dans la 3D classique : dans la course, les
+   barrières se voient et arrêtent, les lignes arrêtent sans se voir.
+   Enregistré avec le travail (clé live du paquet) ; les téléphones le
+   reçoivent comme le reste. Sur la carte : menu Ajouter > Mode live. La
+   bande jaune montre la zone de course (20 m de part et d'autre du tracé).
+--------------------------------------------------------------- */
+(function(){
+var LV={b:[], l:[]};
+function lvVers(){
+  if(!LV.b.length && !LV.l.length) return null;
+  return {
+    b:LV.b.map(function(b){ return [+b.la.toFixed(6), +b.lo.toFixed(6), ((Math.round(b.ang)%360)+360)%360]; }),
+    l:LV.l.map(function(L){ var f=[]; L.forEach(function(p){ f.push(+p[0].toFixed(6), +p[1].toFixed(6)); }); return f; })
+  };
+}
+function lvDepuis(o){
+  var r={b:[], l:[]};
+  if(!o) return r;
+  (o.b||[]).forEach(function(b){ if(Array.isArray(b) && b.length>=2 && isFinite(+b[0]) && isFinite(+b[1])) r.b.push({la:+b[0], lo:+b[1], ang:+b[2]||0}); });
+  (o.l||[]).forEach(function(f){
+    if(!Array.isArray(f)) return;
+    var P=[];
+    for(var i=0;i+1<f.length;i+=2) if(isFinite(+f[i]) && isFinite(+f[i+1])) P.push([+f[i],+f[i+1]]);
+    if(P.length>=2) r.l.push(P);
+  });
+  return r;
+}
+paquet=(function(orig){ return function(){ var p=orig(), v=lvVers(); if(v) p.live=v; return p; }; })(paquet);
+chargerEtat=(function(orig){
+  return function(data,refRef){
+    if(!data) return orig(data,refRef);
+    var avant=LV;
+    LV=lvDepuis(data.live);
+    var ok=orig(data,refRef);
+    if(!ok) LV=avant;
+    else { UI.sel=null; UI.ligne=null; dessiner(); signaler3D('live'); }
+    return ok;
+  };
+})(chargerEtat);
+CARTE.live=function(){
+  return {b:LV.b.map(function(b){ return {la:b.la, lo:b.lo, ang:b.ang}; }),
+          l:LV.l.map(function(L){ return L.map(function(p){ return p.slice(); }); })};
+};
+
+/* ---------- le calque sur la carte ---------- */
+var UI={on:false, outil:null, sel:null, ligne:null, curseur:null, drag:null};
+var gLive=el('g',{'class':'live-calque'});
+dyn.insertBefore(gLive,gJal);
+gLive.style.display='none';
+function unitesParMetre(){
+  var la=EQ_LA0, lo=-0.205;
+  return (Math.abs(X(lo+1/EQ_MLON)-X(lo))+Math.abs(Y(la+1/EQ_MLAT)-Y(la)))/2;
+}
+function dPts(P){ var d=''; P.forEach(function(p,i){ d+=(i?'L':'M')+X(p[1]).toFixed(2)+' '+Y(p[0]).toFixed(2); }); return d; }
+function dessiner(){
+  while(gLive.firstChild) gLive.removeChild(gLive.firstChild);
+  gLive.style.display=UI.on?'':'none';
+  if(!UI.on) return;
+  /* la zone de course : 20 m de part et d'autre du tracé */
+  try{
+    var T=CARTE.traceDense().map(function(p){ return [p.la,p.lo]; });
+    if(T.length>1){
+      var u=unitesParMetre();
+      gLive.appendChild(el('path',{d:dPts(T), fill:'none', stroke:'#F2B33D', 'stroke-opacity':0.13, 'stroke-width':(40*u).toFixed(3),
+        'stroke-linecap':'round', 'stroke-linejoin':'round', 'pointer-events':'none'}));
+    }
+  }catch(e){}
+  LV.l.forEach(function(L){
+    var d=dPts(L), choisi=UI.sel && UI.sel.o===L;
+    gLive.appendChild(el('path',{d:d, fill:'none', stroke:'#0B1019', 'stroke-width':6, 'vector-effect':'non-scaling-stroke', 'stroke-linecap':'round', 'stroke-linejoin':'round', 'pointer-events':'none'}));
+    gLive.appendChild(el('path',{d:d, fill:'none', stroke:choisi?'#FFFFFF':'#E040FB', 'stroke-width':3.5, 'stroke-dasharray':'8 5',
+      'vector-effect':'non-scaling-stroke', 'stroke-linecap':'round', 'stroke-linejoin':'round', 'pointer-events':'none'}));
+    var prise=el('path',{d:d, fill:'none', stroke:'transparent', 'stroke-width':16, 'vector-effect':'non-scaling-stroke', 'pointer-events':'stroke', style:'cursor:pointer'});
+    prise.__lv={type:'l', o:L};
+    var tt=el('title',{}); tt.textContent='Ligne invisible (course en live). Clic pour la choisir, Suppr ou clic droit pour la retirer.';
+    prise.appendChild(tt); gLive.appendChild(prise);
+  });
+  LV.b.forEach(function(b){
+    var a=b.ang*Math.PI/180, dlo=Math.cos(a)/EQ_MLON, dla=-Math.sin(a)/EQ_MLAT;
+    var d='M'+X(b.lo-dlo).toFixed(2)+' '+Y(b.la-dla).toFixed(2)+'L'+X(b.lo+dlo).toFixed(2)+' '+Y(b.la+dla).toFixed(2);
+    var choisi=UI.sel && UI.sel.o===b;
+    gLive.appendChild(el('path',{d:d, stroke:'#0B1019', 'stroke-width':9, 'vector-effect':'non-scaling-stroke', 'stroke-linecap':'round', 'pointer-events':'none'}));
+    var v=el('path',{d:d, stroke:choisi?'#FFFFFF':'#F2B33D', 'stroke-width':5, 'vector-effect':'non-scaling-stroke', 'stroke-linecap':'round', 'pointer-events':'stroke', style:'cursor:grab'});
+    v.__lv={type:'b', o:b};
+    var tt=el('title',{}); tt.textContent='Barrière (course en live). Glisser pour déplacer, R pour tourner, Suppr ou clic droit pour la retirer.';
+    v.appendChild(tt); gLive.appendChild(v);
+  });
+  if(UI.ligne && UI.ligne.length){
+    var P=UI.ligne.slice(); if(UI.curseur) P.push(UI.curseur);
+    gLive.appendChild(el('path',{d:dPts(P), fill:'none', stroke:'#FFFFFF', 'stroke-width':2.5, 'stroke-dasharray':'4 4', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'}));
+  }
+  majPanneau();
+}
+/* une barrière posée près du tracé se met dans son axe */
+function angleTrace(la,lo){
+  var T=[], best=1e18, ang=0;
+  try{ T=CARTE.traceDense(); }catch(e){}
+  for(var i=1;i<T.length;i++){
+    var a=T[i-1], b=T[i], ax=(a.lo-lo)*EQ_MLON, az=(a.la-la)*EQ_MLAT, bx=(b.lo-lo)*EQ_MLON, bz=(b.la-la)*EQ_MLAT;
+    var dx=bx-ax, dz=bz-az, L2=dx*dx+dz*dz||1e-9, u=Math.max(0,Math.min(1,-(ax*dx+az*dz)/L2));
+    var px=ax+dx*u, pz=az+dz*u, d=px*px+pz*pz;
+    if(d<best){ best=d; ang=Math.atan2(-(b.la-a.la)*EQ_MLAT,(b.lo-a.lo)*EQ_MLON)*180/Math.PI; }
+  }
+  return best<60*60 ? ((Math.round(ang)%360)+360)%360 : 0;
+}
+function modifie(){ marquerModifie(); signaler3D('live'); dessiner(); }
+function supprimer(e){
+  if(!e) return;
+  if(e.type==='b'){ var i=LV.b.indexOf(e.o); if(i>=0) LV.b.splice(i,1); dire('Barrière live retirée.',''); }
+  else { var j=LV.l.indexOf(e.o); if(j>=0) LV.l.splice(j,1); dire('Ligne invisible retirée.',''); }
+  if(UI.sel && UI.sel.o===e.o) UI.sel=null;
+  modifie();
+}
+function finirLigne(){
+  var L=UI.ligne;
+  UI.ligne=null; UI.curseur=null;
+  if(L && L.length>=2){ LV.l.push(L); UI.sel={type:'l', o:L}; modifie(); dire('Ligne invisible ajoutée : les coureurs ne la franchiront pas.','ok'); }
+  else dessiner();
+}
+function choisirOutil(o){
+  if(UI.ligne) finirLigne();
+  UI.outil=(UI.outil===o) ? null : o;
+  document.body.classList.toggle('pose-jalon',!!UI.outil);
+  if(UI.outil==='b') dire('Clique sur la carte pour poser des barrières (dans l’axe du tracé). Échap pour arrêter.','');
+  else if(UI.outil==='l') dire('Clique point par point, double-clic ou Entrée pour finir la ligne. Échap pour annuler.','');
+  dessiner();
+}
+function basculerMode(on){
+  UI.on=(on===undefined) ? !UI.on : !!on;
+  if(!UI.on){ UI.outil=null; UI.ligne=null; UI.sel=null; document.body.classList.remove('pose-jalon'); }
+  document.body.classList.toggle('mode-live',UI.on);
+  panneau().hidden=!UI.on;
+  dessiner();
+  if(UI.on) dire('Mode live : barrières et lignes invisibles réservées à la course en live. La bande jaune est la zone de course.','ok');
+}
+
+/* ---------- le panneau ---------- */
+var PAN=null;
+function panneau(){
+  if(PAN) return PAN;
+  var s=document.createElement('style');
+  s.textContent=[
+    'body.mode-live .equip{opacity:.35}',
+    '#lv-carte{position:fixed;left:12px;top:64px;z-index:40;width:270px;background:var(--nuit,#0E141F);color:var(--creme,#F4F4F0);border:1px solid #F2B33D;border-radius:8px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.5);font-size:12.5px;line-height:1.4}',
+    '#lv-carte h3{margin:0 0 4px;font-size:14px;color:#F2B33D}',
+    '#lv-carte p{margin:4px 0 8px;opacity:.85}',
+    '#lv-carte .l{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}',
+    '#lv-carte .l button{flex:1;min-width:110px}',
+    '#lv-carte button.on{background:#F2B33D;color:#14202f;border-color:#F2B33D}',
+    '#lv-carte .n{font-weight:700}',
+    '#lv-carte small{display:block;opacity:.7;margin-top:6px}',
+    '#lv-carte .leg{display:inline-block;width:18px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}'
+  ].join('\n');
+  document.head.appendChild(s);
+  PAN=document.createElement('div'); PAN.id='lv-carte'; PAN.hidden=true;
+  PAN.innerHTML='<h3>🏁 Calque course en live</h3>'+
+    '<p>Ces éléments n’existent que pendant la course en live, pas dans la 3D classique.</p>'+
+    '<div class="l"><button type="button" data-a="b"><span class="leg" style="background:#F2B33D"></span>+ Barrière</button>'+
+    '<button type="button" data-a="l"><span class="leg" style="background:#E040FB"></span>+ Ligne invisible</button></div>'+
+    '<div class="l"><button type="button" data-a="fin" hidden>✓ Terminer la ligne</button></div>'+
+    '<div class="n"></div>'+
+    '<small>Clic sur un élément : le choisir. Glisser une barrière : la déplacer, <kbd>R</kbd> pour la tourner. <kbd>Suppr</kbd> ou clic droit : retirer. <kbd>Échap</kbd> : arrêter l’outil. Pense à enregistrer.</small>'+
+    '<div class="l"><button type="button" data-a="quitter">Quitter le mode live</button></div>';
+  document.body.appendChild(PAN);
+  PAN.addEventListener('click',function(ev){
+    var b=ev.target.closest ? ev.target.closest('[data-a]') : null;
+    if(!b) return;
+    var a=b.dataset.a;
+    if(a==='b' || a==='l') choisirOutil(a);
+    else if(a==='fin') finirLigne();
+    else if(a==='quitter') basculerMode(false);
+  });
+  return PAN;
+}
+function majPanneau(){
+  if(!PAN) return;
+  PAN.querySelector('[data-a="b"]').classList.toggle('on',UI.outil==='b');
+  PAN.querySelector('[data-a="l"]').classList.toggle('on',UI.outil==='l');
+  PAN.querySelector('[data-a="fin"]').hidden=!(UI.ligne && UI.ligne.length>=2);
+  var nb=LV.b.length, nl=LV.l.length;
+  PAN.querySelector('.n').textContent=nb+' barrière'+(nb>1?'s':'')+' · '+nl+' ligne'+(nl>1?'s':'')+' invisible'+(nl>1?'s':'');
+}
+
+/* ---------- la souris et le clavier ---------- */
+function point(ev){ var w=toWorld(ev); return [versLat(w.y), versLon(w.x)]; }
+svg.addEventListener('pointerdown',function(ev){
+  if(!UI.on) return;
+  var e=ev.target && ev.target.__lv;
+  if(ev.button===2){ if(e){ ev.preventDefault(); ev.stopImmediatePropagation(); } return; }
+  if(ev.button!==0) return;
+  if(UI.outil==='b'){
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    var p=point(ev), b={la:p[0], lo:p[1], ang:angleTrace(p[0],p[1])};
+    LV.b.push(b); UI.sel={type:'b', o:b}; modifie();
+    return;
+  }
+  if(UI.outil==='l'){
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    var q=point(ev);
+    if(!UI.ligne) UI.ligne=[];
+    var der=UI.ligne[UI.ligne.length-1];
+    if(!der || metresEntre(der,q)>0.5) UI.ligne.push(q);
+    dessiner();
+    return;
+  }
+  if(e){
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    UI.sel=e;
+    if(e.type==='b'){ UI.drag={o:e.o, id:ev.pointerId, bouge:false}; try{ svg.setPointerCapture(ev.pointerId); }catch(er){} }
+    dessiner();
+    return;
+  }
+  if(UI.sel){ UI.sel=null; dessiner(); }
+},true);
+svg.addEventListener('pointermove',function(ev){
+  if(!UI.on) return;
+  if(UI.drag && UI.drag.id===ev.pointerId){
+    ev.stopImmediatePropagation();
+    var p=point(ev); UI.drag.o.la=p[0]; UI.drag.o.lo=p[1]; UI.drag.bouge=true;
+    dessiner();
+    return;
+  }
+  if(UI.outil==='l' && UI.ligne && UI.ligne.length){ UI.curseur=point(ev); dessiner(); }
+},true);
+function finDrag(ev){
+  if(!UI.drag || UI.drag.id!==ev.pointerId) return;
+  try{ svg.releasePointerCapture(ev.pointerId); }catch(e){}
+  var bouge=UI.drag.bouge; UI.drag=null;
+  if(bouge) modifie();
+}
+svg.addEventListener('pointerup',finDrag,true);
+svg.addEventListener('pointercancel',finDrag,true);
+svg.addEventListener('dblclick',function(ev){
+  if(!UI.on || !UI.outil) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  if(UI.outil==='l' && UI.ligne) finirLigne();
+},true);
+svg.addEventListener('contextmenu',function(ev){
+  if(!UI.on) return;
+  var e=ev.target && ev.target.__lv;
+  if(UI.ligne){ ev.preventDefault(); ev.stopImmediatePropagation(); UI.ligne.pop(); if(!UI.ligne.length) UI.ligne=null; dessiner(); return; }
+  if(!e) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  supprimer(e);
+},true);
+window.addEventListener('keydown',function(ev){
+  if(!UI.on) return;
+  var t=ev.target; if(t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.isContentEditable)) return;
+  if(document.body.classList.contains('en-3d')) return;
+  var k=ev.key, fait=true;
+  if(k==='Escape'){ if(UI.ligne){ UI.ligne=null; UI.curseur=null; dessiner(); } else if(UI.outil) choisirOutil(UI.outil); else if(UI.sel){ UI.sel=null; dessiner(); } else fait=false; }
+  else if(k==='Enter' && UI.ligne) finirLigne();
+  else if((k==='r' || k==='R') && UI.sel && UI.sel.type==='b' && !ev.ctrlKey && !ev.metaKey){ UI.sel.o.ang=(((UI.sel.o.ang+(ev.shiftKey?-15:15))%360)+360)%360; modifie(); }
+  else if((k==='Delete' || k==='Backspace') && UI.sel) supprimer(UI.sel);
+  else fait=false;
+  if(fait){ ev.preventDefault(); ev.stopImmediatePropagation(); }
+},true);
+/* le tracé change : la bande de la zone suit */
+signaler3D=(function(orig){ return function(t){ orig(t); if(UI.on && (t==='route' || t==='parcours')) setTimeout(dessiner,0); }; })(signaler3D);
+
+/* ---------- l'entrée dans le menu Ajouter ---------- */
+setTimeout(function(){
+  if(window.CONSULTATION) return;
+  var pa=document.querySelector('.bar .menu[data-m="ajout"] .menu-pop');
+  if(!pa) return;
+  var sp=document.createElement('div'); sp.className='menu-sep';
+  var ti=document.createElement('div'); ti.className='menu-titre'; ti.textContent='Course en live';
+  var b=document.createElement('button'); b.type='button'; b.id='b-mode-live'; b.textContent='🏁 Mode live : barrières, lignes invisibles';
+  b.title='Calque réservé à la course en live : barrières et lignes invisibles qui bloquent les coureurs';
+  b.onclick=function(){ basculerMode(true); };
+  pa.appendChild(sp); pa.appendChild(ti); pa.appendChild(b);
+},60);
+CARTE.modeLive=function(on){ basculerMode(on); return UI.on; };
+})();
+</script>
+<script>
 /* L'écran d'attente de la 3D. Ce qui se charge n'intéresse personne : on
    montre le parcours qui se dessine au fil du chargement, un coureur
    lumineux qui l'avance, une seule jauge (téléchargement puis

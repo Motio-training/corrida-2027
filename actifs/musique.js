@@ -300,9 +300,9 @@ function planifier(ctx,dest,t0,de,a,voies){
         jouer(n, t0+t, n.duree*P.pasSec);
       }
     };
-    if(v.lead) pose(P.lead, function(n,t,d){ voix(ctx,dest,t,d,frequence(n.note),0.5,0.085); });
-    if(v.harmonie) pose(P.harmonie, function(n,t,d){ voix(ctx,dest,t,d,frequence(n.note),0.25,0.05); });
-    if(v.basse) pose(P.basse, function(n,t,d){ basse(ctx,dest,t,d,frequence(n.note),0.12); });
+    if(v.lead) pose(P.lead, function(n,t,d){ voix(ctx,dest,t,d,frequence(n.note)*TRANSPO,0.5,0.085); });
+    if(v.harmonie) pose(P.harmonie, function(n,t,d){ voix(ctx,dest,t,d,frequence(n.note)*TRANSPO,0.25,0.05); });
+    if(v.basse) pose(P.basse, function(n,t,d){ basse(ctx,dest,t,d,frequence(n.note)*TRANSPO,0.12); });
     if(v.perc) pose(P.perc, function(n,t,d){ frappe(ctx,dest,t,n.note,n.note==='H'?0.035:0.09); });
   }
   return duree;
@@ -310,6 +310,10 @@ function planifier(ctx,dest,t0,de,a,voies){
 
 /* ------------------------------------------------------------- le direct */
 var ctx=null, maitre=null, minuteur=0, debut=0, jusqu=0, enMarche=false;
+/* le volume et la tonalité peuvent bouger pendant le jeu : la course en
+   live baisse la musique au compte à rebours et la fait monter (plus fort,
+   un ton plus haut) dans le dernier kilomètre */
+var NIVEAU=0.5, TRANSPO=1;
 var CLE='corrida-musique';
 function souvenir(v){ try{ localStorage.setItem(CLE, v?'1':'0'); }catch(e){} }
 /* Allumée par défaut : la musique part avec la 3D. Le refus, lui, est
@@ -350,7 +354,7 @@ function jouer(){
   jusqu=0;
   maitre.gain.cancelScheduledValues(ctx.currentTime);
   maitre.gain.setValueAtTime(0.0001,ctx.currentTime);
-  maitre.gain.exponentialRampToValueAtTime(0.5,ctx.currentTime+0.5);
+  maitre.gain.exponentialRampToValueAtTime(NIVEAU,ctx.currentTime+0.5);
   boucle();
   minuteur=setInterval(boucle,180);
   etatChange();
@@ -472,6 +476,13 @@ window.MUSIQUE={
     });
   },
   titre:function(){ var P=partition(); return P?P.titre:''; },
+  /* volume (0,5 d'ordinaire), atteint en douceur */
+  niveau:function(g,duree){
+    NIVEAU=Math.max(0.02,Math.min(1,+g||0.5));
+    if(enMarche && maitre && ctx) maitre.gain.setTargetAtTime(NIVEAU,ctx.currentTime,(duree||0.6)/3);
+  },
+  /* tonalité, en demi-tons ; les notes déjà prévues (une seconde) gardent la leur */
+  transposer:function(demiTons){ TRANSPO=Math.pow(2,(+demiTons||0)/12); },
   /* de quoi voir depuis l'extérieur pourquoi rien ne sort : le navigateur
      suspend le contexte audio tant qu'aucun geste n'a eu lieu */
   etat:function(){
