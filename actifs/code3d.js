@@ -26450,15 +26450,15 @@ function styleCourse31(){
   if($e('e3-style-course')) return;
   var s=document.createElement('style'); s.id='e3-style-course';
   s.textContent=[
-    '#e3-relance{position:absolute;right:18px;bottom:120px;z-index:21;width:96px;height:96px;display:none;touch-action:manipulation;-webkit-user-select:none;user-select:none}',
+    '#e3-relance{position:absolute;right:18px;top:50%;margin-top:-48px;z-index:21;width:96px;height:96px;display:none;touch-action:manipulation;-webkit-user-select:none;user-select:none}',
     '#e3-relance svg{position:absolute;inset:0;width:96px;height:96px;transform:rotate(-90deg)}',
     '#e3 #e3-relance button{position:absolute;left:9px;top:9px;width:78px;height:78px;border-radius:50%;padding:0;background:rgba(14,20,31,.85);border:2px solid #3a4a63;color:#fff;font:700 13px "Oswald","Arial Narrow",Arial,sans-serif;letter-spacing:.4px;line-height:1.1}',
     '#e3 #e3-relance.on button{background:#F2B33D;color:#14202f;border-color:#fff;box-shadow:0 0 18px rgba(242,179,61,.75)}',
     '#e3 #e3-relance.vide button{opacity:.5}',
-    '#e3-coucou{position:absolute;right:18px;bottom:120px;z-index:21;display:none}',
+    '#e3-coucou{position:absolute;right:24px;top:50%;margin-top:-42px;z-index:21;display:none}',
     '#e3 #e3-coucou button{width:84px;height:84px;border-radius:50%;padding:0;font-size:34px;background:rgba(14,20,31,.85);border:2px solid #3a4a63}',
     '#e3-live-hud .statut{display:none;align-self:center;background:#b91c1c;border-color:#fecaca;font-weight:700;font-size:12px}',
-    '@media (orientation:landscape) and (max-height:520px){#e3-relance,#e3-coucou{bottom:70px;right:12px}}'
+    '@media (orientation:landscape) and (max-height:520px){#e3-relance,#e3-coucou{right:12px}}'
   ].join('\n');
   document.head.appendChild(s);
 }
@@ -26591,6 +26591,7 @@ var UI31=null;
 function uiCourse31(on){
   if(!on){
     if(UI31){ UI31.caches.forEach(function(c){ c[0].style.display=c[1]; }); if(UI31.musiqueCoupee){ var s0=$e('e3-son'); if(s0 && s0.classList.contains('on')) s0.click(); } }
+    var lb=$e('e3-live-b'); if(lb) lb.style.display='';
     UI31=null; return;
   }
   if(UI31) return;
@@ -26618,6 +26619,8 @@ function uiCourse31(on){
   document.querySelectorAll('#e3-tact-btn > *').forEach(function(e){ if(e.id!=='e3-t-plein') cacher(e); });
   /* ni les insignes trouvés, ni la meute, ni la promenade */
   cacher($e('e3-insignes30')); cacher($e('e3-meute')); cacher($e('e3-promene'));
+  /* ni la liste des jalonneurs (mode édition) */
+  cacher($e('e3-panneau'));
 }
 function basculerRelance31(){
   if(!LIVE.enCours || LIVE.etat!=='course') return;
@@ -26894,6 +26897,7 @@ function boutonLive31(){
   var b=document.createElement('button'); b.type='button'; b.id='e3-live-b'; b.textContent='🏁 Live'; b.title='Course en live : inscription, départ, résultats';
   b.addEventListener('click',function(ev){ ev.stopPropagation(); this.blur(); if(LIVE.enCours) return; ouvrirLive31(); });
   barre.insertBefore(b,barre.firstChild);
+  if(LIVE.enCours) b.style.display='none';
 }
 var _animDecor31=animerDecor;
 animerDecor=function(dt,cx,cz){
@@ -26905,4 +26909,617 @@ window.ESPACE3D.live={ouvrir:ouvrirLive31, entrer:entrerCourse31, quitter:quitte
    pourrait encore lui sauter au visage */
 var _majChien31=majChien;
 majChien=function(dt){ if(LIVE.enCours) return; return _majChien31(dt); };
+
+/* ===== 32. course en live : avatars, adversaires fluides, spectateurs ===== */
+/* Nicolas, 4 oct. 2026.
+   - Chacun compose son coureur : homme ou femme, teinte de peau, couleur du
+     haut, du bas et des chaussures. Les modèles sont ceux des coureurs
+     d'ambiance (Rocketbox « Sports »), repeints dans le navigateur : la
+     teinte change, les ombres et les plis de la texture restent.
+   - Les autres coureurs sont montrés une seconde dans le passé, en glissant
+     entre deux positions réellement reçues, le long de la courbe du tracé :
+     plus de saut ni d'arrêt quand une nouvelle position arrive. Chaque
+     téléphone envoie deux positions par seconde.
+   - On peut regarder une vague en direct sans courir : la caméra suit un
+     coureur, on passe de l'un à l'autre, on revient sur la tête de course. */
+
+/* ---------- les tenues ---------- */
+var PALETTE32=[['noir','#1a1a1a'],['blanc','#f2f2f2'],['gris','#8a8f96'],['rouge','#c62828'],['orange','#ef6c00'],['jaune','#f9c80e'],
+               ['vert','#2e7d32'],['bleu','#1e66d0'],['marine','#1b2d52'],['violet','#6a3fb5'],['rose','#e05a9c']];
+var PEAUX32=[['claire',[1,1,1],'#e8b99a'],['mate',[0.88,0.76,0.64],'#c99a78'],['brune',[0.66,0.5,0.38],'#9a6c4e'],['foncée',[0.45,0.33,0.26],'#6a4a36']];
+var MODELES32={
+  h:{nom:'Sports_Male_04', tex:'m026', h:1.79,
+     /* rectangles de la texture (0 à 1) : où est le haut, le bas, les chaussures */
+     haut:{r:[[0.32,0.03,0.68,0.86]], cle:'bleu'}, bas:{r:[[0,0,0.31,0.2],[0.7,0,1,0.2]], cle:'clair'},
+     chaus:{r:[[0.22,0.84,0.34,1],[0.62,0.84,0.74,1]], cle:'clair'}},
+  f:{nom:'Sports_Female_02', tex:'f013', h:1.68,
+     haut:{r:[[0.33,0,0.66,0.82]], cle:'gris'}, bas:{r:[[0,0.52,0.33,1],[0.67,0.52,1,1]], cle:'sombre'},
+     chaus:{r:[[0.1,0.12,0.3,0.3],[0.68,0.12,0.88,0.3]], cle:'clair'}}
+};
+function avatarDefaut32(cle){
+  var k=0, s=String(cle||Math.random()); for(var i=0;i<s.length;i++) k=(k*31+s.charCodeAt(i))>>>0;
+  return {s:k%3===0?'f':'h', p:k%4, h:PALETTE32[(k>>>2)%PALETTE32.length][1], b:PALETTE32[[0,8,2,0,7][(k>>>5)%5]][1], c:PALETTE32[[1,0,1,3,7][(k>>>7)%5]][1]};
+}
+function avatarValide32(a){
+  var d=avatarDefaut32('x');
+  if(!a || typeof a!=='object') return d;
+  var hex=/^#[0-9a-f]{6}$/i;
+  return {s:a.s==='f'?'f':'h', p:(a.p>=0 && a.p<4)?Math.floor(a.p):0, h:hex.test(a.h)?a.h:d.h, b:hex.test(a.b)?a.b:d.b, c:hex.test(a.c)?a.c:d.c};
+}
+function hexHsl32(hex){
+  var r=parseInt(hex.slice(1,3),16)/255, g=parseInt(hex.slice(3,5),16)/255, b=parseInt(hex.slice(5,7),16)/255;
+  var mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2, s=0, h=0;
+  if(mx!==mn){ var d=mx-mn; s=l>0.5?d/(2-mx-mn):d/(mx+mn); h=(mx===r)?((g-b)/d+(g<b?6:0)):((mx===g)?(b-r)/d+2:(r-g)/d+4); h/=6; }
+  return [h,s,l];
+}
+/* le pixel appartient-il à la zone (par sa couleur d'origine) ? */
+function dansCle32(cle,h,s,l){
+  if(cle==='bleu') return s>0.25 && h>190/360 && h<260/360;
+  if(cle==='gris') return s<0.15 && l>0.28 && l<0.96;
+  if(cle==='clair') return s<0.28 && l>0.35;
+  if(cle==='sombre') return s<0.2 && l<0.38;
+  return false;
+}
+function estPeau32(r,g,b){
+  var mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/510;
+  if(!(r>=g && g>=b) || l<0.33 || l>0.93) return false;
+  var s=(mx-mn)/(mx+1e-6);
+  return s>0.12 && s<0.62 && (r-g)<110;
+}
+var TEX32={};
+function imageActif32(nom){
+  return new Promise(function(ok,ko){
+    var u=actifURL(nom+'.jpg')||actifURL(nom+'.png');
+    if(!u) return ko(new Error('texture absente : '+nom));
+    var im=new Image(); im.onload=function(){ ok(im); }; im.onerror=function(){ ko(new Error('texture illisible : '+nom)); }; im.src=u;
+  });
+}
+function peindre32(im,taille,fn){
+  var cv=document.createElement('canvas'); cv.width=cv.height=taille;
+  var g=cv.getContext('2d'); g.drawImage(im,0,0,taille,taille);
+  var d=g.getImageData(0,0,taille,taille); fn(d.data,taille); g.putImageData(d,0,0);
+  var t=new THREE.CanvasTexture(cv); if(t.colorSpace!==undefined) t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=4; t.needsUpdate=true;
+  return t;
+}
+/* une teinte posée sur une zone : sa clarté moyenne devient celle de la
+   couleur voulue, les écarts (ombres, plis, coutures) sont gardés */
+function teindreZone32(P,T,zone,hex){
+  var cible=hexHsl32(hex), px=[], somme=0, i, j, R=zone.r;
+  for(var q=0;q<R.length;q++){
+    var x0=Math.floor(R[q][0]*T), y0=Math.floor(R[q][1]*T), x1=Math.ceil(R[q][2]*T), y1=Math.ceil(R[q][3]*T);
+    for(j=y0;j<y1;j++) for(i=x0;i<x1;i++){
+      var o=(j*T+i)*4, r=P[o]/255, g=P[o+1]/255, b=P[o+2]/255;
+      var mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2, s=0, h=0;
+      if(mx!==mn){ var dd=mx-mn; s=l>0.5?dd/(2-mx-mn):dd/(mx+mn); h=((mx===r)?((g-b)/dd+(g<b?6:0)):((mx===g)?(b-r)/dd+2:(r-g)/dd+4))/6; }
+      if(zone.cle!=='bleu' && estPeau32(P[o],P[o+1],P[o+2])) continue;
+      if(!dansCle32(zone.cle,h,s,l)) continue;
+      px.push(o,l); somme+=l;
+    }
+  }
+  var n=px.length/2; if(!n) return;
+  var moy=somme/n, cr=tslVersRvb;
+  for(i=0;i<px.length;i+=2){
+    var L=Math.max(0.03,Math.min(0.97,cible[2]+(px[i+1]-moy)*0.9)), c=cr(cible[0],cible[1],L), o2=px[i];
+    P[o2]=c[0]; P[o2+1]=c[1]; P[o2+2]=c[2];
+  }
+}
+function texturesAvatar32(av,taille){
+  av=avatarValide32(av);
+  var M=MODELES32[av.s], cle=[av.s,av.p,av.h,av.b,av.c,taille].join('|');
+  if(TEX32[cle]) return TEX32[cle];
+  TEX32[cle]=Promise.all([imageActif32(M.tex+'_body_color'),imageActif32(M.tex+'_head_color')]).then(function(I){
+    var f=PEAUX32[av.p][1];
+    function peau(P){ if(av.p===0) return; for(var o=0;o<P.length;o+=4) if(estPeau32(P[o],P[o+1],P[o+2])){ P[o]*=f[0]; P[o+1]*=f[1]; P[o+2]*=f[2]; } }
+    var corps=peindre32(I[0],taille,function(P,T){ teindreZone32(P,T,M.haut,av.h); teindreZone32(P,T,M.bas,av.b); teindreZone32(P,T,M.chaus,av.c); peau(P); });
+    var tete=peindre32(I[1],taille,function(P){ peau(P); });
+    return {corps:corps, tete:tete};
+  });
+  return TEX32[cle];
+}
+
+/* ---------- les modèles, chargés à la demande (même sur iPhone) ---------- */
+function actifTardif32(nom){
+  if(window.ACTIFS && ACTIFS[nom]) return Promise.resolve();
+  var C=window.CHARGEMENT_3D||{actifs:[]}, e=null;
+  (C.actifs||[]).forEach(function(a){ if(a[0]===nom) e=a; });
+  if(!e) return Promise.reject(new Error('actif inconnu : '+nom));
+  return fetch((C.base||'actifs/')+'bin/'+e[1]).then(function(r){ if(!r.ok) throw new Error('téléchargement impossible : '+e[1]); return r.blob(); })
+    .then(function(b){ window.ACTIFS[nom]=URL.createObjectURL(b); });
+}
+var BASE32={};
+function baseAvatar32(sexe){
+  if(BASE32[sexe]) return BASE32[sexe];
+  var M=MODELES32[sexe], noms=[M.nom+'.fbx', M.tex+'_body_color.jpg', M.tex+'_body_normal.jpg', M.tex+'_head_color.jpg', M.tex+'_head_normal.jpg'];
+  if(sexe==='f') noms.push('f013_opacity_color.png');
+  BASE32[sexe]=Promise.resolve(window.ACTIFS_DIFFERES).then(function(){
+    return Promise.all(noms.map(actifTardif32));
+  }).then(function(){ return chargerAvatar(M.nom); }).then(function(f){
+    var g=normaliserAvatar(f,M.h);
+    return {g:g, rest:reposOs(g)};
+  }).catch(function(e){ console.warn('avatar :',e); BASE32[sexe]=null; throw e; });
+  return BASE32[sexe];
+}
+/* un coureur habillé : la base clonée (géométrie partagée), ses deux
+   matières propres, et ses animations d'attente, de marche et de course */
+function construireAvatar32(av,taille){
+  av=avatarValide32(av);
+  return Promise.all([baseAvatar32(av.s),texturesAvatar32(av,taille)]).then(function(r){
+    var B=r[0], T=r[1];
+    restaurerOs(B.rest); B.g.updateMatrixWorld(true);
+    var g=EXT.clone(B.g), meshes=[];
+    g.traverse(function(o){
+      if(!o.isMesh) return;
+      o.castShadow=true; o.frustumCulled=false; meshes.push(o);
+      var arr=Array.isArray(o.material)?o.material:[o.material];
+      var neuf=arr.map(function(m){
+        if(/_body$/.test(m.name)){ var c=m.clone(); c.map=T.corps; c.needsUpdate=true; return c; }
+        if(/_head$/.test(m.name)){ var h=m.clone(); h.map=T.tete; h.needsUpdate=true; return h; }
+        return m;
+      });
+      o.material=Array.isArray(o.material)?neuf:neuf[0];
+    });
+    var f=g.children[0], mix=new THREE.AnimationMixer(f), A={};
+    var clips={idle:PERSO.clips&&PERSO.clips.idle, walk:PERSO.clips&&PERSO.clips.walk, run:(FOULE.run||(PERSO.clips&&PERSO.clips.run))};
+    Object.keys(clips).forEach(function(k){ if(!clips[k]) return; A[k]=mix.clipAction(clips[k]); A[k].play(); A[k].setEffectiveWeight(k==='idle'?1:0); });
+    return {g:g, mix:mix, acts:A, poids:{idle:1, walk:0, run:0}, meshes:meshes, av:av};
+  });
+}
+/* le coureur du joueur, le temps de la course ou de l'essayage */
+var MOI32={g:null, sauv:null, cle:''};
+function revetirJoueur32(av){
+  av=avatarValide32(av);
+  var cle=JSON.stringify(av);
+  if(MOI32.g && MOI32.cle===cle) return Promise.resolve();
+  MOI32.cle=cle;
+  return construireAvatar32(av,1024).then(function(o){
+    if(MOI32.cle!==cle) return;
+    var parent=(MOI32.sauv||joueur).parent;
+    if(!MOI32.sauv){ MOI32.sauv=joueur; }
+    if(MOI32.g && MOI32.g.parent) MOI32.g.parent.remove(MOI32.g);
+    o.g.userData={reel:true, mixer:o.mix, actions:o.acts, poids:o.poids};
+    if(!o.acts.walk) o.acts.walk=o.acts.run; if(!o.acts.idle) o.acts.idle=o.acts.run;
+    parent.add(o.g);
+    MOI32.sauv.visible=false;
+    MOI32.g=o.g; joueur=o.g;
+  }).catch(function(e){ console.warn('avatar du joueur :',e); });
+}
+function devetirJoueur32(){
+  if(!MOI32.sauv) return;
+  if(MOI32.g && MOI32.g.parent) MOI32.g.parent.remove(MOI32.g);
+  joueur=MOI32.sauv; joueur.visible=(VUE!=='fp');
+  MOI32.g=null; MOI32.sauv=null; MOI32.cle='';
+}
+function monAvatar32(){
+  try{ var a=JSON.parse(localStorage.getItem('corrida-avatar')||'null'); if(a) return avatarValide32(a); }catch(e){}
+  return avatarDefaut32(LIVE.ins?LIVE.ins.id:'moi');
+}
+
+/* ---------- l'essayage, dans le panneau « Course en live » ---------- */
+var ESSAI32={av:null, cam:null};
+function htmlAvatar32(){
+  var a=ESSAI32.av||(ESSAI32.av=monAvatar32()), h='<h4>🧍 Mon coureur</h4><p style="color:#98A3B6;font-size:12px">Ton coureur est devant toi dans la 3D : il change à chaque choix.</p>';
+  function rangee(titre,cle,options){
+    var s='<div style="margin:8px 0 4px;color:#fff;font-weight:700">'+titre+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
+    options.forEach(function(o){
+      var on=(String(a[cle])===String(o[0]));
+      s+='<button data-a="av" data-k="'+cle+'" data-v="'+o[0]+'" title="'+echap31(o[2]||'')+'" style="min-width:34px;height:34px;padding:0 8px;border-radius:9px;'+
+         (o[1]?'background:'+o[1]+';':'')+(on?'outline:3px solid #F2B33D;outline-offset:1px;':'')+'">'+(o[3]||'')+'</button>';
+    });
+    return s+'</div>';
+  }
+  h+=rangee('Coureur','s',[['h','','Homme','Homme'],['f','','Femme','Femme']]);
+  h+=rangee('Peau','p',PEAUX32.map(function(p,i){ return [i,p[2],p[0]]; }));
+  var pal=PALETTE32.map(function(c){ return [c[1],c[1],c[0]]; });
+  h+=rangee('Haut','h',pal)+rangee('Bas','b',pal)+rangee('Chaussures','c',pal);
+  h+='<div class="lv-ligne"><button class="lv-go" data-a="avSauver">Garder ce coureur</button><button data-a="accueil">Annuler</button></div>';
+  return h;
+}
+function essayer32(){
+  var p=$e('e3-live');
+  if(p){ p.style.left='12px'; p.style.top='54px'; p.style.transform='none'; p.style.width='min(360px,calc(50vw - 20px))'; p.style.maxHeight='calc(100% - 66px)'; }
+  if(!ESSAI32.cam){
+    ESSAI32.cam={yaw:CAM.yaw, dist:CAM.dist, pitch:CAM.pitch, vue:VUE};
+    if(VUE==='fp') basculerVue();
+    if(auto) basculerAuto();
+  }
+  /* face au coureur, un peu à sa gauche pour laisser la place au panneau */
+  CAM.yaw=J.cap+PI-0.45; CAM.libre=1e6; if(CAM.dist!==undefined) CAM.dist=3.6; if(CAM.pitch!==undefined) CAM.pitch=0.12;
+  revetirJoueur32(ESSAI32.av);
+}
+function finEssai32(garder){
+  var p=$e('e3-live');
+  if(p){ p.style.left=''; p.style.top=''; p.style.transform=''; p.style.width=''; p.style.maxHeight=''; }
+  if(ESSAI32.cam){ CAM.yaw=ESSAI32.cam.yaw; if(ESSAI32.cam.dist!==undefined) CAM.dist=ESSAI32.cam.dist; if(ESSAI32.cam.pitch!==undefined) CAM.pitch=ESSAI32.cam.pitch; CAM.libre=0; ESSAI32.cam=null; }
+  if(!LIVE.enCours) devetirJoueur32();
+  if(!garder) ESSAI32.av=null;
+}
+var _dessinerLive32=dessinerLive31;
+dessinerLive31=function(){
+  if(pageLive32()==='avatar'){
+    var p=panneauLive31();
+    p.innerHTML='<div class="lv-tete"><h3>🏁 Course en live</h3><button data-a="fermer" title="Fermer">✕</button></div>'+(VUE31.err?'<div class="lv-err">'+echap31(VUE31.err)+'</div>':'')+htmlAvatar32();
+    essayer32();
+    return;
+  }
+  if(ESSAI32.cam) finEssai32(false);
+  _dessinerLive32();
+  /* « Mon coureur » et « Regarder une vague » dans le panneau */
+  var p2=$e('e3-live'), pied=p2 && p2.querySelectorAll('.lv-ligne');
+  if(!p2 || VUE31.page==='admin' || VUE31.page==='resultats') return;
+  var l=document.createElement('div'); l.className='lv-ligne';
+  l.innerHTML='<button data-a="avatar">🧍 Mon coureur</button><button data-a="spect">👀 Regarder une vague</button>';
+  p2.appendChild(l);
+  if(VUE31.page==='spect'){
+    var now=maintenant31(), L=VUE31.vagues.filter(function(v){ return now>=v.depart-15*60000 && now<=v.depart+30*60000; });
+    var d=document.createElement('div');
+    d.innerHTML='<h4>👀 Vagues en direct</h4>'+(L.length?L.map(function(v){ return '<div class="lv-v" data-a="regarder" data-id="'+v.id+'"><b>'+echap31(v.nom)+'</b><small>'+(now<v.depart?'départ dans '+chronoLive31(v.depart-now):'en course depuis '+chronoLive31(now-v.depart))+'</small></div>'; }).join(''):'<p style="color:#98A3B6">Aucune vague en cours. Les vagues se regardent à partir de 15 minutes avant leur départ.</p>');
+    p2.appendChild(d);
+  }
+};
+function pageLive32(){ return VUE31.page; }
+var _actionLive32=actionLive31;
+actionLive31=function(a,ds){
+  if(a==='avatar'){ VUE31.page='avatar'; ESSAI32.av=monAvatar32(); dessinerLive31(); return; }
+  if(a==='av'){ var v=ds.v; ESSAI32.av[ds.k]=(ds.k==='p')?+v:v; ESSAI32.av=avatarValide32(ESSAI32.av); dessinerLive31(); return; }
+  if(a==='avSauver'){
+    var av=avatarValide32(ESSAI32.av);
+    try{ localStorage.setItem('corrida-avatar',JSON.stringify(av)); }catch(e){}
+    var fin=function(){ finEssai32(true); VUE31.page='accueil'; VUE31.info='Ton coureur est enregistré.'; rafraichirLive31(); };
+    if(LIVE.ins) rpcLive('live_avatar',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton, p_avatar:av}).then(fin).catch(function(e){ VUE31.err=messageErreur31(e); fin(); });
+    else fin();
+    return;
+  }
+  if(a==='spect'){ VUE31.page=VUE31.page==='spect'?'accueil':'spect'; rafraichirLive31(); return; }
+  if(a==='regarder'){ fermerLive31(); entrerSpect32(+ds.id); return; }
+  if(a==='fermer' && VUE31.page==='avatar'){ finEssai32(false); VUE31.page='accueil'; }
+  if(a==='accueil' && VUE31.page==='avatar') finEssai32(false);
+  /* l'inscription emporte le coureur composé */
+  if(a==='inscrire'){
+    var _rpc=rpcLive;
+    rpcLive=function(n,args){ if(n==='live_inscrire') args.p_avatar=monAvatar32(); return _rpc(n,args); };
+    try{ _actionLive32(a,ds); } finally { rpcLive=_rpc; }
+    return;
+  }
+  _actionLive32(a,ds);
+};
+
+/* ---------- en course : son coureur, les tenues des autres ---------- */
+var TENUES32={vague:null, map:{}, t:0};
+function chargerTenues32(vague){
+  TENUES32.vague=vague; TENUES32.t=maintenant31();
+  return rpcLive('live_tenues',{p_vague:vague}).then(function(L){ (L||[]).forEach(function(e){ TENUES32.map[e.i]=avatarValide32(e.av && e.av.s ? e.av : avatarDefaut32(e.i)); }); }).catch(function(){});
+}
+var _entrer32=entrerCourse31;
+entrerCourse31=function(){
+  _entrer32();
+  /* le coureur composé remplace le militaire dès que la course est ouverte */
+  var essai=0, t=setInterval(function(){
+    if(LIVE.enCours){ clearInterval(t); revetirJoueur32(monAvatar32()); if(LIVE.ins) chargerTenues32(LIVE.ins.vague); }
+    else if(++essai>40) clearInterval(t);
+  },250);
+};
+var _quitter32=quitterCourse31;
+quitterCourse31=function(){
+  var spect=!!LIVE.spect, pos=LIVE.sauv && LIVE.sauv.J;
+  _quitter32(); devetirJoueur32(); quitterSpect32(true);
+  /* le spectateur retrouve sa place d'avant */
+  if(spect && pos){ J.x=pos.x; J.z=pos.z; J.cap=pos.cap; J.v=0; CAM.yaw=pos.cap; }
+};
+
+/* ---------- les adversaires, montrés une seconde dans le passé ---------- */
+var RETARD32=1400;
+recevoirPeloton31=function(r){
+  if(!r || !r.coureurs) return;
+  var moi=(LIVE.ins && !LIVE.spect)?LIVE.ins.id.slice(0,8):'', vus=new Set(), t=Date.now();
+  r.coureurs.forEach(function(c){
+    if(c.i===moi || c.x===null) return;
+    vus.add(c.i);
+    var a=LIVE.adv.get(c.i);
+    if(!a){ a={i:c.i, p:c.p, rx:c.x, rz:c.z, rc:c.c||0, rig:null, h:[]}; LIVE.adv.set(c.i,a); }
+    /* l'instant serveur de cette position */
+    var ts=r.now-(c.age||0), H=a.h;
+    if(!H.length || ts>H[H.length-1].t+30){
+      var s={t:ts, x:c.x, z:c.z, c:c.c||0, v:c.v||0, d:c.d||0, lat:null};
+      if(LONGUEUR && s.d>0){ var p=pointArrondi(s.d), cp=capArrondi(s.d); s.lat=-(s.x-p[0])*Math.sin(cp)+(s.z-p[1])*Math.cos(cp); if(Math.abs(s.lat)>25) s.lat=null; }
+      H.push(s); if(H.length>8) H.shift();
+    }
+    a.x=c.x; a.z=c.z; a.c=c.c||0; a.v=c.v||0; a.d=c.d||0; a.a=c.a; a.arrive=!!c.a; a.age=c.age||0; a.recu=t; a.g=c.g||0;
+  });
+  LIVE.adv.forEach(function(a,k){ if(!vus.has(k)){ libererAdv31(a); LIVE.adv.delete(k); } });
+  if(r.depart) LIVE.depart=r.depart;
+  if(TENUES32.vague && maintenant31()-TENUES32.t>15000) chargerTenues32(TENUES32.vague);
+};
+/* la position à l'instant voulu : entre deux relevés, le long du tracé
+   quand les deux y sont (les virages restent des virages), sinon en ligne
+   droite ; au-delà du dernier relevé, une demi-seconde d'élan au plus */
+function etatAdv32(a,ts){
+  var H=a.h;
+  if(!H || !H.length) return null;
+  if(ts<=H[0].t){ var s0=H[0]; return {x:s0.x, z:s0.z, c:s0.c, v:s0.v}; }
+  for(var i=H.length-1;i>0;i--){
+    var A=H[i-1], B=H[i];
+    if(ts>=A.t && ts<=B.t){
+      var u=(ts-A.t)/Math.max(1,B.t-A.t);
+      if(A.lat!==null && B.lat!==null && B.d>=A.d && B.d-A.d<60){
+        var d=A.d+(B.d-A.d)*u, lat=A.lat+(B.lat-A.lat)*u, p=pointArrondi(d), cp=capArrondi(d);
+        return {x:p[0]-Math.sin(cp)*lat, z:p[1]+Math.cos(cp)*lat, c:cp, v:A.v+(B.v-A.v)*u};
+      }
+      return {x:A.x+(B.x-A.x)*u, z:A.z+(B.z-A.z)*u, c:A.c+ecartAngle(B.c-A.c)*u, v:A.v+(B.v-A.v)*u};
+    }
+  }
+  var L=H[H.length-1], dt=Math.min(0.5,Math.max(0,(ts-L.t)/1000));
+  if(a.arrive || L.v<0.3) dt=0;
+  if(L.lat!==null && dt>0){ var d2=L.d+L.v*dt, p2=pointArrondi(d2), c2=capArrondi(d2); return {x:p2[0]-Math.sin(c2)*L.lat, z:p2[1]+Math.cos(c2)*L.lat, c:c2, v:L.v}; }
+  return {x:L.x+Math.cos(L.c)*L.v*dt, z:L.z+Math.sin(L.c)*L.v*dt, c:L.c, v:L.v};
+}
+predireAdv31=function(a,now){ return [a.rx,a.rz]; };
+rigAdv31=function(a){
+  if(a.enCours32) return null;
+  var av=TENUES32.map[a.i]||avatarDefaut32(a.i);
+  a.enCours32=true;
+  construireAvatar32(av,512).then(function(o){
+    a.enCours32=false;
+    if(!LIVE.adv.has(a.i) || a.rig){ return; }
+    monde.add(o.g);
+    o.etiq=etiquetteAdv31(a.p); monde.add(o.etiq);
+    a.rig={g:o.g, mix:o.mix, acts:o.acts, poids:o.poids, meshes:o.meshes, etiq:o.etiq};
+  }).catch(function(){ a.enCours32=false; a.echec32=(a.echec32||0)+1; });
+  return null;
+};
+majAdversaires31=function(dt,now){
+  var ombre=QUAL().ombre>0, ts=now-RETARD32;
+  LIVE.adv.forEach(function(a){
+    var e=etatAdv32(a,ts);
+    if(!e) return;
+    /* un dernier lissage très court, pour les petites corrections */
+    var k=Math.min(1,dt*14);
+    if(Math.hypot(e.x-a.rx,e.z-a.rz)>30){ a.rx=e.x; a.rz=e.z; }
+    var px=a.rx, pz=a.rz;
+    a.rx+=(e.x-a.rx)*k; a.rz+=(e.z-a.rz)*k;
+    var dep=Math.hypot(a.rx-px,a.rz-pz);
+    if(dep>0.02) a.rc+=ecartAngle(Math.atan2(a.rz-pz,a.rx-px)-a.rc)*Math.min(1,dt*10);
+    else a.rc+=ecartAngle(e.c-a.rc)*Math.min(1,dt*3);
+    a.ve=e.v;
+    if(!a.rig && !a.enCours32 && (a.echec32||0)<3) rigAdv31(a);
+    if(!a.rig) return;
+    var g=a.rig.g, v=e.v;
+    g.position.set(a.rx,hauteurSol(a.rx,a.rz,0),a.rz);
+    g.rotation.y=-a.rc;
+    a.rig.etiq.position.set(a.rx,g.position.y+2.15,a.rz);
+    var cib={idle:0, walk:0, run:0};
+    if(v<0.3) cib.idle=1; else if(v<3) cib.walk=1; else cib.run=1;
+    Object.keys(a.rig.acts).forEach(function(n){ a.rig.poids[n]+=(cib[n]-a.rig.poids[n])*Math.min(1,dt*6); a.rig.acts[n].setEffectiveWeight(a.rig.poids[n]); });
+    if(a.rig.acts.walk) a.rig.acts.walk.setEffectiveTimeScale(Math.max(0.5,Math.min(1.6,v/1.4)));
+    if(a.rig.acts.run) a.rig.acts.run.setEffectiveTimeScale(Math.max(0.6,Math.min(2.6,v/6)));
+    a.rig.mix.update(dt);
+    /* le salut monte et redescend en douceur */
+    a.cw=(a.cw||0)+((a.g?1:0)-(a.cw||0))*Math.min(1,dt*5);
+    if(a.cw>0.01) try{ coucou31(g,now/1000,a.cw); }catch(er){}
+    a.rig.meshes.forEach(function(m){ m.castShadow=ombre; });
+  });
+};
+/* deux positions par seconde */
+var _piloter32=piloterCourse31;
+piloterCourse31=function(dt){
+  var avant=LIVE.tEnvoi;
+  _piloter32(dt);
+  if(LIVE.tEnvoi>avant && LIVE.tEnvoi>0.5) LIVE.tEnvoi=0.5;
+};
+
+/* ---------- regarder une vague ---------- */
+LIVE.spect=null;
+function entrerSpect32(vague){
+  if(LIVE.enCours) return;
+  rpcLive('live_peloton',{p_vague:vague}).then(function(r){
+    var hud=document.querySelector('#e3 .e3-hud'), allure=document.querySelector('#e3 .e3-allure'), liste=$e('e3-liste');
+    LIVE.sauv={vitesse:VITESSE, traf:TRAF.mode, pietons:NB_PIETONS, coureurs:NB_COUREURS, chien:CHIEN_VOULU, peloton:PELOTON.voulu, coll:collisions,
+               promene:(typeof MC29!=='undefined')?MC29.promene:false, nuit:nuit, moment:MOMENT.cle,
+               hud:hud?hud.style.display:null, allure:allure?allure.style.display:null, liste:liste?liste.style.display:null,
+               J:{x:J.x, z:J.z, cap:J.cap}};
+    NB_PIETONS=[0,0,0]; NB_COUREURS=[0,0,0]; TRAF.mode=0; PELOTON.voulu=false;
+    if(CHIEN){ CHIEN.visible=false; } CHIEN_VOULU=false;
+    if(typeof MC29!=='undefined' && MC29.promene){ MC29.promene=false; majPromenade29(true); }
+    if(hud) hud.style.display='none'; if(allure) allure.style.display='none'; if(liste) liste.style.display='none';
+    nuit=false; MOMENT.cle='coucher'; appliquerCiel();
+    if(VUE==='jal') sortirVueJal(); if(auto) basculerAuto(); if(VUE==='fp') basculerVue();
+    LIVE.spect={vague:vague, cible:null, tEnvoi:0, req:false};
+    LIVE.enCours=true; LIVE.etat='spect'; LIVE.depart=r.depart||maintenant31();
+    if(joueur) joueur.visible=false;
+    hudLive31(true);
+    var hq=$e('lv-rang'); if(hq) hq.parentNode.querySelector('i').textContent='Rang';
+    barreSpect32(true);
+    chargerTenues32(vague);
+    recevoirPeloton31(r);
+    var R=repereDepart31(); J.x=R.x-R.f[0]*12; J.z=R.z-R.f[1]*12; J.cap=R.c; CAM.yaw=R.c;
+    dire('Tu regardes « '+(vagueParId31(vague)||{nom:'la vague'}).nom+' ». ◀ ▶ pour changer de coureur.');
+  }).catch(function(e){ dire('Impossible de regarder cette vague : '+messageErreur31(e)); });
+}
+function quitterSpect32(deja){
+  if(!LIVE.spect) return;
+  LIVE.spect=null;
+  barreSpect32(false);
+  if(joueur) joueur.visible=(VUE!=='fp');
+  if(!deja) quitterCourse31();
+}
+function barreSpect32(montrer){
+  var b=$e('e3-spect');
+  if(!b){
+    b=document.createElement('div'); b.id='e3-spect';
+    b.style.cssText='position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:22;display:none;gap:8px;align-items:center;background:rgba(14,20,31,.9);border:1px solid #3a4a63;border-radius:14px;padding:6px 8px;color:#fff;font:13px Arial,Helvetica,sans-serif';
+    b.innerHTML='<button type="button" data-s="-1">◀</button><div id="lv-suivi" style="min-width:150px;text-align:center"><b>–</b></div><button type="button" data-s="1">▶</button><button type="button" data-s="tete">🥇 Tête</button>';
+    $e('e3').appendChild(b);
+    b.addEventListener('pointerdown',function(ev){ ev.stopPropagation(); });
+    b.addEventListener('click',function(ev){
+      ev.stopPropagation();
+      var bt=ev.target.closest('button'); if(!bt || !LIVE.spect) return;
+      var L=classementSpect32();
+      if(!L.length) return;
+      if(bt.dataset.s==='tete'){ LIVE.spect.cible=L[0].i; return; }
+      var k=0; L.forEach(function(a,j){ if(a.i===LIVE.spect.cible) k=j; });
+      k=(k+(+bt.dataset.s)+L.length)%L.length; LIVE.spect.cible=L[k].i;
+    });
+  }
+  b.style.display=montrer?'flex':'none';
+}
+function classementSpect32(){
+  var L=[]; LIVE.adv.forEach(function(a){ L.push(a); });
+  L.sort(function(x,y){ if(x.a && y.a) return x.a-y.a; if(x.a) return -1; if(y.a) return 1; return y.d-x.d; });
+  return L;
+}
+var _majJoueur32=majJoueur;
+majJoueur=function(dt){
+  if(LIVE.spect && dt) try{ piloterSpect32(dt); }catch(e){ console.error('spectateur :',e); }
+  _majJoueur32(dt);
+};
+function piloterSpect32(dt){
+  var S=LIVE.spect, now=maintenant31();
+  /* le peloton, une fois par seconde, sans rien envoyer */
+  S.tEnvoi-=dt;
+  if(S.tEnvoi<=0 && !S.req){
+    S.tEnvoi=0.5; S.req=true;
+    rpcLive('live_peloton',{p_vague:S.vague}).then(recevoirPeloton31).catch(function(){}).then(function(){ S.req=false; });
+  }
+  majAdversaires31(dt,now);
+  var L=classementSpect32();
+  if(L.length && (!S.cible || !LIVE.adv.has(S.cible))) S.cible=L[0].i;
+  var a=S.cible?LIVE.adv.get(S.cible):null;
+  if(a){
+    J.x=a.rx; J.z=a.rz; J.v=0; J.cap=a.rc;
+    CAM.yaw+=ecartAngle(a.rc-CAM.yaw)*Math.min(1,dt*2.5); CAM.libre=0;
+    var rg=1; L.forEach(function(x,j){ if(x===a) rg=j+1; });
+    $e('lv-suivi').innerHTML='<b>'+echap31(a.p)+'</b><br><small style="color:#98A3B6">'+rg+(rg===1?'er':'e')+' · '+(a.a?'arrivé en '+chronoLive31(a.a,true):((a.d||0)/1000).toFixed(2).replace('.',',')+' km')+'</small>';
+    $e('lv-rang').textContent=rg+(rg===1?'er':'e')+' / '+L.length;
+    $e('lv-km').textContent=((a.d||0)/1000).toFixed(2).replace('.',',')+' / '+(LONGUEUR/1000).toFixed(2).replace('.',',');
+  } else {
+    $e('lv-suivi').innerHTML='<b>En attente des coureurs…</b>';
+    $e('lv-rang').textContent='–'; $e('lv-km').textContent='–';
+  }
+  $e('lv-chrono').textContent=chronoLive31(now-LIVE.depart);
+  VITESSE=0.01;
+  if(joueur) joueur.visible=false;
+}
+/* en spectateur, la course n'est pas pilotée */
+var _piloterCourse32b=piloterCourse31;
+piloterCourse31=function(dt){ if(LIVE.spect) return; return _piloterCourse32b(dt); };
+window.ESPACE3D.live.spect=entrerSpect32;
+window.ESPACE3D.live.entrer=function(){ entrerCourse31(); };
+window.ESPACE3D.live.quitter=function(){ quitterCourse31(); };
+window.ESPACE3D.live.avatar=function(av){ return revetirJoueur32(av||monAvatar32()); };
+
+/* ---------- le salut, un vrai geste ---------- */
+/* Bras levé sur le côté à hauteur d'épaule, coude vers le bas, avant-bras
+   vertical qui se balance, paume vers l'avant. Le geste se superpose à
+   l'animation en cours avec un poids qui monte et redescend en un tiers
+   de seconde : le bras se lève et se repose, il ne saute pas. */
+var _qU32=new THREE.Quaternion(), _qF32=new THREE.Quaternion(), _qH32=new THREE.Quaternion();
+coucou31=function(g,t,w){
+  if(w===undefined){
+    var reste=LIVE.coucouT, fait=2.6-reste;
+    w=Math.max(0,Math.min(1,fait/0.35,reste/0.35));
+  }
+  w=w*w*(3-2*w);
+  if(w<=0.001) return;
+  var B=g.userData.os||(g.userData.os=osAvatar(g));
+  var b1=B.Bip01_R_UpperArm, b2=B.Bip01_R_Forearm, b3=B.Bip01_R_Hand, f2=B.Bip01_R_Finger2||B.Bip01_R_Finger1;
+  if(!b1 || !b2 || !b3) return;
+  /* la pose de l'animation, gardée pour le mélange */
+  _qU32.copy(b1.quaternion); _qF32.copy(b2.quaternion); _qH32.copy(b3.quaternion);
+  g.updateWorldMatrix(true,true);
+  var q=new THREE.Quaternion(); g.getWorldQuaternion(q);
+  var droite=new THREE.Vector3(0,0,1).applyQuaternion(q), avant=new THREE.Vector3(1,0,0).applyQuaternion(q), haut=new THREE.Vector3(0,1,0);
+  var dU=droite.clone().multiplyScalar(0.84).add(haut.clone().multiplyScalar(0.38)).add(avant.clone().multiplyScalar(0.2)).normalize();
+  var a=Math.sin(t*7.5)*0.36;
+  var dF=haut.clone().multiplyScalar(Math.cos(a)).add(droite.clone().multiplyScalar(Math.sin(a))).add(avant.clone().multiplyScalar(0.12)).normalize();
+  orienterOs(b1,b2,dU); orienterOs(b2,b3,dF); if(f2) orienterOs(b3,f2,dF);
+  /* paume vers l'avant : rotation de l'avant-bras et de la main autour de leur axe */
+  var i1=B.Bip01_R_Finger1, i4=B.Bip01_R_Finger4||B.Bip01_R_Finger3;
+  if(i1 && i4 && f2){
+    g.updateMatrixWorld(true);
+    var ph=b3.getWorldPosition(new THREE.Vector3()), p1=i1.getWorldPosition(new THREE.Vector3()), p4=i4.getWorldPosition(new THREE.Vector3()), pm=f2.getWorldPosition(new THREE.Vector3());
+    var le=pm.sub(ph).normalize(), tr=p1.sub(p4).normalize(), n=new THREE.Vector3().crossVectors(le,tr).normalize();
+    var np=n.clone().sub(dF.clone().multiplyScalar(n.dot(dF))).normalize();
+    var cible=avant.clone().sub(dF.clone().multiplyScalar(avant.dot(dF))).normalize();
+    var ang=Math.atan2(new THREE.Vector3().crossVectors(np,cible).dot(dF), np.dot(cible));
+    tournerOsMonde(b2,dF,ang*0.5); tournerOsMonde(b3,dF,ang*0.5);
+  }
+  /* mélange entre l'animation et le salut */
+  b1.quaternion.copy(_qU32.slerp(b1.quaternion,w));
+  b2.quaternion.copy(_qF32.slerp(b2.quaternion,w));
+  b3.quaternion.copy(_qH32.slerp(b3.quaternion,w));
+  g.updateMatrixWorld(true);
+};
+
+/* ---------- les lieux traversés : un titre en fondu ---------- */
+/* Les points de la carte qui portent ces noms (et le monument, le
+   parcours d'obstacles, l'ENSOA) : leur passage sur le tracé est calculé
+   une fois ; quand le coureur y arrive, le nom s'affiche en haut, en
+   fondu, 3,5 s. Un point ajouté sur la carte avec l'un de ces noms est
+   repris tout seul (« Place du Chevron » par exemple). */
+var NOMS_LIEUX32=[[/chevron/i,'Place du Chevron'],[/porte chalon/i,'Porte Chalon'],[/chaigneau/i,'Parc Chaigneau'],[/abbatiale/i,'Abbatiale Saint-Maixent'],
+  [/^mairie|h[oô]tel de ville/i,'Hôtel de ville'],[/march[ée] couvert/i,'Marché couvert'],[/mus[ée]e du sous/i,'Musée du Sous-Officier']];
+var LIEUX32=[];
+function passagesLieu32(x,z,rayon){
+  var P=[], best=1e9, bd=-1;
+  for(var d=0; d<=LONGUEUR; d+=4){
+    var p=pointArrondi(d), e=Math.hypot(p[0]-x,p[1]-z);
+    if(e<rayon){ if(e<best){ best=e; bd=d; } }
+    else if(bd>=0){ P.push(bd); best=1e9; bd=-1; }
+  }
+  if(bd>=0) P.push(bd);
+  return P;
+}
+function calculerLieux32(){
+  var L=[];
+  function ajouter(nom,x,z,r){ passagesLieu32(x,z,r||60).forEach(function(d){ if(!L.some(function(l){ return l.nom===nom && Math.abs(l.d-d)<600; })) L.push({nom:nom, d:d, vu:false}); }); }
+  /* l'ENSOA : à chaque entrée du tracé dans la zone militaire */
+  try{ var dedans=false; for(var dz=0; dz<=LONGUEUR; dz+=4){ var pz=pointArrondi(dz), z2=dansZoneMilitaire(pz[0],pz[1]); if(z2 && !dedans) L.push({nom:'ENSOA', d:Math.max(15,dz), vu:false}); dedans=z2; } }catch(e){}
+  try{ (CARTE.pois()||[]).forEach(function(p){ NOMS_LIEUX32.forEach(function(n){ if(n[0].test(p.t||'')) ajouter(n[1],pX(p.lo),pZ(p.la)); }); }); }catch(e){}
+  try{ if(MSO.pos) ajouter('Monument aux sous-officiers',MSO.pos[0],MSO.pos[1]); }catch(e){}
+  try{ if(PISTE.obstacles && PISTE.obstacles.length){ var o=PISTE.obstacles[0]; ajouter('Parcours d’obstacles',o.x,o.z,40); } }catch(e){}
+  L.sort(function(a,b){ return a.d-b.d; });
+  LIEUX32=L;
+}
+function titreLieu32(nom){
+  var t=$e('e3-lieu');
+  if(!t){
+    var s=document.createElement('style');
+    s.textContent='#e3-lieu{position:absolute;left:50%;top:104px;transform:translateX(-50%);z-index:19;pointer-events:none;text-align:center;opacity:0;transition:opacity .7s ease;'+
+      'font:600 26px/1.1 "Oswald","Arial Narrow",Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.8);white-space:nowrap}'+
+      '#e3-lieu:after{content:"";display:block;width:60%;height:2px;margin:6px auto 0;background:#F2B33D;box-shadow:0 1px 6px rgba(0,0,0,.6)}'+
+      '#e3-lieu.vu{opacity:1}'+
+      '@media (max-height:520px){#e3-lieu{top:92px;font-size:20px}}';
+    document.head.appendChild(s);
+    t=document.createElement('div'); t.id='e3-lieu'; $e('e3').appendChild(t);
+  }
+  clearTimeout(t._fin);
+  t.textContent=nom;
+  t.classList.add('vu');
+  t._fin=setTimeout(function(){ t.classList.remove('vu'); },3500);
+}
+function suivreLieux32(d){
+  for(var i=0;i<LIEUX32.length;i++){
+    var l=LIEUX32[i];
+    if(!l.vu && d>=l.d-15 && d<l.d+150){ l.vu=true; titreLieu32(l.nom); break; }
+    if(!l.vu && d>=l.d+150) l.vu=true;
+  }
+}
+var _piloter32c=piloterCourse31;
+piloterCourse31=function(dt){
+  _piloter32c(dt);
+  if(LIVE.enCours && !LIVE.spect && LIVE.etat==='course') suivreLieux32(LIVE.d);
+};
+var _piloterSpect32c=piloterSpect32;
+piloterSpect32=function(dt){
+  _piloterSpect32c(dt);
+  var a=LIVE.spect && LIVE.spect.cible ? LIVE.adv.get(LIVE.spect.cible) : null;
+  if(a && LIVE.spect.cibleLieux!==a.i){ LIVE.spect.cibleLieux=a.i; LIEUX32.forEach(function(l){ l.vu=l.d<(a.d||0)-15; }); }
+  if(a) suivreLieux32(a.d||0);
+};
+var _entrer32c=entrerCourse31;
+entrerCourse31=function(){ calculerLieux32(); _entrer32c(); };
+var _entrerSpect32c=entrerSpect32;
+entrerSpect32=function(v){ calculerLieux32(); _entrerSpect32c(v); };
+window.ESPACE3D.live.spect=function(v){ entrerSpect32(v); };
+window.ESPACE3D.live.lieux=function(){ calculerLieux32(); return LIEUX32.map(function(l){ return [l.nom,Math.round(l.d)]; }); };
 })();
