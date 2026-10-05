@@ -28308,14 +28308,25 @@ function texTreillis35(tex,ref,mesh){
     var r=P[i*4], gg=P[i*4+1], b=P[i*4+2];
     L[i]=(0.299*r+0.587*gg+0.114*b)/255;
     var sm=r+gg+b+1e-6, peau=estPeau32(r,gg,b) && (!ref || Math.hypot(r/sm-ref[0],gg/sm-ref[1])<0.035);
-    if(peau || L[i]<0.025) continue;
+    if(peau || (L[i]<0.025 && !(Mo && Mo.pris[i]))) continue;
     habit[i]=1; s+=L[i]; k++;
   }
   var moy=k?s/k:0.5;
+  /* la clarté de chaque point rapportée à celle de son voisinage (vêtement
+     seulement) : il ne reste que les plis et les ombres, pas la teinte du
+     vêtement d'origine (un jean clair et une veste sombre donnent le même
+     treillis) */
+  var Rr=Math.max(4,Math.round(W/40)), Sx=new Float64Array((W+1)*(H+1)), Sn=new Float64Array((W+1)*(H+1));
+  for(var yy=0;yy<H;yy++){ var ax=0, an=0; for(var xx=0;xx<W;xx++){ var ii=yy*W+xx; if(habit[ii]){ ax+=L[ii]; an++; } var o2=(yy+1)*(W+1)+xx+1; Sx[o2]=Sx[o2-W-1]+ax; Sn[o2]=Sn[o2-W-1]+an; } }
+  function moyLocale(xx,yy){
+    var x0=Math.max(0,xx-Rr), x1=Math.min(W,xx+Rr+1), y0=Math.max(0,yy-Rr), y1=Math.min(H,yy+Rr+1);
+    var a=y1*(W+1)+x1, b=y0*(W+1)+x1, c2=y1*(W+1)+x0, d2=y0*(W+1)+x0, nn=Sn[a]-Sn[b]-Sn[c2]+Sn[d2];
+    return nn>0 ? (Sx[a]-Sx[b]-Sx[c2]+Sx[d2])/nn : moy;
+  }
   for(i=0;i<n;i++){
     if(!habit[i]) continue;
-    var f=Math.max(0.6,Math.min(1.2,0.9+0.4*(L[i]/moy-1)));
-    if(Mo && Mo.pris[i]){ var o4=i*4, fs=Mo.pris[i]===1?f*0.88:f; P[o4]=Math.min(255,Mo.px[o4]*fs); P[o4+1]=Math.min(255,Mo.px[o4+1]*fs); P[o4+2]=Math.min(255,Mo.px[o4+2]*fs); continue; }
+    var f=Math.max(0.65,Math.min(1.25,0.97+0.55*(L[i]/Math.max(0.02,moyLocale(i%W,(i/W)|0))-1)));
+    if(Mo && Mo.pris[i]){ var o4=i*4, fs=f; P[o4]=Math.min(255,Mo.px[o4]*fs); P[o4+1]=Math.min(255,Mo.px[o4+1]*fs); P[o4+2]=Math.min(255,Mo.px[o4+2]*fs); continue; }
     var px=i%W, py=(i/W)|0, mx=((px/ech)|0)&511, my=((py/ech)|0)&511, q=(my*512+mx)*4;
     P[i*4]=Math.min(255,M[q]*f); P[i*4+1]=Math.min(255,M[q+1]*f); P[i*4+2]=Math.min(255,M[q+2]*f);
   }
