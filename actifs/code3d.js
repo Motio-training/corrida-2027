@@ -28883,4 +28883,82 @@ ETAPES.push(['Vestiaire',function(){
 }]);
 document.addEventListener('keydown',function(ev){ if(VEST.ouvert && ev.key==='Escape'){ ev.stopPropagation(); fermerVest38(); } },true);
 window.ESPACE3D.vestiaire=function(){ ouvrirVest38(null); };
+
+/* ===== 39. le vestiaire : des visages choisis en 3D ===== */
+/* Nicolas, 5 oct. 2026 : dans le choix du visage, la texture à plat n'est
+   pas élégante. Chaque vignette est maintenant une photo de la tête en 3D,
+   prise dans un petit studio : le coureur avec ce visage, la peau et le
+   haut choisis, de trois quarts face. Les photos sont prises une à une
+   quand le vestiaire s'ouvre (et quand la peau, le haut ou le sexe
+   changent), sur le moteur de la 3D, entre deux images. */
+var VIGN39={cache:{}, file:[], encours:false, scene:null, cam:null};
+function cleVign39(av,i){ return [av.s,av.p,av.h,i].join('|'); }
+function sceneVign39(){
+  if(VIGN39.scene) return VIGN39.scene;
+  var s=new THREE.Scene();
+  s.background=new THREE.Color(0x8d96a2);
+  s.add(new THREE.HemisphereLight(0xffffff,0x6f7884,1.1));
+  var k=new THREE.DirectionalLight(0xfff4e6,2.2); k.position.set(1.6,1.8,2.4); s.add(k);
+  var f=new THREE.DirectionalLight(0xdfe8ff,0.8); f.position.set(-2,0.6,1); s.add(f);
+  var r=new THREE.DirectionalLight(0xffffff,1.0); r.position.set(-0.5,1.5,-2.5); s.add(r);
+  VIGN39.cam=new THREE.PerspectiveCamera(24,1,0.05,20);
+  return (VIGN39.scene=s);
+}
+/* une photo : le rendu passe par l'écran (même étalonnage que la 3D), on
+   découpe le centre, puis on redessine aussitôt l'image courante */
+function photo39(o){
+  var s=sceneVign39(), g=o.g, cam=VIGN39.cam;
+  g.rotation.y=-PI/2+0.35; g.position.set(0,0,0);
+  try{ if(o.mix) o.mix.update(0.6); }catch(e){}
+  s.add(g); g.updateMatrixWorld(true);
+  var B=osAvatar(g), t=B.Bip01_Head, p=new THREE.Vector3(0,1.62,0);
+  if(t) t.getWorldPosition(p);
+  var cv=renderer.domElement, W=cv.width, H=cv.height;
+  /* l'os de la tête est à la base du crâne : on vise 8 cm plus haut */
+  cam.aspect=W/H; cam.position.set(p.x+0.08,p.y+0.11,p.z+1.0); cam.lookAt(p.x,p.y+0.08,p.z); cam.clearViewOffset(); cam.updateProjectionMatrix();
+  var ex=renderer.toneMappingExposure; renderer.toneMappingExposure=1.0;
+  var se=s.environment; s.environment=scene.environment;
+  renderer.render(s,cam);
+  var c=toile(112,112), gc=c.getContext('2d'), cote=Math.min(W,H)*0.62;
+  gc.drawImage(cv,(W-cote)/2,(H-cote)/2,cote,cote,0,0,112,112);
+  renderer.toneMappingExposure=ex; s.environment=se;
+  s.remove(g);
+  try{ rendreVue(); }catch(e){}
+  return c.toDataURL('image/jpeg',0.85);
+}
+function suivante39(){
+  if(VIGN39.encours || !VIGN39.file.length || !VEST.ouvert) return;
+  var t=VIGN39.file.shift();
+  if(VIGN39.cache[t.cle]) return suivante39();
+  VIGN39.encours=true;
+  construireAvatar32(t.av,256).then(function(o){
+    VIGN39.cache[t.cle]=photo39(o);
+  }).catch(function(e){ console.warn('vignette 3D :',e); VIGN39.cache[t.cle]='x'; })
+  .then(function(){ VIGN39.encours=false; if(VEST.ouvert){ dessinerVest38(); setTimeout(suivante39,30); } });
+}
+function demander39(){
+  var a=VEST.av; if(!a) return;
+  VIGN39.file=[];
+  VISAGES37[a.s].forEach(function(vis,i){
+    var av=avatarValide32({s:a.s, p:a.p, h:a.h, b:a.b, c:a.c, v:i}), cle=cleVign39(av,i);
+    if(!VIGN39.cache[cle]) VIGN39.file.push({cle:cle, av:av});
+  });
+  suivante39();
+}
+/* dans le vestiaire, la vignette d'un visage est sa photo en 3D */
+var _vignette39=vignette37;
+vignette37=function(vis){
+  if(!VEST.ouvert || !VEST.av) return _vignette39(vis);
+  var a=VEST.av, i=VISAGES37[a.s].indexOf(vis), u=VIGN39.cache[cleVign39(avatarValide32({s:a.s,p:a.p,h:a.h,v:i}),i)];
+  return (u && u!=='x') ? u : null;
+};
+var _dessinerVest39=dessinerVest38;
+dessinerVest38=function(){
+  _dessinerVest39();
+  /* une photo pas encore prise : une pastille d'attente, pas la texture à plat */
+  var p=$e('e3-vestiaire');
+  if(p) p.querySelectorAll('.vs-v').forEach(function(b){ if(!b.querySelector('img')){ b.textContent=''; b.style.background='radial-gradient(circle at 50% 40%,#5a6472,#262d38)'; } });
+  var a=VEST.av, cle=a ? [a.s,a.p,a.h].join('|') : '';
+  if(cle!==VIGN39.derniere){ VIGN39.derniere=cle; clearTimeout(VIGN39.t); VIGN39.t=setTimeout(demander39,250); }
+};
 })();
