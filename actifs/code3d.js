@@ -28985,7 +28985,8 @@ var MH40={
   cheveux:{h:['short02','short01','short04','short03','afro01'], f:['ponytail01','bob01','braid01','short03','afro01']},
   nomsCheveux:{short02:'Court', short01:'Très court', short04:'Plaqué', short03:'Mi-long', afro01:'Afro', ponytail01:'Queue-de-cheval', bob01:'Carré', braid01:'Tresse'},
   couleurs:[['noirs','#1d1714'],['bruns','#3d2a1e'],['châtains','#6b4a30'],['blond foncé','#9a7448'],['blonds','#cfae78'],['roux','#93451f'],['gris','#a29d96']],
-  yeux:[['marron','#6b4a2c'],['bleu-vert','#5b8a86'],['bleus','#4f7fb0'],['verts','#5f8a55'],['gris','#8a929a']],
+  yeux:[['marron','#6b4a2c',0],['bleus','#4f7fb0',2],['verts','#5f8a55',3],['gris','#8a929a',4]],   /* [nom, pastille, texture mh_yeux_n] */
+  chevPeau:[2,1,1,0],   /* couleur des cheveux selon la peau : châtains, bruns, bruns, noirs */
   peaux:{h:['#e5b391','#d89769','#86533b','#573725'], f:['#d8af92','#e39d70','#bf8a6d','#6b3f2c']},
   nomsPeaux:['claire','mate','brune','foncée']
 };
@@ -29010,13 +29011,12 @@ var CURSEURS40=[
   ['age','Âge',null,'age']
 ];
 /* les visages tout faits (valeurs de -10 à 10) */
+/* Nicolas, 5 oct. 2026 (soir) : trop de choix. On garde 5 visages tout
+   faits par sexe, 4 peaux, 4 couleurs d'yeux classiques, 5 coiffures et
+   les couleurs de la tenue ; la couleur des cheveux suit la peau. */
 var PRESETS40={
-  h:[{}, {mach:7,menton:4,bosse:4,sourc:3}, {afr:10,nezl:3,levres:4}, {asi:10,forme:-3,yeux:-2},
-     {forme:6,nezh:5,pomm:-5,joues:-4}, {joues:6,forme:-5,nezh:-4,levres:3}, {afr:6,pomm:6,mach:5},
-     {age:10,front:5,sourc:4,nezh:3}, {asi:5,nezl:-6,yeux:4,levres:-3}, {oreil:7,nezh:-4,bouche:4}],
-  f:[{}, {pomm:6,nezl:-5,levres:4}, {afr:10,nezl:3,levres:5}, {asi:10,forme:-3,yeux:-2},
-     {forme:6,nezh:4,pomm:-4,joues:-4}, {joues:5,forme:-5,nezh:-5,yeux:3}, {afr:6,pomm:6,menton:3},
-     {age:9,front:4,nezh:3}, {asi:5,nezl:-6,yeux:4,levres:-2}, {bosse:5,mach:4,sourc:3}]
+  h:[{}, {mach:7,menton:4,bosse:4,sourc:3}, {afr:10,nezl:3,levres:4}, {asi:10,forme:-3,yeux:-2}, {forme:6,nezh:5,pomm:-5,joues:-4}],
+  f:[{}, {pomm:6,nezl:-5,levres:4}, {afr:10,nezl:3,levres:5}, {asi:10,forme:-3,yeux:-2}, {joues:5,forme:-5,nezh:-5,yeux:3}]
 };
 VISAGES37={h:PRESETS40.h.map(function(p,i){ return 'v'+i; }), f:PRESETS40.f.map(function(p,i){ return 'v'+i; })};
 function preset40(s,v){
@@ -29029,11 +29029,9 @@ avatarValide32=function(a){
   var r=_valide40(a), L=MH40.cheveux[r.s].length, k=hash40(JSON.stringify([a&&a.v, a&&a.h, a&&a.b]));
   function ent(x,max,def){ x=Math.floor(+x); return (isFinite(x) && x>=0 && x<max) ? x : def; }
   r.ch=ent(a&&a.ch, L, k%L);
-  r.cc=ent(a&&a.cc, MH40.couleurs.length, (k>>>4)%5);
+  r.cc=MH40.chevPeau[r.p]||0;
   r.y=ent(a&&a.y, MH40.yeux.length, (k>>>8)%MH40.yeux.length);
-  if(a && Array.isArray(a.m) && a.m.length===CURSEURS40.length)
-    r.m=a.m.map(function(x,i){ x=Math.round(+x)||0; return Math.max(CURSEURS40[i][2]?-10:0,Math.min(10,x)); });
-  else r.m=preset40(r.s,r.v);
+  r.m=preset40(r.s,r.v);
   return r;
 };
 
@@ -29135,7 +29133,7 @@ function morphs40(av){
 function appliquer40(g,av,taille){
   av=avatarValide32(av);
   var hd=(taille>=1024 && !telephone40()), s=av.s, chev=MH40.cheveux[s][av.ch];
-  var noms=['mh_peau_'+s+av.p+(hd?'':'_1k')+'.webp','mh_yeux_'+av.y+'.webp','mh_sourcils_'+s+'.webp','mh_cils_'+s+'.webp','mh_cheveux_'+chev+'.webp','mh_chaussures.webp'];
+  var noms=['mh_peau_'+s+av.p+(hd?'':'_1k')+'.webp','mh_yeux_'+MH40.yeux[av.y][2]+'.webp','mh_sourcils_'+s+'.webp','mh_cils_'+s+'.webp','mh_cheveux_'+chev+'.webp','mh_chaussures.webp'];
   var jeton=(g.userData.jeton40=(g.userData.jeton40||0)+1);
   return Promise.all(noms.map(function(n){ return texture40(n); })).then(function(T){
     if(g.userData.jeton40!==jeton) return;
@@ -29287,15 +29285,8 @@ dessinerVest38=function(){
   styleVest40();
   h+=rangee38('Coureur','s',[{v:'h', t:'Homme', h:'Homme'},{v:'f', t:'Femme', h:'Femme'}],'vs-s');
   var rv=rangee38('Visage','v',VISAGES37[a.s].map(function(vis,i){ var u=vignette37(vis); if(!u) manque=true; return {v:i, t:'Visage '+(i+1), h:u?'<img src="'+u+'" alt="">':''}; }),'vs-v');
-  if(!memeVisage40(a)) rv=rv.replace(' sel"','"');   /* visage retouché : plus aucun tout fait n'est coché */
   h+=rv;
-  h+='<details class="vs-aff"'+(VEST.affiner?' open':'')+'><summary>Affiner le visage</summary>';
-  CURSEURS40.forEach(function(c,i){
-    h+='<label class="vs-cur"><span>'+c[1]+'</span><input type="range" min="'+(c[2]?-10:0)+'" max="10" step="1" value="'+(a.m[i]||0)+'" data-m="'+i+'"></label>';
-  });
-  h+='<button class="vs-t" data-a="visageRaz">Revenir au visage choisi</button></details>';
   h+=rangee38('Coiffure','ch',MH40.cheveux[a.s].map(function(c,i){ return {v:i, t:MH40.nomsCheveux[c], h:MH40.nomsCheveux[c]}; }),'vs-t');
-  h+=rangee38('Cheveux','cc',MH40.couleurs.map(function(c,i){ return {v:i, t:'Cheveux '+c[0], c:c[1]}; }),'vs-c');
   h+=rangee38('Yeux','y',MH40.yeux.map(function(c,i){ return {v:i, t:'Yeux '+c[0], c:'radial-gradient(circle,#111 0 22%,'+c[1]+' 24% 62%,#f4f1ec 64%)'}; }),'vs-c vs-oeil');
   h+=rangee38('Peau','p',MH40.peaux[a.s].map(function(c,i){ return {v:i, t:'Peau '+MH40.nomsPeaux[i], c:c}; }),'vs-c');
   var pal=PALETTE32.map(function(c){ return {v:c[1], t:c[0], c:c[1]}; });
@@ -29337,7 +29328,6 @@ actionVest38=function(a,ds){
   if(a==='visageRaz'){ VEST.av.m=preset40(VEST.av.s,VEST.av.v); dessinerVest38(); poserVest38(); return; }
   if(a==='hasard'){
     var r=avatarValide32(avatarDefaut32(String(Math.random())));
-    r.m=r.m.map(function(x,i){ return Math.max(CURSEURS40[i][2]?-10:0,Math.min(10,x+Math.round((Math.random()-0.5)*6))); });
     VEST.av=avatarValide32(r); dessinerVest38(); poserVest38(); return;
   }
   return _actionVest40(a,ds);
