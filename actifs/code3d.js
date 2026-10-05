@@ -28982,13 +28982,14 @@ dessinerVest38=function(){
    le modèle (3,5 à 4,4 Mo) et les seules textures choisies. */
 var MH40={
   bases:{}, tex:{}, fichiers:{},
-  cheveux:{h:['short02','short01','short04','short03','afro01'], f:['ponytail01','bob01','braid01','short03','afro01']},
-  nomsCheveux:{short02:'Court', short01:'Très court', short04:'Plaqué', short03:'Mi-long', afro01:'Afro', ponytail01:'Queue-de-cheval', bob01:'Carré', braid01:'Tresse'},
+  cheveux:{h:['short02','short01','short04','short03','afro01','chauve'], f:['ponytail01','bob01','braid01','short03','afro01']},
+  nomsCheveux:{short02:'Court', short01:'Très court', short04:'Plaqué', short03:'Mi-long', afro01:'Afro', chauve:'Chauve', ponytail01:'Queue-de-cheval', bob01:'Carré', braid01:'Tresse'},
   couleurs:[['noirs','#1d1714'],['bruns','#3d2a1e'],['châtains','#6b4a30'],['blond foncé','#9a7448'],['blonds','#cfae78'],['roux','#93451f'],['gris','#a29d96']],
   yeux:[['marron','#6b4a2c',0],['bleus','#4f7fb0',2],['verts','#5f8a55',3],['gris','#8a929a',4]],   /* [nom, pastille, texture mh_yeux_n] */
   chevPeau:[2,1,1,0],   /* couleur des cheveux selon la peau : châtains, bruns, bruns, noirs */
   peaux:{h:['#e5b391','#d89769','#86533b','#573725'], f:['#d8af92','#e39d70','#bf8a6d','#6b3f2c']},
-  nomsPeaux:['claire','mate','brune','foncée']
+  nomsPeaux:['claire','mate','brune','foncée'],
+  zb:{h:0.977, f:0.848}   /* hauteur du bassin au repos (gilet : bandes réfléchissantes) */
 };
 /* les curseurs du visage : chacun pilote une ou deux morphologies */
 var CURSEURS40=[
@@ -29029,8 +29030,10 @@ avatarValide32=function(a){
   var r=_valide40(a), L=MH40.cheveux[r.s].length, k=hash40(JSON.stringify([a&&a.v, a&&a.h, a&&a.b]));
   function ent(x,max,def){ x=Math.floor(+x); return (isFinite(x) && x>=0 && x<max) ? x : def; }
   r.ch=ent(a&&a.ch, L, k%L);
-  r.cc=MH40.chevPeau[r.p]||0;
+  r.cc=ent(a&&a.cc, MH40.couleurs.length, MH40.chevPeau[r.p]||0);
   r.y=ent(a&&a.y, MH40.yeux.length, (k>>>8)%MH40.yeux.length);
+  r.bb=(r.s==='h' && a && +a.bb===1) ? 1 : 0;           /* barbe */
+  if(a && (a.t==='civil' || a.t==='treillis')) r.t=a.t;   /* tenue de ville (piétons, jalonneurs) */
   r.m=preset40(r.s,r.v);
   return r;
 };
@@ -29101,6 +29104,19 @@ function tissu40(hex,bandes){
   M.customProgramCacheKey=function(){ return 'tissu40'; };
   return M;
 }
+/* la peau : la barbe (hommes) est peinte par-dessus, d'après un masque
+   dessiné dans la texture du visage, de la couleur des cheveux */
+function peau40(){
+  var M=new THREE.MeshStandardMaterial({roughness:0.6, metalness:0, color:0xe6e6e6});
+  M.userData.barbe={value:null}; M.userData.barbeOn={value:0}; M.userData.barbeCol={value:new THREE.Color(0x2a2018)};
+  M.onBeforeCompile=function(sh){
+    sh.uniforms.uBarbe=M.userData.barbe; sh.uniforms.uBarbeOn=M.userData.barbeOn; sh.uniforms.uBarbeCol=M.userData.barbeCol;
+    sh.fragmentShader='uniform sampler2D uBarbe; uniform float uBarbeOn; uniform vec3 uBarbeCol;\n'+sh.fragmentShader.replace('#include <map_fragment>',
+      '#include <map_fragment>\n if(uBarbeOn>0.5){ float bm=texture2D(uBarbe,vMapUv).r; diffuseColor.rgb=mix(diffuseColor.rgb,uBarbeCol,clamp(bm*1.1,0.0,0.92)); }');
+  };
+  M.customProgramCacheKey=function(){ return 'peau40'; };
+  return M;
+}
 function chaussures40(tex,hex){
   var M=new THREE.MeshStandardMaterial({map:tex, roughness:0.62, metalness:0});
   M.userData.teinte=new THREE.Color(hex);
@@ -29132,8 +29148,9 @@ function morphs40(av){
 }
 function appliquer40(g,av,taille){
   av=avatarValide32(av);
-  var hd=(taille>=1024 && !telephone40()), s=av.s, chev=MH40.cheveux[s][av.ch];
-  var noms=['mh_peau_'+s+av.p+(hd?'':'_1k')+'.webp','mh_yeux_'+MH40.yeux[av.y][2]+'.webp','mh_sourcils_'+s+'.webp','mh_cils_'+s+'.webp','mh_cheveux_'+chev+'.webp','mh_chaussures.webp'];
+  var hd=(taille>=1024 && !telephone40()), s=av.s, chev=MH40.cheveux[s][av.ch], tenue=av.t||'course';
+  var noms=['mh_peau_'+s+av.p+(hd?'':'_1k')+'.webp','mh_yeux_'+MH40.yeux[av.y][2]+'.webp','mh_sourcils_'+s+'.webp','mh_cils_'+s+'.webp',
+            chev==='chauve'?'mh_cils_'+s+'.webp':'mh_cheveux_'+chev+'.webp','mh_chaussures.webp', s==='h'?'mh_barbe_h.webp':'mh_cils_f.webp'];
   var jeton=(g.userData.jeton40=(g.userData.jeton40||0)+1);
   return Promise.all(noms.map(function(n){ return texture40(n); })).then(function(T){
     if(g.userData.jeton40!==jeton) return;
@@ -29142,8 +29159,11 @@ function appliquer40(g,av,taille){
       if(!m.isMesh) return;
       var n=m.name, M=m.material, ud=m.userData;
       if(n==='corps'){
-        if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.6, metalness:0, color:0xe6e6e6});
+        if(!ud.mh40) M=m.material=peau40();
         M.map=T[0]; M.needsUpdate=true;
+        M.userData.barbe.value=(s==='h') ? T[6] : null;
+        M.userData.barbeOn.value=(s==='h' && av.bb) ? 1 : 0;
+        M.userData.barbeCol.value.copy(new THREE.Color(coulCh).multiplyScalar(0.8));
       } else if(n==='yeux'){
         if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.2, metalness:0, alphaTest:0.5});
         M.map=T[1]; M.needsUpdate=true;
@@ -29154,19 +29174,36 @@ function appliquer40(g,av,taille){
         if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.9, metalness:0, transparent:true, depthWrite:false, side:THREE.DoubleSide});
         M.map=T[3]; M.needsUpdate=true;
       } else if(n.indexOf('cheveux_')===0){
-        m.visible=(n==='cheveux_'+chev);
+        m.visible=(chev!=='chauve' && n==='cheveux_'+chev);
         if(!m.visible) return;
         if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.8, metalness:0, alphaTest:0.04, transparent:true, side:THREE.DoubleSide});
         M.map=T[4]; M.color.copy(teintePoils40(coulCh,0.72)); M.needsUpdate=true;
       } else if(n==='chaussures'){
         if(!ud.mh40) M=m.material=chaussures40(T[5],av.c);
-        M.userData.teinte.set(av.c);
-      } else if(n==='haut'){
-        if(!ud.mh40) M=m.material=tissu40(av.h,[0.010,1,0.72,1]);
+        M.userData.teinte.set(tenue==='treillis' ? '#24211e' : av.c);
+      } else if(n==='haut' || n==='short'){
+        m.visible=(tenue==='course');
+        if(!m.visible) return;
+        if(!ud.mh40) M=m.material=(n==='haut') ? tissu40(av.h,[0.010,1,0.72,1]) : tissu40(av.b,[0.012,0.030,0.7,0.55]);
+        M.color.set(n==='haut' ? av.h : av.b);
+      } else if(n==='tshirt'){
+        m.visible=(tenue==='civil');
+        if(!m.visible) return;
+        if(!ud.mh40) M=m.material=tissu40(av.h,[0.010,1,0.8,1]);
         M.color.set(av.h);
-      } else if(n==='short'){
-        if(!ud.mh40) M=m.material=tissu40(av.b,[0.012,0.030,0.7,0.55]);
-        M.color.set(av.b);
+      } else if(n==='pantalon'){
+        m.visible=(tenue!=='course');
+        if(!m.visible) return;
+        if(!ud.mh40) M=m.material=(tenue==='treillis') ? camo41() : tissu40(av.b,[0.010,0.035,0.8,0.7]);
+        if(tenue!=='treillis') M.color.set(av.b);
+      } else if(n==='veste'){
+        m.visible=(tenue==='treillis');
+        if(!m.visible) return;
+        if(!ud.mh40) M=m.material=camo41();
+      } else if(n==='gilet'){
+        m.visible=(tenue==='treillis');
+        if(!m.visible) return;
+        if(!ud.mh40) M=m.material=gilet41(s);
       } else return;
       ud.mh40=true;
       if(ud.base40 || (m.geometry.morphAttributes && m.geometry.morphAttributes.position)) cuire40(m,V);
@@ -29243,7 +29280,7 @@ construireAvatar32=function(av,taille){
       A[k]=mix.clipAction(c); A[k].play(); A[k].setEffectiveWeight(k==='idle'?1:0);
     });
     g.userData.mh40={s:av.s, f:f};
-    return appliquer40(g,av,taille).then(function(){
+    return (av.t ? habillerTenues41(g,av.s) : Promise.resolve()).then(function(){ return appliquer40(g,av,taille); }).then(function(){
       return {g:g, mix:mix, acts:A, poids:{idle:1, walk:0, run:0}, meshes:meshes, av:av};
     });
   });
@@ -29260,8 +29297,8 @@ poserVest38=function(){
   _poser40();
 };
 /* les photos des visages tout faits portent la coiffure, les yeux et la peau choisis */
-cleVign39=function(av,i){ return [av.s,av.p,av.h,av.ch,av.cc,av.y,i].join('|'); };
-function avVign40(a,i){ return avatarValide32({s:a.s, p:a.p, h:a.h, b:a.b, c:a.c, ch:a.ch, cc:a.cc, y:a.y, v:i}); }
+cleVign39=function(av,i){ return [av.s,av.p,av.h,av.ch,av.cc,av.y,av.bb,i].join('|'); };
+function avVign40(a,i){ return avatarValide32({s:a.s, p:a.p, h:a.h, b:a.b, c:a.c, ch:a.ch, cc:a.cc, y:a.y, bb:a.bb, v:i}); }
 demander39=function(){
   var a=VEST.av; if(!a) return;
   VIGN39.file=[];
@@ -29287,6 +29324,8 @@ dessinerVest38=function(){
   var rv=rangee38('Visage','v',VISAGES37[a.s].map(function(vis,i){ var u=vignette37(vis); if(!u) manque=true; return {v:i, t:'Visage '+(i+1), h:u?'<img src="'+u+'" alt="">':''}; }),'vs-v');
   h+=rv;
   h+=rangee38('Coiffure','ch',MH40.cheveux[a.s].map(function(c,i){ return {v:i, t:MH40.nomsCheveux[c], h:MH40.nomsCheveux[c]}; }),'vs-t');
+  h+=rangee38('Cheveux','cc',MH40.couleurs.map(function(c,i){ return {v:i, t:'Cheveux '+c[0], c:c[1]}; }),'vs-c');
+  if(a.s==='h') h+=rangee38('Barbe','bb',[{v:0, t:'Sans barbe', h:'Sans'},{v:1, t:'Avec une barbe', h:'Avec'}],'vs-t');
   h+=rangee38('Yeux','y',MH40.yeux.map(function(c,i){ return {v:i, t:'Yeux '+c[0], c:'radial-gradient(circle,#111 0 22%,'+c[1]+' 24% 62%,#f4f1ec 64%)'}; }),'vs-c vs-oeil');
   h+=rangee38('Peau','p',MH40.peaux[a.s].map(function(c,i){ return {v:i, t:'Peau '+MH40.nomsPeaux[i], c:c}; }),'vs-c');
   var pal=PALETTE32.map(function(c){ return {v:c[1], t:c[0], c:c[1]}; });
@@ -29309,25 +29348,25 @@ dessinerVest38=function(){
       cancelAnimationFrame(VEST.raf40); VEST.raf40=requestAnimationFrame(poserVest38);
     });
   }
-  var cle=[a.s,a.p,a.h,a.ch,a.cc,a.y].join('|');
+  var cle=[a.s,a.p,a.h,a.ch,a.cc,a.y,a.bb].join('|');
   if(cle!==VIGN39.derniere){ VIGN39.derniere=cle; clearTimeout(VIGN39.t); VIGN39.t=setTimeout(demander39,250); }
   clearTimeout(VEST.tVign); if(manque) VEST.tVign=setTimeout(function(){ if(VEST.ouvert) dessinerVest38(); },700);
 };
 var _actionVest40=actionVest38;
 actionVest38=function(a,ds){
-  if(a==='choix' && (ds.k==='ch' || ds.k==='cc' || ds.k==='y' || ds.k==='v' || ds.k==='s')){
+  if(a==='choix' && (ds.k==='ch' || ds.k==='cc' || ds.k==='y' || ds.k==='v' || ds.k==='s' || ds.k==='bb')){
     var k=ds.k;
-    if(k==='s'){ if(VEST.av.s!==ds.v){ VEST.av={s:ds.v, p:VEST.av.p, h:VEST.av.h, b:VEST.av.b, c:VEST.av.c, v:0, cc:VEST.av.cc, y:VEST.av.y}; } }
+    if(k==='s'){ if(VEST.av.s!==ds.v){ VEST.av={s:ds.v, p:VEST.av.p, h:VEST.av.h, b:VEST.av.b, c:VEST.av.c, v:0, cc:VEST.av.cc, y:VEST.av.y, bb:0}; } }
     else if(k==='v'){ VEST.av.v=+ds.v; VEST.av.m=preset40(VEST.av.s,VEST.av.v); }
     else VEST.av[k]=+ds.v;
     VEST.av=avatarValide32(VEST.av);
-    if((k==='v' || k==='y') && VEST.cadre!=='visage') VEST.cadre='visage';
+    if((k==='v' || k==='y' || k==='bb') && VEST.cadre!=='visage') VEST.cadre='visage';
     dessinerVest38(); poserVest38();
     return;
   }
   if(a==='visageRaz'){ VEST.av.m=preset40(VEST.av.s,VEST.av.v); dessinerVest38(); poserVest38(); return; }
   if(a==='hasard'){
-    var r=avatarValide32(avatarDefaut32(String(Math.random())));
+    var r=genAvatar41(String(Math.random()),{s:VEST.av.s, h:VEST.av.h, b:VEST.av.b, c:VEST.av.c});
     VEST.av=avatarValide32(r); dessinerVest38(); poserVest38(); return;
   }
   return _actionVest40(a,ds);
@@ -29397,4 +29436,238 @@ sceneVest38=function(){
   return s;
 };
 window.ESPACE3D.mh40=MH40;
+
+/* ===== 41. des personnages variés dans la ville (MakeHuman) ===== */
+/* Nicolas, 5 oct. 2026 :
+   - la couleur des cheveux redevient un choix, les hommes peuvent être
+     chauves et porter la barbe ;
+   - des personnages tirés au hasard diversifient les piétons, le public,
+     les coureurs d'ambiance et les jalonneurs, avec une logique : la
+     coupe afro et les traits africains vont avec une peau brune ou foncée,
+     le blond et le roux avec une peau claire, les yeux clairs surtout
+     avec une peau claire, etc. Le vestiaire, lui, laisse tout choisir.
+   Tenues : piétons et public en tee-shirt et pantalon, jalonneurs en
+   treillis BME (veste et pantalon, bariolage projeté dans l'espace comme
+   pour les jalonneurs Rocketbox) avec le gilet jaune à bandes
+   réfléchissantes, coureurs en débardeur et short. Les tenues de ville
+   sont dans un second fichier (mh_h_tenues.glb, mh_f_tenues.glb), chargé
+   seulement pour ces personnages. Ils s'ajoutent aux modèles existants. */
+
+/* ---------- le tirage cohérent ---------- */
+function alea41(graine){
+  var x=hash40(String(graine))||1;
+  return function(){ x=(Math.imul(x,1664525)+1013904223)>>>0; return x/4294967296; };
+}
+function choix41(r,L){
+  var t=0, i; for(i=0;i<L.length;i++) t+=L[i][1];
+  var u=r()*t; for(i=0;i<L.length;i++){ u-=L[i][1]; if(u<=0) return L[i][0]; }
+  return L[L.length-1][0];
+}
+var TENUES41={
+  course:{h:['#c62828','#ef6c00','#f9c80e','#2e7d32','#1e66d0','#1b2d52','#6a3fb5','#e05a9c','#f2f2f2','#1a1a1a','#8a8f96'],
+          b:['#1a1a1a','#1a1a1a','#1b2d52','#1b2d52','#8a8f96','#f2f2f2','#c62828','#1e66d0'],
+          c:['#f2f2f2','#1a1a1a','#8a8f96','#c62828','#ef6c00','#1e66d0','#f9c80e','#2e7d32','#e05a9c']},
+  civil:{h:['#f2f2f2','#f2f2f2','#1a1a1a','#8a8f96','#1b2d52','#c62828','#2e7d32','#5b7fa6','#d9c7a3','#7a2e3a','#e3b23c','#4f6b4a'],
+         b:['#3b5070','#2c3e5c','#1f2933','#1a1a1a','#8a7a5a','#555b63','#6b6150','#3b5070'],
+         c:['#f2f2f2','#1a1a1a','#8a8f96','#5a4632','#1b2d52']}
+};
+function genAvatar41(graine,o){
+  o=o||{};
+  var r=alea41(graine), s=o.s||(r()<0.6?'h':'f');
+  var p=choix41(r,[[0,45],[1,27],[2,14],[3,14]]);
+  /* visages : 0 classique, 1 marqué, 2 africain, 3 asiatique, 4 fin */
+  var v=(p>=2) ? choix41(r,[[2,70],[0,15],[1,15]]) : choix41(r,[[0,32],[1,26],[4,26],[3,16]]);
+  /* coiffures : hommes [court, très court, plaqué, mi-long, afro, chauve], femmes [queue, carré, tresse, court, afro] */
+  var ch=(s==='h') ? (p>=2 ? choix41(r,[[0,22],[1,35],[4,28],[5,15]]) : choix41(r,[[0,30],[1,24],[2,14],[3,18],[5,14]]))
+                   : (p>=2 ? choix41(r,[[0,25],[2,30],[4,30],[1,15]]) : choix41(r,[[0,35],[1,30],[2,15],[3,20]]));
+  /* cheveux : 0 noirs, 1 bruns, 2 châtains, 3 blond foncé, 4 blonds, 5 roux, 6 gris */
+  var cc=(p===0) ? choix41(r,[[2,30],[1,24],[3,15],[4,12],[5,6],[0,8],[6,5]])
+        : (p===1) ? choix41(r,[[1,48],[0,34],[2,14],[6,4]]) : choix41(r,[[0,78],[1,18],[6,4]]);
+  var y=(p===0) ? choix41(r,[[0,45],[1,25],[2,15],[3,15]]) : (p===1) ? choix41(r,[[0,82],[2,10],[3,8]]) : 0;
+  var bb=(s==='h' && r()<0.35) ? 1 : 0;
+  var t=o.tenue||'course', P=TENUES41[t==='civil'?'civil':'course'];
+  function pris(L){ return L[Math.floor(r()*L.length)]; }
+  /* sans validation ici : avatarValide32 appelle lui-même avatarDefaut32 */
+  return ({s:s, p:p, v:v, ch:ch, cc:cc, y:y, bb:bb, t:(t==="course"?undefined:t),
+    h:o.h||pris(P.h), b:o.b||pris(P.b), c:o.c||pris(P.c)});
+}
+/* les coureurs sans tenue enregistrée (live) sont tirés de la même façon */
+avatarDefaut32=function(cle){ return genAvatar41('defaut|'+String(cle||Math.random()),{}); };
+
+/* ---------- treillis BME et gilet ---------- */
+var CAMO41=null;
+function texCamo41(){
+  if(CAMO41) return CAMO41;
+  var d, w, h, ppm;
+  try{
+    if(typeof JAL35!=='undefined' && JAL35.milCorps){ var B=carreauBME35(); d=B.d; w=B.w; h=B.h; ppm=B.ppm; }
+  }catch(e){ d=null; }
+  if(!d){ d=motifBME35(); w=h=512; ppm=420; }
+  var t=new THREE.DataTexture(new Uint8Array(d),w,h,THREE.RGBAFormat);
+  t.wrapS=t.wrapT=THREE.MirroredRepeatWrapping; t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps=true; if(t.colorSpace!==undefined) t.colorSpace=THREE.SRGBColorSpace; t.flipY=false; t.anisotropy=4; t.needsUpdate=true;
+  return (CAMO41={tex:t, ech:ppm/w, echV:ppm/h});
+}
+/* le bariolage est pris de face, de côté ou de dessus selon l'orientation
+   de la surface, dans l'espace du corps au repos : il ne glisse pas quand
+   le jalonneur bouge, et les traînées restent horizontales */
+var MAT_CAMO41=null;
+function camo41(){
+  if(MAT_CAMO41) return MAT_CAMO41;
+  var C=texCamo41(), M=new THREE.MeshStandardMaterial({map:C.tex, roughness:0.88, metalness:0});
+  M.onBeforeCompile=function(sh){
+    sh.uniforms.uEch={value:new THREE.Vector2(C.ech,C.echV)};
+    sh.vertexShader='varying vec3 vPo41; varying vec3 vNo41;\n'+sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vPo41=position; vNo41=normal;');
+    sh.fragmentShader='uniform vec2 uEch; varying vec3 vPo41; varying vec3 vNo41;\n'+sh.fragmentShader.replace('#include <map_fragment>',
+      'vec3 an41=abs(normalize(vNo41)); an41=pow(an41,vec3(4.0)); an41/=dot(an41,vec3(1.0));\n'+
+      'vec4 cx41=texture2D(map,vec2(vPo41.z,vPo41.y)*uEch); vec4 cy41=texture2D(map,vec2(vPo41.x,vPo41.z)*uEch); vec4 cz41=texture2D(map,vec2(vPo41.x,vPo41.y)*uEch);\n'+
+      'diffuseColor*=cx41*an41.x+cy41*an41.y+cz41*an41.z;');
+  };
+  M.customProgramCacheKey=function(){ return 'camo41'; };
+  return (MAT_CAMO41=M);
+}
+var MAT_GILET41={};
+function gilet41(s){
+  if(MAT_GILET41[s]) return MAT_GILET41[s];
+  var zb=MH40.zb[s], M=new THREE.MeshStandardMaterial({color:0xe4ee12, roughness:0.55, metalness:0, emissive:0x2c3000});
+  M.onBeforeCompile=function(sh){
+    sh.uniforms.uB={value:new THREE.Vector2(zb+(s==='h'?0.12:0.11), zb+(s==='h'?0.29:0.26))};
+    sh.vertexShader='varying vec3 vPo41;\n'+sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vPo41=position;');
+    sh.fragmentShader='uniform vec2 uB; varying vec3 vPo41;\n'+sh.fragmentShader.replace('#include <color_fragment>',
+      '#include <color_fragment>\n float b41=max(1.0-smoothstep(0.019,0.023,abs(vPo41.y-uB.x)), 1.0-smoothstep(0.019,0.023,abs(vPo41.y-uB.y)));\n'+
+      ' float st41=0.9+0.1*step(0.5,fract((vPo41.x+vPo41.z)*120.0));\n'+
+      ' diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.78,0.80,0.83)*st41,b41);').replace('#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\n totalEmissiveRadiance*=1.0-b41;');
+  };
+  M.customProgramCacheKey=function(){ return 'gilet41'; };
+  return (MAT_GILET41[s]=M);
+}
+
+/* ---------- les tenues de ville, greffées sur le squelette du coureur ---------- */
+var TENUES_GLB41={};
+function tenues41(s){
+  if(TENUES_GLB41[s]) return TENUES_GLB41[s];
+  TENUES_GLB41[s]=fichier40('mh_'+s+'_tenues.glb').then(function(u){
+    return new Promise(function(ok,ko){ new EXT.GLTFLoader().load(u,function(g){ ok(g.scene); },undefined,ko); });
+  });
+  TENUES_GLB41[s].catch(function(e){ console.warn('tenues MakeHuman :',e); delete TENUES_GLB41[s]; });
+  return TENUES_GLB41[s];
+}
+function habillerTenues41(g,s){
+  if(g.userData.tenues41) return Promise.resolve();
+  return tenues41(s).then(function(scene){
+    if(g.userData.tenues41) return;
+    g.userData.tenues41=true;
+    var f=g.userData.mh40.f, os={}, corps=null;
+    f.traverse(function(o){ if(o.isBone) os[o.name]=o; if(o.name==='corps') corps=o; });
+    if(!corps) return;
+    scene.traverse(function(src){
+      if(!src.isSkinnedMesh) return;
+      var bones=src.skeleton.bones.map(function(b){ return os[b.name]; });
+      if(bones.some(function(b){ return !b; })) return;
+      var m=new THREE.SkinnedMesh(src.geometry,src.material);
+      m.name=src.name; m.castShadow=true; m.frustumCulled=false;
+      m.position.copy(src.position); m.quaternion.copy(src.quaternion); m.scale.copy(src.scale);
+      corps.parent.add(m);
+      m.bind(new THREE.Skeleton(bones,src.skeleton.boneInverses.map(function(x){ return x.clone(); })),src.bindMatrix.clone());
+    });
+  });
+}
+
+/* ---------- les personnages de la ville ---------- */
+var PNJ41={modeles:{}, pret:false, enCours:false};
+/* un mélangeur qui comprend les animations Rocketbox demandées par le
+   code des piétons et des coureurs, et joue les siennes */
+function mixMH41(mix,clips){
+  function cle(c){
+    if(!c) return 'idle';
+    if(typeof FOULE!=='undefined' && c===FOULE.run) return 'run';
+    if(VIE.clips && (c===VIE.clips.mw || c===VIE.clips.fw)) return 'walk';
+    if(VIE.clips && (c===VIE.clips.mi || c===VIE.clips.fi)) return 'idle';
+    return clips[c.name] ? c.name : 'idle';
+  }
+  return {
+    clipAction:function(c){ return mix.clipAction(clips[cle(c)]||clips.idle); },
+    update:function(dt){ mix.update(dt); return this; },
+    stopAllAction:function(){ mix.stopAllAction(); return this; },
+    _mix:mix
+  };
+}
+function rigMH41(nom){
+  var T=PNJ41.modeles[nom]; if(!T) return null;
+  var g=EXT.clone(T.g), meshes=[];
+  g.traverse(function(o){ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; meshes.push(o); } });
+  g.visible=false;
+  monde.add(g);
+  var f=g.children[0];
+  return {g:g, f:f, mix:mixMH41(new THREE.AnimationMixer(f),T.clips), nom:nom, femme:T.femme, meshes:meshes, libre:true, mh:true};
+}
+var _creerRig41=creerRig;
+creerRig=function(nom){ return PNJ41.modeles[nom] ? rigMH41(nom) : _creerRig41(nom); };
+var _creerRigC41=creerRigCoureur;
+creerRigCoureur=function(nom){ return PNJ41.modeles[nom] ? rigMH41(nom) : _creerRigC41(nom); };
+/* leur gilet est déjà sur eux */
+var _chasA41=chasubleAnimee;
+chasubleAnimee=function(rig,niv){ return (rig && rig.mh) ? null : _chasA41(rig,niv); };
+
+/* un jalonneur figé (loin de la caméra) : posé au repos, bras placé, puis cuit */
+function figer41(tplG,bras){
+  var g=EXT.clone(tplG), suppr=[];
+  g.traverse(function(o){ if(o.isMesh && !o.visible) suppr.push(o); });
+  suppr.forEach(function(o){ o.parent.remove(o); });
+  var mix=new THREE.AnimationMixer(g.children[0]), T=null;
+  Object.keys(PNJ41.modeles).forEach(function(k){ if(PNJ41.modeles[k].g===tplG) T=PNJ41.modeles[k]; });
+  if(T && T.clips.idle){ mix.clipAction(T.clips.idle).play(); mix.update(0.8); }
+  g.updateMatrixWorld(true);
+  poserBrasJalon(g,bras);
+  var parts=figerAvatar(g), srcs=[];
+  g.traverse(function(o){ if(o.isMesh) srcs.push(o); });
+  parts.forEach(function(p,i){ var c=srcs[i] && srcs[i].geometry.attributes.color; if(c) p.geo.setAttribute('color',c); });
+  return {parts:parts.map(function(p){ return {geo:p.geo, mat:p.mat}; }), chas:null};
+}
+function modele41(nom,av){
+  return construireAvatar32(av,512).then(function(o){
+    var clips={};
+    Object.keys(o.acts).forEach(function(k){ clips[k]=o.acts[k].getClip(); });
+    o.mix.stopAllAction();
+    PNJ41.modeles[nom]={g:o.g, clips:clips, femme:av.s==='f', av:av};
+    return PNJ41.modeles[nom];
+  });
+}
+function attente41(ms){ return new Promise(function(ok){ setTimeout(ok,ms); }); }
+function preparerPNJ41(){
+  if(PNJ41.enCours || !EXT.GLTFLoader || !EXT.clone) return;
+  if(/iPhone|iPad|iPod/i.test(navigator.userAgent||'')) return;   /* mémoire courte de Safari : on garde les modèles actuels */
+  PNJ41.enCours=true;
+  var tel=telephone40(), n={civ:tel?4:10, run:tel?4:8, jal:tel?2:4}, graine=Date.now();
+  var liste=[];
+  for(var i=0;i<n.civ;i++) liste.push(['MH_civil_'+i,'civil',i%2?'f':'h']);
+  for(i=0;i<n.run;i++) liste.push(['MH_coureur_'+i,'course',i%2?'f':'h']);
+  for(i=0;i<n.jal;i++) liste.push(['MH_jalon_'+i,'treillis',i%2?'f':'h']);
+  var p=Promise.resolve();
+  liste.forEach(function(e){
+    p=p.then(function(){ return attente41(120); }).then(function(){
+      var av=genAvatar41(graine+'|'+e[0],{s:e[2], tenue:e[1]});
+      return modele41(e[0],av).then(function(T){
+        if(e[1]==='civil'){ VIE.modeles[e[0]]={g:T.g, f:T.g.children[0], rest:[], femme:T.femme}; }
+        else if(e[1]==='course'){ FOULE.modeles[e[0]]={g:T.g, f:T.g.children[0], rest:[], femme:T.femme}; }
+        else {
+          var vi=VARIANTES.length;
+          ['d','g','n','x'].forEach(function(bras){ PERSO.jal[vi+bras]=figer41(T.g,bras); });
+          PERSO.gabarits=PERSO.gabarits||{};
+          PERSO.gabarits[e[0]]={g:T.g, f:T.g.children[0], rest:reposOs(T.g), femme:T.femme};
+          VARIANTES.push(e[0]);
+        }
+      });
+    }).catch(function(err){ console.warn('personnage '+e[0]+' :',err); });
+  });
+  return p.then(function(){
+    PNJ41.pret=true; PNJ41.enCours=false;
+    /* les jalonneurs déjà posés reprennent leur variante (les nouveaux modèles en font partie) */
+    try{ syncJalonneurs(); VIE.jal.forEach(function(s){ if(s.o) libererJal(s); }); }catch(e){ console.warn(e); }
+  });
+}
+/* une fois la ville ouverte, sans rien retarder */
+ETAPES.push(['Personnages variés',function(){ setTimeout(function(){ try{ preparerPNJ41(); }catch(e){ console.warn(e); } },6000); }]);
+window.ESPACE3D.pnj41=PNJ41;
 })();
