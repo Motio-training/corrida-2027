@@ -28631,4 +28631,256 @@ ETAPES.push(['Mon coureur',function(){
   var g=avatarGarde37();
   if(g) setTimeout(function(){ try{ revetirJoueur32(g); }catch(e){} },500);
 }]);
+
+/* ===== 38. le vestiaire : personnaliser son coureur en studio ===== */
+/* Nicolas, 5 oct. 2026 : une vraie interface pour composer son coureur,
+   sur un fond neutre et non plus sur la ligne de départ.
+   Plein écran : à gauche (en haut sur téléphone) un studio photo, fond
+   gris dégradé, éclairage doux, podium ; le coureur y tourne lentement, on
+   le fait pivoter au doigt ou à la souris, on cadre en pied ou sur le
+   visage, au repos ou en course. À droite (en bas), les réglages : homme
+   ou femme, visage, peau, haut, bas, chaussures, un tirage au hasard,
+   Annuler et Enregistrer.
+   Le studio passe par le moteur de la 3D (aucun second contexte WebGL) :
+   tant que le vestiaire est ouvert, l'image dessinée est celle du studio.
+   Ouvert depuis « Mon coureur » (course en live) et le menu Afficher. */
+var VEST={ouvert:false, scene:null, cam:null, av:null, g:null, mix:null, acts:null, rot:0.5, vRot:0, auto:true, cadre:'pied', anim:'idle',
+          vise:null, dist:null, jeton:0, horloge:null, glisse:null, attente:false, retour:null};
+function sceneVest38(){
+  if(VEST.scene) return VEST.scene;
+  var s=new THREE.Scene();
+  /* fond : un dégradé gris, plus clair derrière le coureur */
+  var c=toile(16,256), g=c.getContext('2d'), gr=g.createLinearGradient(0,0,0,256);
+  gr.addColorStop(0,'#5b6573'); gr.addColorStop(0.55,'#9aa3ae'); gr.addColorStop(1,'#3a414c');
+  g.fillStyle=gr; g.fillRect(0,0,16,256);
+  var fond=new THREE.CanvasTexture(c); if(fond.colorSpace!==undefined) fond.colorSpace=THREE.SRGBColorSpace;
+  s.background=fond;
+  s.add(new THREE.HemisphereLight(0xffffff,0x6f7884,1.15));
+  var cle=new THREE.DirectionalLight(0xfff4e6,2.4); cle.position.set(2.2,3.2,3.0); s.add(cle);
+  var dec=new THREE.DirectionalLight(0xdfe8ff,0.9); dec.position.set(-3,1.6,1.2); s.add(dec);
+  var cont=new THREE.DirectionalLight(0xffffff,1.3); cont.position.set(-1,2.6,-3.2); s.add(cont);
+  /* le podium et une ombre douce sous les pieds */
+  var pod=new THREE.Mesh(new THREE.CylinderGeometry(0.75,0.8,0.08,48),new THREE.MeshStandardMaterial({color:0x2c3139, roughness:0.7, metalness:0.1}));
+  pod.position.y=-0.04; s.add(pod);
+  var anneau=new THREE.Mesh(new THREE.RingGeometry(0.73,0.77,64),new THREE.MeshBasicMaterial({color:0xF2B33D}));
+  anneau.rotation.x=-PI/2; anneau.position.y=0.002; s.add(anneau);
+  var co=toile(128,128), go=co.getContext('2d'), rg=go.createRadialGradient(64,64,4,64,64,62);
+  rg.addColorStop(0,'rgba(0,0,0,0.55)'); rg.addColorStop(1,'rgba(0,0,0,0)'); go.fillStyle=rg; go.fillRect(0,0,128,128);
+  var ombre=new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.9),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(co), transparent:true, depthWrite:false}));
+  ombre.rotation.x=-PI/2; ombre.position.y=0.004; s.add(ombre);
+  VEST.cam=new THREE.PerspectiveCamera(30,1,0.05,50);
+  VEST.horloge=new THREE.Clock();
+  return (VEST.scene=s);
+}
+/* le rendu : le studio remplace la ville tant que le vestiaire est ouvert */
+var _rendreVue38=rendreVue;
+rendreVue=function(){
+  if(!VEST.ouvert || !VEST.scene) return _rendreVue38();
+  var dt=Math.min(0.05,VEST.horloge.getDelta());
+  /* le coureur regarde vers +x en local : face à la caméra (en +z), rot = -PI/2 */
+  if(VEST.cadre==='visage' && !VEST.glisse && Math.abs(VEST.vRot)<0.3){ var face=-PI/2+Math.round((VEST.rot+PI/2)/(2*PI))*2*PI; VEST.rot+=(face-VEST.rot)*Math.min(1,dt*4); }
+  else if(VEST.auto && !VEST.glisse) VEST.rot+=dt*0.35;
+  VEST.rot+=VEST.vRot*dt; VEST.vRot*=Math.pow(0.04,dt);
+  if(VEST.g){ VEST.g.rotation.y=VEST.rot; if(VEST.mix) VEST.mix.update(dt); }
+  /* le cadrage, en douceur */
+  /* la distance : le coureur entier (ou le visage) tient dans la partie libre
+     de l'écran, avec un peu d'air (fov vertical de 30°) */
+  var cv0=renderer.domElement, pn0=$e('e3-vestiaire'), lp0=pn0 && pn0.querySelector('.vs-pan'), frac=1;
+  if(lp0 && cv0.width<=cv0.height*1.05){ var rr=lp0.getBoundingClientRect(), rc0=cv0.getBoundingClientRect(); frac=Math.max(0.3,1-rr.height/Math.max(1,rc0.height)); }
+  var t15=Math.tan(15*PI/180), v=VEST.cadre==='visage' ? {y:1.6, d:0.62/frac/(2*t15)} : {y:0.95, d:2.7/frac/(2*t15)};
+  if(!VEST.vise){ VEST.vise=v.y; VEST.dist=v.d; }
+  VEST.vise+=(v.y-VEST.vise)*Math.min(1,dt*5); VEST.dist+=(v.d-VEST.dist)*Math.min(1,dt*5);
+  var cv=renderer.domElement, W=cv.width, H=cv.height, cam=VEST.cam, pan=$e('e3-vestiaire'), large=W>H*1.05;
+  cam.aspect=W/H;
+  cam.position.set(0,VEST.vise+0.08,VEST.dist); cam.lookAt(0,VEST.vise,0);
+  /* le coureur au centre de la partie libre de l'écran (à gauche, ou en haut) */
+  var pr=renderer.getPixelRatio(), lp=pan ? pan.querySelector('.vs-pan') : null;
+  if(lp){
+    var r=lp.getBoundingClientRect(), rc=cv.getBoundingClientRect();
+    if(large) cam.setViewOffset(W,H,((r.width)/2)*(W/rc.width),0,W,H);
+    else cam.setViewOffset(W,H,0,((r.height)/2)*(H/rc.height),W,H);
+  } else cam.clearViewOffset();
+  cam.updateProjectionMatrix();
+  var ex=renderer.toneMappingExposure; renderer.toneMappingExposure=1.0;
+  var se=VEST.scene.environment; VEST.scene.environment=scene.environment;
+  renderer.render(VEST.scene,cam);
+  renderer.toneMappingExposure=ex; VEST.scene.environment=se;
+};
+/* le coureur du studio, reconstruit à chaque choix */
+function poserVest38(){
+  var j=++VEST.jeton, av=avatarValide32(VEST.av);
+  VEST.attente=true; majAttente38();
+  construireAvatar32(av,1024).then(function(o){
+    if(j!==VEST.jeton || !VEST.ouvert) return;
+    if(VEST.g) VEST.scene.remove(VEST.g);
+    VEST.g=o.g; VEST.mix=o.mix; VEST.acts=o.acts;
+    o.g.position.set(0,0,0); o.g.visible=true;
+    o.g.traverse(function(m){ if(m.isMesh){ m.castShadow=false; m.frustumCulled=false; } });
+    VEST.scene.add(o.g);
+    animVest38();
+    VEST.attente=false; majAttente38();
+  }).catch(function(e){ console.warn('vestiaire :',e); VEST.attente=false; majAttente38(); });
+}
+function animVest38(){
+  if(!VEST.acts) return;
+  Object.keys(VEST.acts).forEach(function(k){ var a=VEST.acts[k]; a.setEffectiveWeight(k===(VEST.anim==='course'?'run':'idle')?1:0); a.setEffectiveTimeScale(k==='run'?1.1:1); });
+}
+function majAttente38(){ var e=$e('vs-attente'); if(e) e.style.opacity=VEST.attente?'1':'0'; }
+
+/* ----- l'interface ----- */
+function styleVest38(){
+  if($e('e3-style-38')) return;
+  var s=document.createElement('style'); s.id='e3-style-38';
+  s.textContent=[
+    '#e3.vestiaire>*:not(#e3-vue):not(#e3-vestiaire){visibility:hidden!important}',
+    '#e3-vestiaire{position:absolute;inset:0;z-index:60;display:none;color:#e9eef5;font:13px/1.45 Arial,Helvetica,sans-serif;touch-action:none}',
+    '#e3-vestiaire .vs-scene{position:absolute;inset:0;cursor:grab}',
+    '#e3-vestiaire .vs-titre{position:absolute;left:22px;top:18px;font:700 26px "Oswald","Arial Narrow",Arial,sans-serif;letter-spacing:1px;text-shadow:0 2px 8px rgba(0,0,0,.4)}',
+    '#e3-vestiaire .vs-titre small{display:block;font:400 13px Arial,sans-serif;letter-spacing:0;opacity:.85}',
+    '#e3-vestiaire .vs-vues{position:absolute;left:22px;bottom:20px;display:flex;gap:8px;flex-wrap:wrap}',
+    '#e3-vestiaire .vs-vues button,#e3-vestiaire .vs-pan button{font:600 13px Arial,sans-serif;border-radius:10px;border:1px solid #3a4a63;background:rgba(14,20,31,.85);color:#fff;padding:8px 12px;cursor:pointer}',
+    '#e3-vestiaire button.on{background:#F2B33D!important;color:#14202f!important;border-color:#F2B33D!important}',
+    '#e3-vestiaire .vs-pan{position:absolute;right:0;top:0;bottom:0;width:min(400px,42vw);overflow:auto;background:rgba(14,20,31,.94);border-left:1px solid #2c3a50;padding:18px 18px 92px;box-sizing:border-box;touch-action:pan-y}',
+    '#e3-vestiaire .vs-pan h4{margin:16px 0 8px;font:700 14px "Oswald","Arial Narrow",Arial,sans-serif;letter-spacing:.5px;color:#F2B33D;text-transform:uppercase}',
+    '#e3-vestiaire .vs-ligne{display:flex;flex-wrap:wrap;gap:8px}',
+    '#e3-vestiaire .vs-ligne .vs-c{width:38px;height:38px;border-radius:50%;padding:0;border:2px solid rgba(255,255,255,.25)}',
+    '#e3-vestiaire .vs-ligne .vs-v{width:54px;height:54px;border-radius:50%;padding:0;overflow:hidden;border:2px solid rgba(255,255,255,.2);background:#222a36}',
+    '#e3-vestiaire .vs-ligne .vs-v img{width:100%;height:100%;display:block}',
+    '#e3-vestiaire .vs-ligne .sel{outline:3px solid #F2B33D;outline-offset:2px}',
+    '#e3-vestiaire .vs-ligne .vs-s{flex:1;padding:10px}',
+    '#e3-vestiaire .vs-pied{position:absolute;right:0;bottom:0;width:min(400px,42vw);box-sizing:border-box;padding:12px 18px;display:flex;gap:8px;background:rgba(10,15,24,.98);border-left:1px solid #2c3a50;border-top:1px solid #2c3a50}',
+    '#e3-vestiaire .vs-pied button{flex:1;padding:12px 8px;font:700 14px Arial,sans-serif;border-radius:10px;border:1px solid #3a4a63;background:#1b2433;color:#fff;cursor:pointer}',
+    '#e3-vestiaire .vs-pied .vs-ok{background:#F2B33D;color:#14202f;border-color:#F2B33D}',
+    '#e3-vestiaire #vs-attente{position:absolute;left:22px;top:82px;padding:6px 12px;border-radius:9px;background:rgba(14,20,31,.8);opacity:0;transition:opacity .2s}',
+    '#e3-vestiaire .vs-info{font-size:12px;opacity:.75;margin-top:4px}',
+    '@media (max-aspect-ratio:21/20){',
+    '  #e3-vestiaire .vs-pan{left:0;width:auto;top:auto;height:52%;border-left:0;border-top:1px solid #2c3a50;padding-bottom:84px}',
+    '  #e3-vestiaire .vs-pied{left:0;width:auto;border-left:0}',
+    '  #e3-vestiaire .vs-vues{bottom:auto;top:calc(48% - 52px)}',
+    '  #e3-vestiaire .vs-titre{font-size:21px}',
+    '}'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+function panneauVest38(){
+  styleVest38();
+  var p=$e('e3-vestiaire');
+  if(p) return p;
+  p=document.createElement('div'); p.id='e3-vestiaire';
+  p.innerHTML='<div class="vs-scene"></div><div class="vs-titre">MON COUREUR<small>Fais-le tourner au doigt ou à la souris</small></div>'+
+    '<div id="vs-attente">Habillage…</div>'+
+    '<div class="vs-vues"><button data-a="pied">En pied</button><button data-a="visage">Visage</button><button data-a="repos">Au repos</button><button data-a="course">En course</button></div>'+
+    '<div class="vs-pan"></div><div class="vs-pied"><button data-a="annuler">Annuler</button><button class="vs-ok" data-a="garder">Enregistrer</button></div>';
+  $e('e3').appendChild(p);
+  ['keydown','wheel','touchstart'].forEach(function(t){ p.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+  p.addEventListener('pointerdown',function(ev){
+    ev.stopPropagation();
+    if(!ev.target.classList.contains('vs-scene')) return;
+    VEST.glisse={x:ev.clientX, t:performance.now(), id:ev.pointerId}; VEST.auto=false; VEST.vRot=0;
+    try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){}
+  });
+  p.addEventListener('pointermove',function(ev){
+    var G=VEST.glisse; if(!G || G.id!==ev.pointerId) return;
+    var dx=ev.clientX-G.x, now=performance.now(); G.x=ev.clientX;
+    VEST.rot+=dx*0.012; VEST.vRot=dx*0.012/Math.max(0.008,(now-G.t)/1000); G.t=now;
+  });
+  function fin(ev){ if(VEST.glisse && VEST.glisse.id===ev.pointerId) VEST.glisse=null; }
+  p.addEventListener('pointerup',fin); p.addEventListener('pointercancel',fin);
+  p.addEventListener('click',function(ev){
+    ev.stopPropagation();
+    var b=ev.target.closest ? ev.target.closest('[data-a]') : null;
+    if(!b) return;
+    actionVest38(b.dataset.a,b.dataset);
+  });
+  return p;
+}
+function rangee38(titre,cle,options,classe){
+  var a=VEST.av, s='<h4>'+titre+'</h4><div class="vs-ligne">';
+  options.forEach(function(o){
+    var on=String(a[cle])===String(o.v);
+    s+='<button class="'+classe+(on?' sel':'')+'" data-a="choix" data-k="'+cle+'" data-v="'+o.v+'" title="'+echap31(o.t||'')+'"'+(o.c?' style="background:'+o.c+'"':'')+'>'+(o.h||'')+'</button>';
+  });
+  return s+'</div>';
+}
+function dessinerVest38(){
+  var p=panneauVest38(), a=VEST.av, h='';
+  h+=rangee38('Coureur','s',[{v:'h', t:'Homme', h:'Homme'},{v:'f', t:'Femme', h:'Femme'}],'vs-s');
+  var L=VISAGES37[a.s], manque=false;
+  h+=rangee38('Visage','v',L.map(function(vis,i){ var u=vignette37(vis); if(!u) manque=true; return {v:i, t:'Visage '+(i+1), h:u?'<img src="'+u+'" alt="">':String(i+1)}; }),'vs-v');
+  h+=rangee38('Peau','p',PEAUX32.map(function(q,i){ return {v:i, t:q[0], c:q[2]}; }),'vs-c');
+  var pal=PALETTE32.map(function(c){ return {v:c[1], t:c[0], c:c[1]}; });
+  h+=rangee38('Haut','h',pal,'vs-c')+rangee38('Bas','b',pal,'vs-c')+rangee38('Chaussures','c',pal,'vs-c');
+  h+='<h4>Au hasard</h4><div class="vs-ligne"><button class="vs-s" data-a="hasard">🎲 Un coureur au hasard</button></div>';
+  h+='<div class="vs-info">Ton coureur est gardé sur cet appareil et, si tu es inscrit, partagé avec les autres coureurs de ta vague.</div>';
+  p.querySelector('.vs-pan').innerHTML=h;
+  p.querySelectorAll('.vs-vues [data-a]').forEach(function(b){ var k=b.dataset.a; b.classList.toggle('on',(k==='pied'||k==='visage')?VEST.cadre===k:(k==='course')===(VEST.anim==='course')); });
+  /* les vignettes arrivent une à une : on redessine quand elles sont là */
+  clearTimeout(VEST.tVign); if(manque) VEST.tVign=setTimeout(function(){ if(VEST.ouvert) dessinerVest38(); },700);
+}
+function actionVest38(a,ds){
+  if(a==='choix'){
+    var k=ds.k, v=ds.v;
+    VEST.av[k]=(k==='p' || k==='v') ? +v : v;
+    if(k==='s') VEST.av.v=0;
+    VEST.av=avatarValide32(VEST.av);
+    dessinerVest38(); poserVest38();
+    if(k==='v' && VEST.cadre!=='visage'){ VEST.cadre='visage'; dessinerVest38(); }
+    return;
+  }
+  if(a==='pied' || a==='visage'){ VEST.cadre=a; dessinerVest38(); return; }
+  if(a==='repos' || a==='course'){ VEST.anim=a==='course'?'course':'idle'; animVest38(); dessinerVest38(); return; }
+  if(a==='hasard'){ VEST.av=avatarDefaut32(String(Math.random())); dessinerVest38(); poserVest38(); return; }
+  if(a==='annuler'){ fermerVest38(); return; }
+  if(a==='garder'){
+    var av=avatarValide32(VEST.av);
+    try{ localStorage.setItem('corrida-avatar',JSON.stringify(av)); }catch(e){}
+    revetirJoueur32(av);
+    var fin=function(msg){ fermerVest38(); dire(msg); };
+    if(LIVE.ins) rpcLive('live_avatar',{p_id:LIVE.ins.id, p_jeton:LIVE.ins.jeton, p_avatar:av})
+      .then(function(){ fin('Ton coureur est enregistré, et partagé avec ta vague.'); })
+      .catch(function(e){ fin('Coureur gardé sur cet appareil (envoi impossible : '+messageErreur31(e)+').'); });
+    else fin('Ton coureur est enregistré.');
+  }
+}
+function ouvrirVest38(retour){
+  sceneVest38();
+  VEST.av=avatarValide32(monAvatar32());
+  VEST.ouvert=true; VEST.auto=true; VEST.rot=-PI/2+0.55; VEST.vRot=0; VEST.cadre='pied'; VEST.anim='idle'; VEST.vise=null; VEST.retour=retour||null;
+  VEST.horloge.getDelta();
+  var p=panneauVest38(); p.style.display='block';
+  $e('e3').classList.add('vestiaire');
+  fermerLive31();
+  dessinerVest38(); poserVest38();
+}
+function fermerVest38(){
+  VEST.ouvert=false; VEST.jeton++;
+  if(VEST.g){ VEST.scene.remove(VEST.g); VEST.g=null; VEST.mix=null; VEST.acts=null; }
+  var p=$e('e3-vestiaire'); if(p) p.style.display='none';
+  $e('e3').classList.remove('vestiaire');
+  if(VEST.retour==='live') ouvrirLive31('accueil');
+  VEST.retour=null;
+}
+/* « Mon coureur » ouvre le vestiaire, depuis le panneau de la course en live */
+var _action38=actionLive31;
+actionLive31=function(a,ds){
+  if(a==='avatar'){ ouvrirVest38('live'); return; }
+  return _action38(a,ds);
+};
+/* et depuis le menu Afficher de la 3D */
+ETAPES.push(['Vestiaire',function(){
+  setTimeout(function(){
+    try{
+      document.querySelectorAll('#e3 .e3-menu').forEach(function(m){
+        var b=m.querySelector('.e3-menu-b'), pop=m.querySelector('.e3-pop');
+        if(!b || !pop || !/Afficher/.test((b.dataset.lib||'')+' '+b.textContent) || $e('e3-mon-coureur')) return;
+        var x=document.createElement('button'); x.type='button'; x.id='e3-mon-coureur'; x.textContent='🧍 Mon coureur';
+        x.title='Composer ton coureur : visage, peau, tenue';
+        x.addEventListener('click',function(ev){ ev.stopPropagation(); ouvrirVest38(null); });
+        pop.insertBefore(x,pop.firstChild);
+      });
+    }catch(e){}
+  },400);
+}]);
+document.addEventListener('keydown',function(ev){ if(VEST.ouvert && ev.key==='Escape'){ ev.stopPropagation(); fermerVest38(); } },true);
+window.ESPACE3D.vestiaire=function(){ ouvrirVest38(null); };
 })();
