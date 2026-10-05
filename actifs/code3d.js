@@ -28181,7 +28181,7 @@ var VISAGE35=[0.35,0.18,0.65,0.45], MAINS35=[[0,0.83,0.24,1],[0.76,0.83,1,1]];
 function chroma35(c){ var s=c[0]+c[1]+c[2]+1e-6; return [c[0]/s,c[1]/s]; }
 /* tête composée : visage du civil, casquette et col du militaire */
 function teteMilitaire35(civ,mil,modele){
-  var T=1024, C=pixels35(civ,T), M=pixels35(mil,T), c=C.d.data, m=M.d.data;
+  var T=mobile35()?512:1024, C=pixels35(civ,T), M=pixels35(mil,T), c=C.d.data, m=M.d.data;
   var refM=peauMoy35(m,T,VISAGE35), cr=refM?chroma35(refM):[0.42,0.32];
   for(var i=0;i<T*T;i++){
     var o=i*4, y=(i/T)|0, Lc=(c[o]+c[o+1]+c[o+2])/765;
@@ -28192,7 +28192,7 @@ function teteMilitaire35(civ,mil,modele){
 }
 /* les mains (ou toute la peau d'un corps) à la teinte du visage */
 function peauVers35(img,cible,zones,modele){
-  var T=1024, B=pixels35(img,T), d=B.d.data, ref=null, r=0, g=0, b=0, n=0;
+  var T=mobile35()?512:1024, B=pixels35(img,T), d=B.d.data, ref=null, r=0, g=0, b=0, n=0;
   zones.forEach(function(z){ var p=peauMoy35(d,T,z); if(p){ r+=p[0]; g+=p[1]; b+=p[2]; n++; } });
   if(n && cible){
     ref=[r/n,g/n,b/n];
@@ -28229,11 +28229,79 @@ function motifBME35(){
   });
   return (BME35=g.getImageData(0,0,S,S).data);
 }
-function texTreillis35(tex,ref){
+/* le vrai BME, prélevé au dos de la veste du militaire, en carreau miroir
+   (environ 0,8 × 0,7 m une fois posé sur le corps) */
+var BMEV35=null;
+function carreauBME35(){
+  if(BMEV35) return BMEV35;
+  var mil=JAL35.milCorps, sx=mil.width*0.34, sy=mil.height*0.04, sw=mil.width*0.32, sh=mil.height*0.27;
+  var tw=Math.round(sw)*2, th=Math.round(sh)*2, c=toile(tw,th), g=c.getContext('2d',{willReadFrequently:true});
+  [[0,0,1,1],[tw,0,-1,1],[0,th,1,-1],[tw,th,-1,-1]].forEach(function(q){
+    g.save(); g.translate(q[0],q[1]); g.scale(q[2],q[3]); g.drawImage(mil,sx,sy,sw,sh,0,0,tw/2,th/2); g.restore();
+  });
+  /* 820 pixels par mètre : la densité du motif sur la veste du militaire */
+  return (BMEV35={d:g.getImageData(0,0,tw,th).data, w:tw, h:th, ppm:820*mil.width/1024});
+}
+/* Le bariolage posé dans l'espace et non dans la texture : chaque pixel de
+   la texture du corps retrouve, triangle par triangle, le point du corps
+   qu'il habille ; le motif y est pris de face, de côté ou de dessus selon
+   l'orientation de la surface, la hauteur toujours verticale. Les traînées
+   du BME restent ainsi horizontales comme sur les hommes, quel que soit le
+   dépliage de la texture. Sous 30 cm du sol : des rangers noirs. */
+function bmeMonde35(mesh,W,H,flipY){
+  var G=mesh.geometry, P=G.attributes.position, N=G.attributes.normal, U=G.attributes.uv;
+  if(!P || !U) return null;
+  var idx=G.index?G.index.array:null, mats=Array.isArray(mesh.material)?mesh.material:[mesh.material], plages=[];
+  G.groups.forEach(function(gr){ var m=mats[gr.materialIndex]; if(m && /body/i.test(m.name||'')) plages.push([gr.start,gr.start+gr.count]); });
+  if(!plages.length) plages.push([0,idx?idx.length:P.count]);
+  G.computeBoundingBox();
+  var bb=G.boundingBox, ext=[bb.max.x-bb.min.x,bb.max.y-bb.min.y,bb.max.z-bb.min.z];
+  var ax=ext[1]>=ext[0] && ext[1]>=ext[2] ? 1 : (ext[2]>=ext[0]?2:0), m=1.70/Math.max(1e-6,ext[ax]);
+  var bas=[bb.min.x,bb.min.y,bb.min.z][ax];
+  /* l'axe latéral (celui où les bras s'étendent) et l'axe avant-arrière */
+  var hA=(ax+1)%3, hB=(ax+2)%3, lA=ext[hA]>=ext[hB]?hA:hB, dA=lA===hA?hB:hA;
+  var cLat=([bb.min.x,bb.min.y,bb.min.z][lA]+[bb.max.x,bb.max.y,bb.max.z][lA])/2*m;
+  var C=carreauBME35(), out=new Uint8ClampedArray(W*H*4), pris=new Uint8Array(W*H);
+  var a=[0,0,0], b=[0,0,0], c=[0,0,0], na=[0,0,0], nb=[0,0,0], nc=[0,0,0];
+  function lire(i,v,attr){ v[0]=attr.getX(i); v[1]=attr.getY(i); v[2]=attr.getZ(i); }
+  for(var q=0;q<plages.length;q++) for(var t=plages[q][0];t<plages[q][1];t+=3){
+    var i0=idx?idx[t]:t, i1=idx?idx[t+1]:t+1, i2=idx?idx[t+2]:t+2;
+    var u0=U.getX(i0)*W, v0=(flipY?1-U.getY(i0):U.getY(i0))*H, u1=U.getX(i1)*W, v1=(flipY?1-U.getY(i1):U.getY(i1))*H, u2=U.getX(i2)*W, v2=(flipY?1-U.getY(i2):U.getY(i2))*H;
+    var den=(v1-v2)*(u0-u2)+(u2-u1)*(v0-v2); if(Math.abs(den)<1e-9) continue;
+    lire(i0,a,P); lire(i1,b,P); lire(i2,c,P);
+    if(N){ lire(i0,na,N); lire(i1,nb,N); lire(i2,nc,N); }
+    var x0=Math.max(0,Math.floor(Math.min(u0,u1,u2))), x1=Math.min(W-1,Math.ceil(Math.max(u0,u1,u2)));
+    var y0=Math.max(0,Math.floor(Math.min(v0,v1,v2))), y1=Math.min(H-1,Math.ceil(Math.max(v0,v1,v2)));
+    for(var y=y0;y<=y1;y++) for(var x=x0;x<=x1;x++){
+      var px=x+0.5, py=y+0.5;
+      var w0=((v1-v2)*(px-u2)+(u2-u1)*(py-v2))/den, w1=((v2-v0)*(px-u2)+(u0-u2)*(py-v2))/den, w2=1-w0-w1;
+      if(w0<-0.02 || w1<-0.02 || w2<-0.02) continue;
+      var X=(a[0]*w0+b[0]*w1+c[0]*w2)*m, Y=(a[1]*w0+b[1]*w1+c[1]*w2)*m, Z=(a[2]*w0+b[2]*w1+c[2]*w2)*m;
+      var nx=na[0]*w0+nb[0]*w1+nc[0]*w2, ny=na[1]*w0+nb[1]*w1+nc[1]*w2, nz=na[2]*w0+nb[2]*w1+nc[2]*w2;
+      var V=[X,Y,Z], Nn=[Math.abs(nx),Math.abs(ny),Math.abs(nz)], hv=V[ax], h1=(ax+1)%3, h2=(ax+2)%3;
+      /* la coordonnée horizontale du motif : celle des deux axes horizontaux que la surface regarde le moins */
+      var sH=Nn[h1]>Nn[h2] ? V[h2] : V[h1], sV=hv;
+      if(Nn[ax]>Math.max(Nn[h1],Nn[h2])){ sH=V[h1]; sV=V[h2]; }
+      /* les bras, écartés au repos : la « hauteur » se compte le long du bras,
+         depuis l'épaule, pour que les traînées soient horizontales bras baissés */
+      var hrel=hv-bas*m, lat=V[lA]-cLat;
+      if(Math.abs(lat)>0.19 && hrel>0.9){ sV=-Math.hypot(Math.abs(lat)-0.19,hrel-1.39); sH=V[dA]; }
+      var o=(y*W+x)*4;
+      if(hrel<0.30){ out[o]=34; out[o+1]=31; out[o+2]=29; pris[y*W+x]=2; continue; }
+      var tx=((Math.round(sH*C.ppm)%C.w)+C.w)%C.w, ty=((Math.round(-sV*C.ppm)%C.h)+C.h)%C.h, k=(ty*C.w+tx)*4;
+      out[o]=C.d[k]; out[o+1]=C.d[k+1]; out[o+2]=C.d[k+2]; pris[y*W+x]=1;
+    }
+  }
+  return {px:out, pris:pris};
+}
+function texTreillis35(tex,ref,mesh){
   var im=tex.image;
   if(!im || !im.width || !JAL35.milCorps) return null;
-  var W=im.width, H=im.height, c=toile(W,H), g=c.getContext('2d',{willReadFrequently:true});
-  g.drawImage(im,0,0);
+  var W=im.width, H=im.height;
+  if(mobile35() && W>1024){ H=Math.round(H*1024/W); W=1024; }
+  var c=toile(W,H), g=c.getContext('2d',{willReadFrequently:true});
+  g.drawImage(im,0,0,W,H);
+  var Mo=mesh ? bmeMonde35(mesh,W,H,tex.flipY!==false) : null;
   var D=g.getImageData(0,0,W,H), P=D.data, M=motifBME35(JAL35.milCorps), ech=Math.max(1,W/1024), n=W*H, i, s=0, k=0;
   var L=new Float32Array(n), habit=new Uint8Array(n);
   for(i=0;i<n;i++){
@@ -28246,8 +28314,9 @@ function texTreillis35(tex,ref){
   var moy=k?s/k:0.5;
   for(i=0;i<n;i++){
     if(!habit[i]) continue;
-    var px=i%W, py=(i/W)|0, mx=((px/ech)|0)&511, my=((py/ech)|0)&511, q=(my*512+mx)*4;
     var f=Math.max(0.6,Math.min(1.2,0.9+0.4*(L[i]/moy-1)));
+    if(Mo && Mo.pris[i]){ var o4=i*4, fs=Mo.pris[i]===1?f*0.88:f; P[o4]=Math.min(255,Mo.px[o4]*fs); P[o4+1]=Math.min(255,Mo.px[o4+1]*fs); P[o4+2]=Math.min(255,Mo.px[o4+2]*fs); continue; }
+    var px=i%W, py=(i/W)|0, mx=((px/ech)|0)&511, my=((py/ech)|0)&511, q=(my*512+mx)*4;
     P[i*4]=Math.min(255,M[q]*f); P[i*4+1]=Math.min(255,M[q+1]*f); P[i*4+2]=Math.min(255,M[q+2]*f);
   }
   g.putImageData(D,0,0);
@@ -28277,7 +28346,7 @@ function treillis35(f){
     var multi=Array.isArray(o.material), ms=multi?o.material:[o.material];
     ms=ms.map(function(m){
       if(!m || !/body/i.test(m.name||'') || !m.map) return m;
-      var t=texTreillis35(m.map,ref);
+      var t=texTreillis35(m.map,ref,o);
       if(!t) return m;
       var nm=m.clone(); nm.map=t; nm.needsUpdate=true;
       return nm;
@@ -28325,18 +28394,6 @@ preparerPersonnages=function(){
     JAL35.milCorps=M.body && M.body.map && M.body.map.image; JAL35.milTete=M.head && M.head.map && M.head.map.image;
     enregistrerVariante35('Military_Male_02',JAL35.mil,JAL35.mil.poses,null,false);
   }).catch(function(e){ console.error('Jalonneur militaire',e); });
-  /* les femmes : civiles repeintes en BME (sur ordinateur) */
-  JAL35.femmes.forEach(function(e){
-    var nom=e[0];
-    if(!ACTIFS[nom+'.fbx']) return;
-    p=p.then(function(){ return chargerAvatar(nom); }).then(function(f){
-      treillis35(f);
-      var g=normaliserAvatar(f,1.70), R=reposOs(g), base={g:g, f:f, rest:R, poses:null, mats:matieres35(g), tex:e[1]};
-      base.poses=poses35(g,R);
-      JAL35.base[nom]=base;
-      enregistrerVariante35(nom+'_tr',base,base.poses,null,true);
-    }).catch(function(er){ console.error('Jalonneuse '+nom,er); });
-  });
   p=p.then(function(){ return chargerAvatar('Military_Male_02'); }).then(function(f){
     PERSO.coureurFbx=f;
     return Promise.all(['m_idle_neutral_01','m_walk_neutral_01','m_run_neutral_01'].map(chargerClip));
@@ -28352,7 +28409,19 @@ ETAPES.forEach(function(e){ if(e[1]===_prepPerso35) e[1]=preparerPersonnages; })
 function visages35(){
   if(!JAL35.mil || !JAL35.milTete || JAL35.visagesFaits) return;
   JAL35.visagesFaits=true;
-  var hommes=JAL35.hommes.slice(0,mobile35()?3:JAL35.hommes.length), q=Promise.resolve(), M=JAL35.mil.mats;
+  /* sur téléphone : 10 hommes et 4 femmes (14 visages), textures de 512 */
+  var mob=mobile35(), hommes=JAL35.hommes, q=Promise.resolve(window.ACTIFS_DIFFERES), M=JAL35.mil.mats;
+  /* les femmes : civiles repeintes en BME, chargées après la ville (fichiers différés) */
+  JAL35.femmes.slice(0,mob?1:JAL35.femmes.length).forEach(function(e){
+    var nom=e[0];
+    q=q.then(function(){ return actifTardif32(nom+'.fbx'); }).then(function(){ return chargerAvatar(nom); }).then(function(f){
+      treillis35(f);
+      var g=normaliserAvatar(f,1.70), R=reposOs(g), base={g:g, f:f, rest:R, poses:null, mats:matieres35(g), tex:e[1]};
+      base.poses=poses35(g,R);
+      JAL35.base[nom]=base;
+      enregistrerVariante35(nom+'_tr',base,base.poses,null,true);
+    }).catch(function(er){ console.warn('Jalonneuse '+nom,er); });
+  });
   hommes.forEach(function(v){
     q=q.then(function(){ return imageTex35(v+'_head_color'); }).then(function(im){
       var t=teteMilitaire35(im,JAL35.milTete,M.head.map);
@@ -28363,11 +28432,15 @@ function visages35(){
     }).catch(function(e){ console.warn('visage '+v,e); });
   });
   /* d'autres visages pour les jalonneuses, sur leurs deux silhouettes */
-  var bases=Object.keys(JAL35.base);
-  if(bases.length) JAL35.visagesF.forEach(function(v,i){
-    var base=JAL35.base[bases[i%bases.length]];
-    q=q.then(function(){ return imageTex35(v+'_head_color'); }).then(function(im){
-      var T=1024, P=pixels35(im,T), ref=peauMoy35(P.d.data,T,VISAGE35);
+  JAL35.visagesF.slice(0,mob?3:JAL35.visagesF.length).forEach(function(v,i){
+    q=q.then(function(){
+      var bases=Object.keys(JAL35.base);
+      if(!bases.length) return;
+      var base=JAL35.base[bases[i%bases.length]];
+      return imageTex35(v+'_head_color').then(function(im){ return [im,base]; });
+    }).then(function(r){
+      if(!r) return;
+      var im=r[0], base=r[1], T=mob?512:1024, P=pixels35(im,T), ref=peauMoy35(P.d.data,T,VISAGE35);
       var mh=base.mats.head.clone(); mh.map=texDe35(P,base.mats.head.map); mh.needsUpdate=true;
       var bi=base.mats.body.map && base.mats.body.map.image, mats={head:mh};
       if(bi && ref){ var mb=base.mats.body.clone(); mb.map=peauVers35(bi,ref,[[0,0,1,1]],base.mats.body.map); mb.needsUpdate=true; mats.body=mb; }
