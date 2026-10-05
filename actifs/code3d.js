@@ -28030,7 +28030,7 @@ function retour34(){
   }
   if(!bord){ bord=document.createElement('div'); bord.id='e3-bord34'; var vue=$e('e3-vue'); (vue||$e('e3')).appendChild(bord); }
   var R=LIVE_REG, e=LIVE.ecart||0;
-  if(!LIVE.enCours || LIVE.spect || LIVE.etat!=='course' || e<R.ZONE_AVERT){
+  if(!LIVE.enCours || LIVE.spect || LIVE.etat!=='course' || e<=R.ZONE){
     if(el.style.display!=='none') el.style.display='none';
     if(bord.style.opacity!=='0') bord.style.opacity='0';
     return;
@@ -28045,9 +28045,9 @@ function retour34(){
   var hors=e>R.ZONE;
   el.classList.toggle('alerte',hors || e>R.ZONE-R.ZONE_NOIR);
   el.querySelector('.fl path').setAttribute('fill',hors?'#ef4444':'#F2B33D');
-  var tx=hors ? 'Hors parcours : reviens sur le tracé' : 'Parcours à '+Math.round(e)+' m';
+  var tx='Hors parcours : reviens sur le tracé';
   var t=el.querySelector('.tx'); if(t.textContent!==tx) t.textContent=tx;
-  bord.style.opacity=Math.min(1,Math.max(0,(e-R.ZONE_AVERT)/(R.ZONE-R.ZONE_AVERT))).toFixed(2);
+  bord.style.opacity=hors?'0.8':'0';
 }
 
 /* ---------- le calque live : barrières et lignes invisibles ---------- */
@@ -28060,9 +28060,8 @@ function construireLive34(){
   LIVEB34.segs=[];
   var D=donneesLive34();
   LIVEB34.cle=D ? JSON.stringify(D) : '';
-  /* la largeur de la zone de course, réglée au curseur sur la carte (20 m par défaut) */
-  var z=(D && isFinite(+D.z) && +D.z>0) ? +D.z : 20;
-  LIVE_REG.ZONE=z; LIVE_REG.ZONE_AVERT=Math.max(4,z-10);
+  /* la zone de course, réglée sur la carte (ancrages de chaque bord, ou ancienne largeur unique) */
+  LIVEB34.zone=(D && D.z!==undefined) ? D.z : null;
   if(!D || !LIVE.enCours) { OBST22.ver++; return; }
   var B=(D.b||[]).map(function(b){ return {x:pX(b.lo), z:pZ(b.la), ang:+b.ang||0}; });
   B.forEach(function(b){
@@ -28294,4 +28293,44 @@ geoJalonSimple=function(niv,bras){
   }
   return (CACHE_GEO[cle]=t.geo());
 };
+
+/* ===== 36. course en live : une zone de course qui varie le long du tracé ===== */
+/* Nicolas, 5 oct. 2026 :
+   - la largeur de la zone se règle sur la carte, ancrage par ancrage, sur
+     chacun des deux bords (à gauche, à droite du sens de course) : à chaque
+     image, on prend la largeur du bord où se trouve le coureur, à l'endroit
+     du tracé où il en est ;
+   - dans la zone, les 6 derniers mètres passent au gris ; au-delà du bord,
+     l'image est grise et l'on marche (8 km/h) : c'est là seulement que la
+     flèche du retour apparaît ;
+   - hors de la zone, dès qu'on se rapproche du tracé, l'allure revient
+     aussitôt : on ne perd pas de temps à revenir. */
+function largeurZone36(cote,f){
+  var Z=LIVEB34.zone;
+  if(Z===null || Z===undefined) return 20;
+  if(typeof Z==='number') return Z>0?Z:20;
+  var A=Z[cote];
+  if(!A || !A.length) return 20;
+  if(f<=A[0][0]) return A[0][1];
+  for(var i=1;i<A.length;i++) if(f<=A[i][0]){ var a=A[i-1], b=A[i], u=(f-a[0])/Math.max(1e-9,b[0]-a[0]); return a[1]+(b[1]-a[1])*u; }
+  return A[A.length-1][1];
+}
+var Z36={ePrec:null, rap:0};
+function majZone36(dt){
+  var R=LIVE_REG;
+  if(!LIVE.enCours || LIVE.spect || LIVE.etat!=='course'){ R.V_ZONE=8/3.6; Z36.ePrec=null; Z36.rap=0; return; }
+  /* le point du tracé le plus proche, autour de la progression validée (comme progresLive31) */
+  var a=Math.max(0,LIVE.d-12), b=Math.min(LONGUEUR,LIVE.d+R.FENETRE), best=1e9, bd=LIVE.d;
+  for(var dd=a; dd<=b; dd+=1.5){ var p=pointArrondi(dd), e=Math.hypot(p[0]-J.x,p[1]-J.z); if(e<best){ best=e; bd=dd; } }
+  var q=pointArrondi(bd), c=capArrondi(bd), lat=-(J.x-q[0])*Math.sin(c)+(J.z-q[1])*Math.cos(c);
+  var w=largeurZone36(lat>=0?'d':'g', bd/Math.max(1,LONGUEUR));
+  R.ZONE=w; R.ZONE_AVERT=w;
+  /* la vitesse à laquelle on se rapproche du tracé, lissée */
+  if(Z36.ePrec!==null && dt>0) Z36.rap+=((best-Z36.ePrec)/dt-Z36.rap)*Math.min(1,dt*8);
+  Z36.ePrec=best;
+  R.V_ZONE=(best>w && Z36.rap<-0.6) ? 99 : 8/3.6;
+}
+var _piloter36=piloterCourse31;
+piloterCourse31=function(dt){ try{ majZone36(dt); }catch(e){} return _piloter36(dt); };
+window.ESPACE3D.live.zone=function(){ return {zone:LIVE_REG.ZONE, vZone:LIVE_REG.V_ZONE, rap:Z36.rap}; };
 })();

@@ -215453,26 +215453,45 @@ zjRedessiner();
    Enregistré avec le travail (clé live du paquet) ; les téléphones le
    reçoivent comme le reste. Sur la carte : menu Ajouter > Mode live. La
    bande jaune montre la zone de course (20 m de part et d'autre du tracé
-   par défaut, réglable au curseur). Une ligne choisie montre ses points
+   par défaut, réglable ancrage par ancrage sur chaque bord). Une ligne choisie montre ses points
    d'ancrage : on les tire, on en ajoute, on en retire.
 --------------------------------------------------------------- */
 (function(){
-/* z : demi-largeur de la zone de course, en mètres (20 par défaut), réglée au curseur */
-var ZONE_DEF=20, ZONE_MIN=8, ZONE_MAX=60;
-var LV={b:[], l:[], z:ZONE_DEF};
+/* la zone de course : sur chaque bord (g à gauche, d à droite du sens de
+   course), des points d'ancrage {f, w} : f la position le long du tracé (0 au
+   départ, 1 à l'arrivée), w la largeur en mètres depuis l'axe. Entre deux
+   ancrages, la largeur varie en ligne droite ; avant le premier et après le
+   dernier, elle reste celle de l'ancrage. 20 m partout par défaut. */
+var ZONE_DEF=20, ZONE_MIN=2, ZONE_MAX=80;
+function zoneUniforme(w){ return {g:[{f:0,w:w},{f:1,w:w}], d:[{f:0,w:w},{f:1,w:w}]}; }
+function zoneParDefaut(z){ return ['g','d'].every(function(s){ return z[s].length===2 && z[s][0].f===0 && z[s][1].f===1 && z[s][0].w===ZONE_DEF && z[s][1].w===ZONE_DEF; }); }
+var LV={b:[], l:[], z:zoneUniforme(ZONE_DEF)};
 function lvVers(){
-  if(!LV.b.length && !LV.l.length && LV.z===ZONE_DEF) return null;
+  var zd=zoneParDefaut(LV.z);
+  if(!LV.b.length && !LV.l.length && zd) return null;
   var o={
     b:LV.b.map(function(b){ return [+b.la.toFixed(6), +b.lo.toFixed(6), ((Math.round(b.ang)%360)+360)%360]; }),
     l:LV.l.map(function(L){ var f=[]; L.forEach(function(p){ f.push(+p[0].toFixed(6), +p[1].toFixed(6)); }); return f; })
   };
-  if(LV.z!==ZONE_DEF) o.z=LV.z;
+  if(!zd) o.z={g:LV.z.g.map(function(a){ return [+a.f.toFixed(5), Math.round(a.w*10)/10]; }), d:LV.z.d.map(function(a){ return [+a.f.toFixed(5), Math.round(a.w*10)/10]; })};
   return o;
 }
+function zoneDepuis(z){
+  /* ancien format : une seule largeur pour tout le parcours */
+  if(typeof z==='number' && isFinite(z)) return zoneUniforme(Math.max(ZONE_MIN,Math.min(ZONE_MAX,z)));
+  if(!z || typeof z!=='object') return zoneUniforme(ZONE_DEF);
+  var r={g:[], d:[]};
+  ['g','d'].forEach(function(s){
+    (z[s]||[]).forEach(function(a){ if(Array.isArray(a) && isFinite(+a[0]) && isFinite(+a[1])) r[s].push({f:Math.max(0,Math.min(1,+a[0])), w:Math.max(ZONE_MIN,Math.min(ZONE_MAX,+a[1]))}); });
+    r[s].sort(function(a,b){ return a.f-b.f; });
+    if(!r[s].length) r[s]=[{f:0,w:ZONE_DEF},{f:1,w:ZONE_DEF}];
+  });
+  return r;
+}
 function lvDepuis(o){
-  var r={b:[], l:[], z:ZONE_DEF};
+  var r={b:[], l:[], z:zoneUniforme(ZONE_DEF)};
   if(!o) return r;
-  if(isFinite(+o.z)) r.z=Math.max(ZONE_MIN,Math.min(ZONE_MAX,Math.round(+o.z)));
+  r.z=zoneDepuis(o.z);
   (o.b||[]).forEach(function(b){ if(Array.isArray(b) && b.length>=2 && isFinite(+b[0]) && isFinite(+b[1])) r.b.push({la:+b[0], lo:+b[1], ang:+b[2]||0}); });
   (o.l||[]).forEach(function(f){
     if(!Array.isArray(f)) return;
@@ -215496,8 +215515,50 @@ chargerEtat=(function(orig){
 })(chargerEtat);
 CARTE.live=function(){
   return {b:LV.b.map(function(b){ return {la:b.la, lo:b.lo, ang:b.ang}; }),
-          l:LV.l.map(function(L){ return L.map(function(p){ return p.slice(); }); }), z:LV.z};
+          l:LV.l.map(function(L){ return L.map(function(p){ return p.slice(); }); }),
+          z:{g:LV.z.g.map(function(a){ return [a.f,a.w]; }), d:LV.z.d.map(function(a){ return [a.f,a.w]; })}};
 };
+/* largeur de la zone au point f, sur le bord s */
+function largeurZone(s,f){
+  var A=LV.z[s];
+  if(f<=A[0].f) return A[0].w;
+  for(var i=1;i<A.length;i++) if(f<=A[i].f){ var a=A[i-1], b=A[i], u=(f-a.f)/Math.max(1e-9,b.f-a.f); return a.w+(b.w-a.w)*u; }
+  return A[A.length-1].w;
+}
+/* le tracé en mètres (est, nord), pour placer la zone et y projeter la souris */
+var TZ=null;
+function traceZone(){
+  var T=[];
+  try{ T=CARTE.traceDense(); }catch(e){}
+  var P=[], s=0;
+  for(var i=0;i<T.length;i++){
+    var x=T[i].lo*EQ_MLON, y=T[i].la*EQ_MLAT;
+    if(i){ var dx=x-P[i-1].x, dy=y-P[i-1].y; s+=Math.hypot(dx,dy); }
+    P.push({x:x, y:y, s:s});
+  }
+  TZ={P:P, L:s||1};
+  return TZ;
+}
+/* le point du tracé à la fraction f, et la normale à droite du sens de course */
+function surTrace(f){
+  var P=TZ.P, s=Math.max(0,Math.min(1,f))*TZ.L, i=1;
+  while(i<P.length-1 && P[i].s<s) i++;
+  var a=P[i-1], b=P[i], L=Math.max(1e-6,b.s-a.s), u=Math.max(0,Math.min(1,(s-a.s)/L));
+  var tx=(b.x-a.x)/L, ty=(b.y-a.y)/L;
+  return {x:a.x+(b.x-a.x)*u, y:a.y+(b.y-a.y)*u, nx:ty, ny:-tx};
+}
+/* la souris projetée sur le tracé : fraction, écart signé (positif à droite) */
+function projeter(la,lo){
+  var x=lo*EQ_MLON, y=la*EQ_MLAT, P=TZ.P, best=1e18, r={f:0, lat:0};
+  for(var i=1;i<P.length;i++){
+    var a=P[i-1], b=P[i], dx=b.x-a.x, dy=b.y-a.y, L2=dx*dx+dy*dy||1e-9, u=Math.max(0,Math.min(1,((x-a.x)*dx+(y-a.y)*dy)/L2));
+    var px=a.x+dx*u, py=a.y+dy*u, d=(x-px)*(x-px)+(y-py)*(y-py);
+    if(d<best){ best=d; var L=Math.sqrt(L2); r={f:(a.s+u*L)/TZ.L, lat:((x-px)*dy-(y-py)*dx)/L}; }
+  }
+  return r;
+}
+function ptMetres(x,y){ return [y/EQ_MLAT, x/EQ_MLON]; }
+function bordZone(s,f,w){ var q=surTrace(f), k=(s==='d'?1:-1)*w; return ptMetres(q.x+q.nx*k, q.y+q.ny*k); }
 
 /* ---------- le calque sur la carte ---------- */
 var UI={on:false, outil:null, sel:null, ligne:null, curseur:null, drag:null};
@@ -215509,19 +215570,31 @@ function unitesParMetre(){
   return (Math.abs(X(lo+1/EQ_MLON)-X(lo))+Math.abs(Y(la+1/EQ_MLAT)-Y(la)))/2;
 }
 function dPts(P){ var d=''; P.forEach(function(p,i){ d+=(i?'L':'M')+X(p[1]).toFixed(2)+' '+Y(p[0]).toFixed(2); }); return d; }
+/* une pastille de taille fixe à l'écran (un trait de longueur nulle, bouts ronds) */
+function pastilleG(la,lo,taille,coul,lv,titre){
+  var x=X(lo).toFixed(2), y=Y(la).toFixed(2), d='M'+x+' '+y+'L'+x+' '+y;
+  gLive.appendChild(el('path',{d:d, stroke:'#0B1019', 'stroke-width':taille+4, 'stroke-linecap':'round', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'}));
+  var p=el('path',{d:d, stroke:coul, 'stroke-width':taille, 'stroke-linecap':'round', 'vector-effect':'non-scaling-stroke', 'pointer-events':'stroke', style:'cursor:grab'});
+  p.__lv=lv; var t2=el('title',{}); t2.textContent=titre; p.appendChild(t2); gLive.appendChild(p);
+}
 function dessiner(){
   while(gLive.firstChild) gLive.removeChild(gLive.firstChild);
   gLive.style.display=UI.on?'':'none';
   if(!UI.on) return;
-  /* la zone de course : LV.z mètres de part et d'autre du tracé */
+  /* la zone de course : une bande dont chaque bord a sa largeur, ancrage par ancrage */
   try{
-    var T=CARTE.traceDense().map(function(p){ return [p.la,p.lo]; });
-    if(T.length>1){
-      var u=unitesParMetre();
-      gLive.appendChild(el('path',{d:dPts(T), fill:'none', stroke:'#F2B33D', 'stroke-opacity':0.13, 'stroke-width':(2*LV.z*u).toFixed(3),
-        'stroke-linecap':'round', 'stroke-linejoin':'round', 'pointer-events':'none'}));
+    traceZone();
+    if(TZ.P.length>1){
+      var G=[], D2=[], pas=Math.max(4,TZ.L/1200);
+      for(var s0=0;s0<=TZ.L+0.01;s0+=pas){
+        var f0=s0/TZ.L; G.push(bordZone('g',f0,largeurZone('g',f0))); D2.push(bordZone('d',f0,largeurZone('d',f0)));
+      }
+      var poly=G.concat(D2.reverse());
+      gLive.appendChild(el('path',{d:dPts(poly)+'Z', fill:'#F2B33D', 'fill-opacity':0.13, stroke:'none', 'pointer-events':'none'}));
+      gLive.appendChild(el('path',{d:dPts(G), fill:'none', stroke:'#F2B33D', 'stroke-opacity':0.75, 'stroke-width':1.5, 'stroke-dasharray':'6 4', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'}));
+      gLive.appendChild(el('path',{d:dPts(D2), fill:'none', stroke:'#F2B33D', 'stroke-opacity':0.75, 'stroke-width':1.5, 'stroke-dasharray':'6 4', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'}));
     }
-  }catch(e){}
+  }catch(e){ console.warn('zone live :',e); }
   LV.l.forEach(function(L){
     var d=dPts(L), choisi=UI.sel && UI.sel.o===L;
     gLive.appendChild(el('path',{d:d, fill:'none', stroke:'#0B1019', 'stroke-width':6, 'vector-effect':'non-scaling-stroke', 'stroke-linecap':'round', 'stroke-linejoin':'round', 'pointer-events':'none'}));
@@ -215558,6 +215631,16 @@ function dessiner(){
     var tt=el('title',{}); tt.textContent='Barrière (course en live). Glisser pour déplacer, R pour tourner, Suppr ou clic droit pour la retirer.';
     v.appendChild(tt); gLive.appendChild(v);
   });
+  /* les ancrages de la zone, sur ses deux bords : à tirer pour régler la
+     largeur à cet endroit ; au milieu de deux ancrages, un point plus petit
+     qui en ajoute un */
+  try{
+    if(TZ && TZ.P.length>1) ['g','d'].forEach(function(s){
+      var A=LV.z[s];
+      for(var i=1;i<A.length;i++){ var fm=(A[i-1].f+A[i].f)/2, qm=bordZone(s,fm,largeurZone(s,fm)); pastilleG(qm[0],qm[1],8,'rgba(242,179,61,0.85)',{type:'zm', s:s, i:i},'Tirer pour ajouter un ancrage de la zone ici'); }
+      A.forEach(function(a,i){ var q=bordZone(s,a.f,a.w); pastilleG(q[0],q[1],13,'#F2B33D',{type:'za', s:s, i:i},'Zone : '+Math.round(a.w)+' m '+(s==='d'?'à droite':'à gauche')+' du tracé. Glisser pour élargir ou resserrer, clic droit pour retirer l’ancrage'); });
+    });
+  }catch(e){}
   if(UI.ligne && UI.ligne.length){
     var P=UI.ligne.slice(); if(UI.curseur) P.push(UI.curseur);
     gLive.appendChild(el('path',{d:dPts(P), fill:'none', stroke:'#FFFFFF', 'stroke-width':2.5, 'stroke-dasharray':'4 4', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'}));
@@ -215626,7 +215709,7 @@ function panneau(){
     '#lv-carte .z{margin:8px 0 6px}',
     '#lv-carte .z label{display:block;margin-bottom:3px}',
     '#lv-carte .z b{color:#F2B33D}',
-    '#lv-carte .z input{width:100%;accent-color:#F2B33D}'
+    '#lv-carte .z span{display:block;margin-top:4px;opacity:.8}'
   ].join('\n');
   document.head.appendChild(s);
   PAN=document.createElement('div'); PAN.id='lv-carte'; PAN.hidden=true;
@@ -215635,8 +215718,9 @@ function panneau(){
     '<div class="l"><button type="button" data-a="b"><span class="leg" style="background:#F2B33D"></span>+ Barrière</button>'+
     '<button type="button" data-a="l"><span class="leg" style="background:#E040FB"></span>+ Ligne invisible</button></div>'+
     '<div class="l"><button type="button" data-a="fin" hidden>✓ Terminer la ligne</button></div>'+
-    '<div class="z"><label for="lv-zone">Zone de course (bande jaune) : <b id="lv-zone-v"></b> de chaque côté du tracé</label>'+
-    '<input type="range" id="lv-zone" min="'+ZONE_MIN+'" max="'+ZONE_MAX+'" step="1"></div>'+
+    '<div class="z"><b>Zone de course</b> (bande jaune) : tire les points jaunes de ses bords pour l’élargir ou la resserrer à cet endroit, '+
+    'tire les petits points pour ajouter un ancrage, clic droit pour en retirer un. Au-delà du bord : noir et blanc, et l’on marche. '+
+    '<span id="lv-zone-v"></span><div class="l"><button type="button" data-a="zone20">Remettre la zone à 20 m</button></div></div>'+
     '<div class="n"></div>'+
     '<small>Clic sur un élément : le choisir. Glisser une barrière : la déplacer, <kbd>R</kbd> pour la tourner. Ligne choisie : glisser ses points blancs, tirer les points violets pour en ajouter, clic droit sur un point pour le retirer, <kbd>Ctrl</kbd>+clic sur la carte pour la prolonger. <kbd>Suppr</kbd> ou clic droit : retirer. <kbd>Échap</kbd> : arrêter l’outil. Pense à enregistrer.</small>'+
     '<div class="l"><button type="button" data-a="quitter">Quitter le mode live</button></div>';
@@ -215648,11 +215732,8 @@ function panneau(){
     if(a==='b' || a==='l') choisirOutil(a);
     else if(a==='fin') finirLigne();
     else if(a==='quitter') basculerMode(false);
+    else if(a==='zone20' && confirm('Remettre la zone de course à 20 m partout (les ancrages posés sont retirés) ?')){ LV.z=zoneUniforme(ZONE_DEF); modifie(); dire('Zone de course remise à 20 m de chaque côté.',''); }
   });
-  /* le curseur : la bande suit en direct, la largeur est enregistrée au relâchement */
-  var rz=PAN.querySelector('#lv-zone');
-  rz.addEventListener('input',function(){ LV.z=Math.max(ZONE_MIN,Math.min(ZONE_MAX,+rz.value||ZONE_DEF)); dessiner(); });
-  rz.addEventListener('change',function(){ modifie(); dire('Zone de course : '+LV.z+' m de chaque côté du tracé.',''); });
   return PAN;
 }
 function majPanneau(){
@@ -215660,9 +215741,8 @@ function majPanneau(){
   PAN.querySelector('[data-a="b"]').classList.toggle('on',UI.outil==='b');
   PAN.querySelector('[data-a="l"]').classList.toggle('on',UI.outil==='l');
   PAN.querySelector('[data-a="fin"]').hidden=!(UI.ligne && UI.ligne.length>=2);
-  var rz=PAN.querySelector('#lv-zone');
-  if(document.activeElement!==rz) rz.value=LV.z;
-  PAN.querySelector('#lv-zone-v').textContent=LV.z+' m';
+  var ws=LV.z.g.concat(LV.z.d).map(function(a){ return a.w; });
+  PAN.querySelector('#lv-zone-v').textContent='Largeur actuelle : de '+Math.round(Math.min.apply(null,ws))+' à '+Math.round(Math.max.apply(null,ws))+' m de l’axe ('+(LV.z.g.length+LV.z.d.length)+' ancrages).';
   var nb=LV.b.length, nl=LV.l.length;
   PAN.querySelector('.n').textContent=nb+' barrière'+(nb>1?'s':'')+' · '+nl+' ligne'+(nl>1?'s':'')+' invisible'+(nl>1?'s':'');
 }
@@ -215691,6 +215771,13 @@ svg.addEventListener('pointerdown',function(ev){
   }
   if(e){
     ev.preventDefault(); ev.stopImmediatePropagation();
+    /* un ancrage de la zone : on le tire (largeur et position le long du tracé) */
+    if(e.type==='za'){ UI.drag={zs:e.s, i:e.i, id:ev.pointerId, bouge:false}; try{ svg.setPointerCapture(ev.pointerId); }catch(er){} return; }
+    if(e.type==='zm'){
+      var AZ=LV.z[e.s], fz=(AZ[e.i-1].f+AZ[e.i].f)/2;
+      AZ.splice(e.i,0,{f:fz, w:largeurZone(e.s,fz)});
+      UI.drag={zs:e.s, i:e.i, id:ev.pointerId, bouge:true}; try{ svg.setPointerCapture(ev.pointerId); }catch(er){} dessiner(); return;
+    }
     /* un point d'ancrage de la ligne choisie : on le tire */
     if(e.type==='p'){ UI.drag={L:e.o, i:e.i, id:ev.pointerId, bouge:false}; try{ svg.setPointerCapture(ev.pointerId); }catch(er){} return; }
     /* le milieu d'un segment : un nouveau point, qu'on tire aussitôt */
@@ -215715,7 +215802,14 @@ svg.addEventListener('pointermove',function(ev){
   if(UI.drag && UI.drag.id===ev.pointerId){
     ev.stopImmediatePropagation();
     var p=point(ev);
-    if(UI.drag.L) UI.drag.L[UI.drag.i]=p; else { UI.drag.o.la=p[0]; UI.drag.o.lo=p[1]; }
+    if(UI.drag.zs){
+      if(!TZ) traceZone();
+      var pr=projeter(p[0],p[1]), A=LV.z[UI.drag.zs], i=UI.drag.i, a=A[i];
+      var bas=i>0?A[i-1].f+0.0005:0, haut=i<A.length-1?A[i+1].f-0.0005:1;
+      a.f=Math.max(bas,Math.min(haut,pr.f));
+      a.w=Math.max(ZONE_MIN,Math.min(ZONE_MAX,(UI.drag.zs==='d'?1:-1)*pr.lat));
+    }
+    else if(UI.drag.L) UI.drag.L[UI.drag.i]=p; else { UI.drag.o.la=p[0]; UI.drag.o.lo=p[1]; }
     UI.drag.bouge=true;
     dessiner();
     return;
@@ -215725,8 +215819,8 @@ svg.addEventListener('pointermove',function(ev){
 function finDrag(ev){
   if(!UI.drag || UI.drag.id!==ev.pointerId) return;
   try{ svg.releasePointerCapture(ev.pointerId); }catch(e){}
-  var bouge=UI.drag.bouge; UI.drag=null;
-  if(bouge) modifie();
+  var bouge=UI.drag.bouge, z=UI.drag.zs ? LV.z[UI.drag.zs][UI.drag.i] : null; UI.drag=null;
+  if(bouge){ modifie(); if(z) dire('Zone : '+Math.round(z.w)+' m de l’axe à cet endroit.',''); }
 }
 svg.addEventListener('pointerup',finDrag,true);
 svg.addEventListener('pointercancel',finDrag,true);
@@ -215741,7 +215835,14 @@ svg.addEventListener('contextmenu',function(ev){
   if(UI.ligne){ ev.preventDefault(); ev.stopImmediatePropagation(); UI.ligne.pop(); if(!UI.ligne.length) UI.ligne=null; dessiner(); return; }
   if(!e) return;
   ev.preventDefault(); ev.stopImmediatePropagation();
-  if(e.type==='m') return;
+  if(e.type==='m' || e.type==='zm') return;
+  /* clic droit sur un ancrage de la zone : il disparaît (il en reste au moins un par bord) */
+  if(e.type==='za'){
+    var AZ2=LV.z[e.s];
+    if(AZ2.length>1){ AZ2.splice(e.i,1); dire('Ancrage de la zone retiré.',''); modifie(); }
+    else dire('Il faut garder au moins un ancrage de chaque côté.','');
+    return;
+  }
   /* clic droit sur un point d'ancrage : il disparaît (la ligne garde au moins deux points) */
   if(e.type==='p'){
     if(e.o.length>2){ e.o.splice(e.i,1); dire('Point d’ancrage retiré.',''); modifie(); }
