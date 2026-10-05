@@ -28961,4 +28961,450 @@ dessinerVest38=function(){
   var a=VEST.av, cle=a ? [a.s,a.p,a.h].join('|') : '';
   if(cle!==VIGN39.derniere){ VIGN39.derniere=cle; clearTimeout(VIGN39.t); VIGN39.t=setTimeout(demander39,250); }
 };
+
+/* ===== 40. les coureurs MakeHuman : visage détaillé, coiffure, yeux ===== */
+/* Nicolas, 5 oct. 2026 : les visages Rocketbox étaient plats, avec des
+   défauts de texture (plaques de peau, mèche noire sur le front, yeux mal
+   placés). Les coureurs composés (le sien, ceux de la vague, le vestiaire)
+   sont maintenant des modèles MakeHuman (licence CC0), fabriqués dans
+   Blender par le script C:\corrida-outils\scripts\construire.py :
+   - un seul maillage pour tout le corps : aucune jonction tête-corps ;
+   - 25 morphologies du visage (nez, mâchoire, lèvres, yeux, oreilles,
+     traits africains ou asiatiques…), réglables au curseur ;
+   - 5 coiffures par sexe, teintées à la couleur choisie, 5 couleurs d'yeux,
+     4 peaux photographiques par sexe ;
+   - débardeur et short taillés dans le corps, avec biais, ceinture et
+     ourlet dessinés par le moteur ; poitrine et bassin neutres ;
+   - le squelette porte les noms Bip01 du site : gestes et saluts marchent
+     tels quels ; attente, marche et course sont transférées des animations
+     Rocketbox.
+   Les fichiers (actifs/bin/mh_*) ne sont téléchargés qu'à la demande :
+   le modèle (3,5 à 4,4 Mo) et les seules textures choisies. */
+var MH40={
+  bases:{}, tex:{}, fichiers:{},
+  cheveux:{h:['short02','short01','short04','short03','afro01'], f:['ponytail01','bob01','braid01','short03','afro01']},
+  nomsCheveux:{short02:'Court', short01:'Très court', short04:'Plaqué', short03:'Mi-long', afro01:'Afro', ponytail01:'Queue-de-cheval', bob01:'Carré', braid01:'Tresse'},
+  couleurs:[['noirs','#1d1714'],['bruns','#3d2a1e'],['châtains','#6b4a30'],['blond foncé','#9a7448'],['blonds','#cfae78'],['roux','#93451f'],['gris','#a29d96']],
+  yeux:[['marron','#6b4a2c'],['bleu-vert','#5b8a86'],['bleus','#4f7fb0'],['verts','#5f8a55'],['gris','#8a929a']],
+  peaux:{h:['#e5b391','#d89769','#86533b','#573725'], f:['#d8af92','#e39d70','#bf8a6d','#6b3f2c']},
+  nomsPeaux:['claire','mate','brune','foncée']
+};
+/* les curseurs du visage : chacun pilote une ou deux morphologies */
+var CURSEURS40=[
+  ['afr','Traits africains',null,'afr'],
+  ['asi','Traits asiatiques',null,'asi'],
+  ['forme','Visage : rond ↔ long','tete_ronde','tete_longue'],
+  ['joues','Joues : creuses ↔ pleines','mince','joufflu'],
+  ['mach','Mâchoire',null,'machoire'],
+  ['menton','Menton',null,'menton'],
+  ['pomm','Pommettes','joues_creuses','pommettes'],
+  ['nezl','Nez : fin ↔ large','nez_fin','nez_large'],
+  ['nezh','Nez : court ↔ long','nez_court','nez_long'],
+  ['bosse','Nez busqué',null,'nez_busque'],
+  ['levres','Lèvres : fines ↔ pleines','levres_fines','levres'],
+  ['bouche','Bouche large',null,'bouche_large'],
+  ['yeux','Yeux : petits ↔ grands','yeux_petits','yeux_grands'],
+  ['sourc','Sourcils bas',null,'sourcils_bas'],
+  ['front','Front haut',null,'front'],
+  ['oreil','Oreilles décollées',null,'oreilles'],
+  ['age','Âge',null,'age']
+];
+/* les visages tout faits (valeurs de -10 à 10) */
+var PRESETS40={
+  h:[{}, {mach:7,menton:4,bosse:4,sourc:3}, {afr:10,nezl:3,levres:4}, {asi:10,forme:-3,yeux:-2},
+     {forme:6,nezh:5,pomm:-5,joues:-4}, {joues:6,forme:-5,nezh:-4,levres:3}, {afr:6,pomm:6,mach:5},
+     {age:10,front:5,sourc:4,nezh:3}, {asi:5,nezl:-6,yeux:4,levres:-3}, {oreil:7,nezh:-4,bouche:4}],
+  f:[{}, {pomm:6,nezl:-5,levres:4}, {afr:10,nezl:3,levres:5}, {asi:10,forme:-3,yeux:-2},
+     {forme:6,nezh:4,pomm:-4,joues:-4}, {joues:5,forme:-5,nezh:-5,yeux:3}, {afr:6,pomm:6,menton:3},
+     {age:9,front:4,nezh:3}, {asi:5,nezl:-6,yeux:4,levres:-2}, {bosse:5,mach:4,sourc:3}]
+};
+VISAGES37={h:PRESETS40.h.map(function(p,i){ return 'v'+i; }), f:PRESETS40.f.map(function(p,i){ return 'v'+i; })};
+function preset40(s,v){
+  var P=PRESETS40[s][v]||{};
+  return CURSEURS40.map(function(c){ return P[c[0]]||0; });
+}
+function hash40(s){ var k=0; s=String(s); for(var i=0;i<s.length;i++) k=(k*131+s.charCodeAt(i))>>>0; return k; }
+var _valide40=avatarValide32;
+avatarValide32=function(a){
+  var r=_valide40(a), L=MH40.cheveux[r.s].length, k=hash40(JSON.stringify([a&&a.v, a&&a.h, a&&a.b]));
+  function ent(x,max,def){ x=Math.floor(+x); return (isFinite(x) && x>=0 && x<max) ? x : def; }
+  r.ch=ent(a&&a.ch, L, k%L);
+  r.cc=ent(a&&a.cc, MH40.couleurs.length, (k>>>4)%5);
+  r.y=ent(a&&a.y, MH40.yeux.length, (k>>>8)%MH40.yeux.length);
+  if(a && Array.isArray(a.m) && a.m.length===CURSEURS40.length)
+    r.m=a.m.map(function(x,i){ x=Math.round(+x)||0; return Math.max(CURSEURS40[i][2]?-10:0,Math.min(10,x)); });
+  else r.m=preset40(r.s,r.v);
+  return r;
+};
+
+/* ---------- les fichiers, à la demande ---------- */
+function fichier40(nom){
+  if(MH40.fichiers[nom]) return MH40.fichiers[nom];
+  var C=window.CHARGEMENT_3D||{};
+  MH40.fichiers[nom]=fetch((C.base||'actifs/')+'bin/'+nom).then(function(r){
+    if(!r.ok) throw new Error('téléchargement impossible : '+nom);
+    return r.blob();
+  }).then(function(b){ return URL.createObjectURL(b); });
+  MH40.fichiers[nom].catch(function(){ delete MH40.fichiers[nom]; });
+  return MH40.fichiers[nom];
+}
+function texture40(nom,couleur){
+  var cle=nom+(couleur===false?'|lin':'');
+  if(MH40.tex[cle]) return MH40.tex[cle];
+  MH40.tex[cle]=fichier40(nom).then(function(u){
+    return new Promise(function(ok,ko){
+      new THREE.TextureLoader().load(u,function(t){
+        t.flipY=false; if(couleur!==false && t.colorSpace!==undefined) t.colorSpace=THREE.SRGBColorSpace;
+        t.anisotropy=4; t.needsUpdate=true; ok(t);
+      },undefined,ko);
+    });
+  });
+  MH40.tex[cle].catch(function(){ delete MH40.tex[cle]; });
+  return MH40.tex[cle];
+}
+function base40(s){
+  if(MH40.bases[s]) return MH40.bases[s];
+  MH40.bases[s]=fichier40('mh_'+s+'.glb').then(function(u){
+    return new Promise(function(ok,ko){ new EXT.GLTFLoader().load(u,function(g){ ok({scene:g.scene, clips:g.animations}); },undefined,ko); });
+  });
+  MH40.bases[s].catch(function(e){ console.warn('coureur MakeHuman :',e); delete MH40.bases[s]; });
+  return MH40.bases[s];
+}
+
+/* ---------- les matières ---------- */
+/* le tissu : une maille fine et les finitions (biais, ceinture, ourlet)
+   dessinées d'après la distance aux bords, rangée dans la couleur des sommets */
+var MAILLE40=null;
+function maille40(){
+  if(MAILLE40) return MAILLE40;
+  var N=128, c=toile(N,N), g=c.getContext('2d'), d=g.createImageData(N,N), H=new Float32Array(N*N), x, y;
+  for(y=0;y<N;y++) for(x=0;x<N;x++) H[y*N+x]=Math.sin((x%4)/4*PI)*0.6+Math.sin((y%4)/4*PI*2)*0.15+(Math.random()-0.5)*0.25;
+  for(y=0;y<N;y++) for(x=0;x<N;x++){
+    var hx=H[y*N+(x+1)%N]-H[y*N+(x+N-1)%N], hy=H[((y+1)%N)*N+x]-H[((y+N-1)%N)*N+x];
+    var nx=-hx*0.6, ny=-hy*0.6, l=Math.hypot(nx,ny,1), o=(y*N+x)*4;
+    d.data[o]=(nx/l*0.5+0.5)*255; d.data[o+1]=(ny/l*0.5+0.5)*255; d.data[o+2]=(1/l*0.5+0.5)*255; d.data[o+3]=255;
+  }
+  g.putImageData(d,0,0);
+  MAILLE40=new THREE.CanvasTexture(c); MAILLE40.wrapS=MAILLE40.wrapT=THREE.RepeatWrapping; MAILLE40.repeat.set(70,70); MAILLE40.anisotropy=4;
+  return MAILLE40;
+}
+function tissu40(hex,bandes){
+  var M=new THREE.MeshStandardMaterial({color:new THREE.Color(hex), roughness:0.8, metalness:0, normalMap:maille40(), normalScale:new THREE.Vector2(0.35,0.35), vertexColors:true});
+  M.userData.bandes=new THREE.Vector4(bandes[0],bandes[1],bandes[2],bandes[3]);
+  M.onBeforeCompile=function(sh){
+    sh.uniforms.uBandes={value:M.userData.bandes};
+    sh.fragmentShader='uniform vec4 uBandes;\n'+sh.fragmentShader.replace('#include <color_fragment>',
+      'float dA=vColor.r*0.1, dB=vColor.g*0.1;\n'+
+      'float fA=1.0-smoothstep(uBandes.x-0.0015,uBandes.x,dA);\n'+
+      'float fB=1.0-smoothstep(uBandes.y-0.002,uBandes.y,dB);\n'+
+      'float cou=smoothstep(0.0,0.004,abs(dB-uBandes.y*0.5));\n'+
+      'diffuseColor.rgb*=mix(1.0,uBandes.z,fA)*mix(1.0,uBandes.w*(0.85+0.15*cou),fB);');
+  };
+  M.customProgramCacheKey=function(){ return 'tissu40'; };
+  return M;
+}
+function chaussures40(tex,hex){
+  var M=new THREE.MeshStandardMaterial({map:tex, roughness:0.62, metalness:0});
+  M.userData.teinte=new THREE.Color(hex);
+  M.onBeforeCompile=function(sh){
+    sh.uniforms.uTeinte={value:M.userData.teinte};
+    sh.fragmentShader='uniform vec3 uTeinte;\n'+sh.fragmentShader.replace('#include <map_fragment>',
+      'vec4 tx=texture2D(map,vMapUv); float kT=clamp((tx.a-0.15)/0.85,0.0,1.0);\n'+
+      'diffuseColor.rgb*=tx.rgb*mix(vec3(1.0),uTeinte,kT);');
+  };
+  M.customProgramCacheKey=function(){ return 'chaussures40'; };
+  return M;
+}
+/* la teinte des poils : la texture est un gris (0,6 en sRGB), la couleur
+   choisie est multipliée d'autant pour la retrouver */
+function teintePoils40(hex,k){
+  var c=new THREE.Color(hex); return c.multiplyScalar((k||1)/0.318);
+}
+
+/* ---------- habiller un modèle : textures, couleurs, morphologies ---------- */
+function telephone40(){ return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent||''); }
+function morphs40(av){
+  var V={};
+  CURSEURS40.forEach(function(c,i){
+    var x=(av.m[i]||0)/10;
+    if(x>0) V[c[3]]=(V[c[3]]||0)+x;
+    else if(x<0 && c[2]) V[c[2]]=(V[c[2]]||0)-x;
+  });
+  return V;
+}
+function appliquer40(g,av,taille){
+  av=avatarValide32(av);
+  var hd=(taille>=1024 && !telephone40()), s=av.s, chev=MH40.cheveux[s][av.ch];
+  var noms=['mh_peau_'+s+av.p+(hd?'':'_1k')+'.webp','mh_yeux_'+av.y+'.webp','mh_sourcils_'+s+'.webp','mh_cils_'+s+'.webp','mh_cheveux_'+chev+'.webp','mh_chaussures.webp'];
+  var jeton=(g.userData.jeton40=(g.userData.jeton40||0)+1);
+  return Promise.all(noms.map(function(n){ return texture40(n); })).then(function(T){
+    if(g.userData.jeton40!==jeton) return;
+    var V=morphs40(av), coulCh=MH40.couleurs[av.cc][1];
+    g.traverse(function(m){
+      if(!m.isMesh) return;
+      var n=m.name, M=m.material, ud=m.userData;
+      if(n==='corps'){
+        if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.6, metalness:0, color:0xe6e6e6});
+        M.map=T[0]; M.needsUpdate=true;
+      } else if(n==='yeux'){
+        if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.2, metalness:0, alphaTest:0.5});
+        M.map=T[1]; M.needsUpdate=true;
+      } else if(n==='sourcils'){
+        if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.9, metalness:0, transparent:true, depthWrite:false, side:THREE.DoubleSide});
+        M.map=T[2]; M.color.copy(teintePoils40(coulCh,0.6)); M.needsUpdate=true;
+      } else if(n==='cils'){
+        if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.9, metalness:0, transparent:true, depthWrite:false, side:THREE.DoubleSide});
+        M.map=T[3]; M.needsUpdate=true;
+      } else if(n.indexOf('cheveux_')===0){
+        m.visible=(n==='cheveux_'+chev);
+        if(!m.visible) return;
+        if(!ud.mh40) M=m.material=new THREE.MeshStandardMaterial({roughness:0.8, metalness:0, alphaTest:0.04, transparent:true, side:THREE.DoubleSide});
+        M.map=T[4]; M.color.copy(teintePoils40(coulCh,0.72)); M.needsUpdate=true;
+      } else if(n==='chaussures'){
+        if(!ud.mh40) M=m.material=chaussures40(T[5],av.c);
+        M.userData.teinte.set(av.c);
+      } else if(n==='haut'){
+        if(!ud.mh40) M=m.material=tissu40(av.h,[0.010,1,0.72,1]);
+        M.color.set(av.h);
+      } else if(n==='short'){
+        if(!ud.mh40) M=m.material=tissu40(av.b,[0.012,0.030,0.7,0.55]);
+        M.color.set(av.b);
+      } else return;
+      ud.mh40=true;
+      if(ud.base40 || (m.geometry.morphAttributes && m.geometry.morphAttributes.position)) cuire40(m,V);
+    });
+    g.userData.mh40.av=av;
+  });
+}
+
+/* le visage choisi est appliqué une fois au maillage du coureur, et
+   l'ombrage recalculé : la carte graphique n'a plus de morphologies à
+   calculer à chaque image (les adversaires coûtent moins), et le relief
+   modifié est correctement éclairé. Les normales d'origine sont gardées,
+   corrigées de l'écart entre les normales recalculées avant et après
+   (pas de couture visible aux bords des textures). */
+function normales40(index,P){
+  var N=new Float32Array(P.length), I=index, a, b, c, ax, ay, az, bx, by, bz, nx, ny, nz;
+  for(var t=0;t<I.length;t+=3){
+    a=I[t]*3; b=I[t+1]*3; c=I[t+2]*3;
+    ax=P[b]-P[a]; ay=P[b+1]-P[a+1]; az=P[b+2]-P[a+2];
+    bx=P[c]-P[a]; by=P[c+1]-P[a+1]; bz=P[c+2]-P[a+2];
+    nx=ay*bz-az*by; ny=az*bx-ax*bz; nz=ax*by-ay*bx;
+    N[a]+=nx; N[a+1]+=ny; N[a+2]+=nz; N[b]+=nx; N[b+1]+=ny; N[b+2]+=nz; N[c]+=nx; N[c+1]+=ny; N[c+2]+=nz;
+  }
+  for(var i=0;i<N.length;i+=3){ var l=Math.hypot(N[i],N[i+1],N[i+2])||1; N[i]/=l; N[i+1]/=l; N[i+2]/=l; }
+  return N;
+}
+MH40.n0={};
+function cuire40(m,V){
+  var ud=m.userData, b=ud.base40;
+  if(!b){
+    var G=m.geometry, D=m.morphTargetDictionary||{}, MA=G.morphAttributes.position||[];
+    var I=G.index ? G.index.array : null; if(!I) return;
+    if(!MH40.n0[G.uuid]) MH40.n0[G.uuid]=normales40(I,G.attributes.position.array);
+    b=ud.base40={pos:G.attributes.position.array, nor:G.attributes.normal.array, n0:MH40.n0[G.uuid], I:I, morph:{}};
+    Object.keys(D).forEach(function(k){ if(MA[D[k]]) b.morph[k]=MA[D[k]].array; });
+    /* une géométrie propre au coureur : position et normale à lui, le reste partagé */
+    var g2=new THREE.BufferGeometry();
+    g2.setIndex(G.index);
+    Object.keys(G.attributes).forEach(function(n){
+      if(n==='position' || n==='normal') g2.setAttribute(n,new THREE.BufferAttribute(G.attributes[n].array.slice(),3));
+      else g2.setAttribute(n,G.attributes[n]);
+    });
+    g2.boundingSphere=G.boundingSphere; g2.boundingBox=G.boundingBox;
+    m.geometry=g2; m.morphTargetInfluences=undefined; m.morphTargetDictionary=undefined;
+  }
+  var P=m.geometry.attributes.position.array, N=m.geometry.attributes.normal.array, actif=false, k, i;
+  P.set(b.pos);
+  for(k in V){ var w=V[k], d=b.morph[k]; if(!w || !d) continue; actif=true; for(i=0;i<P.length;i++) P[i]+=d[i]*w; }
+  if(actif){
+    var N1=normales40(b.I,P);
+    for(i=0;i<N.length;i+=3){
+      var x=b.nor[i]+N1[i]-b.n0[i], y=b.nor[i+1]+N1[i+1]-b.n0[i+1], z=b.nor[i+2]+N1[i+2]-b.n0[i+2], l=Math.hypot(x,y,z)||1;
+      N[i]=x/l; N[i+1]=y/l; N[i+2]=z/l;
+    }
+  } else N.set(b.nor);
+  m.geometry.attributes.position.needsUpdate=true; m.geometry.attributes.normal.needsUpdate=true;
+}
+
+/* ---------- construire un coureur ---------- */
+construireAvatar32=function(av,taille){
+  av=avatarValide32(av);
+  return base40(av.s).then(function(B){
+    var f=EXT.clone(B.scene), g=new THREE.Group(), meshes=[];
+    f.rotation.y=PI/2; f.position.y=0.012;     /* face à +x, les semelles posées au sol */
+    g.add(f);
+    f.traverse(function(o){
+      if(!o.isMesh) return;
+      o.castShadow=true; o.receiveShadow=false; o.frustumCulled=false; meshes.push(o);
+    });
+    var mix=new THREE.AnimationMixer(f), A={};
+    ['idle','walk','run'].forEach(function(k){
+      var c=null; B.clips.forEach(function(x){ if(x.name===k) c=x; });
+      if(!c) return;
+      A[k]=mix.clipAction(c); A[k].play(); A[k].setEffectiveWeight(k==='idle'?1:0);
+    });
+    g.userData.mh40={s:av.s, f:f};
+    return appliquer40(g,av,taille).then(function(){
+      return {g:g, mix:mix, acts:A, poids:{idle:1, walk:0, run:0}, meshes:meshes, av:av};
+    });
+  });
+};
+
+/* ---------- le vestiaire : les réglages s'appliquent sans reconstruire ---------- */
+var _poser40=poserVest38;
+poserVest38=function(){
+  var av=avatarValide32(VEST.av);
+  if(VEST.g && VEST.g.userData.mh40 && VEST.g.userData.mh40.s===av.s){
+    appliquer40(VEST.g,av,1024).catch(function(e){ console.warn('vestiaire :',e); });
+    return;
+  }
+  _poser40();
+};
+/* les photos des visages tout faits portent la coiffure, les yeux et la peau choisis */
+cleVign39=function(av,i){ return [av.s,av.p,av.h,av.ch,av.cc,av.y,i].join('|'); };
+function avVign40(a,i){ return avatarValide32({s:a.s, p:a.p, h:a.h, b:a.b, c:a.c, ch:a.ch, cc:a.cc, y:a.y, v:i}); }
+demander39=function(){
+  var a=VEST.av; if(!a) return;
+  VIGN39.file=[];
+  VISAGES37[a.s].forEach(function(vis,i){
+    var av=avVign40(a,i), cle=cleVign39(av,i);
+    if(!VIGN39.cache[cle]) VIGN39.file.push({cle:cle, av:av});
+  });
+  suivante39();
+};
+vignette37=function(vis){
+  if(!VEST.ouvert || !VEST.av) return null;
+  var a=VEST.av, i=VISAGES37[a.s].indexOf(vis), u=VIGN39.cache[cleVign39(avVign40(a,i),i)];
+  return (u && u!=='x') ? u : null;
+};
+function memeVisage40(a){
+  var p=preset40(a.s,a.v);
+  return p.every(function(x,i){ return x===(a.m[i]||0); });
+}
+dessinerVest38=function(){
+  var p=panneauVest38(), a=VEST.av=avatarValide32(VEST.av), h='', manque=false;
+  styleVest40();
+  h+=rangee38('Coureur','s',[{v:'h', t:'Homme', h:'Homme'},{v:'f', t:'Femme', h:'Femme'}],'vs-s');
+  var rv=rangee38('Visage','v',VISAGES37[a.s].map(function(vis,i){ var u=vignette37(vis); if(!u) manque=true; return {v:i, t:'Visage '+(i+1), h:u?'<img src="'+u+'" alt="">':''}; }),'vs-v');
+  if(!memeVisage40(a)) rv=rv.replace(' sel"','"');   /* visage retouché : plus aucun tout fait n'est coché */
+  h+=rv;
+  h+='<details class="vs-aff"'+(VEST.affiner?' open':'')+'><summary>Affiner le visage</summary>';
+  CURSEURS40.forEach(function(c,i){
+    h+='<label class="vs-cur"><span>'+c[1]+'</span><input type="range" min="'+(c[2]?-10:0)+'" max="10" step="1" value="'+(a.m[i]||0)+'" data-m="'+i+'"></label>';
+  });
+  h+='<button class="vs-t" data-a="visageRaz">Revenir au visage choisi</button></details>';
+  h+=rangee38('Coiffure','ch',MH40.cheveux[a.s].map(function(c,i){ return {v:i, t:MH40.nomsCheveux[c], h:MH40.nomsCheveux[c]}; }),'vs-t');
+  h+=rangee38('Cheveux','cc',MH40.couleurs.map(function(c,i){ return {v:i, t:'Cheveux '+c[0], c:c[1]}; }),'vs-c');
+  h+=rangee38('Yeux','y',MH40.yeux.map(function(c,i){ return {v:i, t:'Yeux '+c[0], c:'radial-gradient(circle,#111 0 22%,'+c[1]+' 24% 62%,#f4f1ec 64%)'}; }),'vs-c vs-oeil');
+  h+=rangee38('Peau','p',MH40.peaux[a.s].map(function(c,i){ return {v:i, t:'Peau '+MH40.nomsPeaux[i], c:c}; }),'vs-c');
+  var pal=PALETTE32.map(function(c){ return {v:c[1], t:c[0], c:c[1]}; });
+  h+=rangee38('Haut','h',pal,'vs-c')+rangee38('Bas','b',pal,'vs-c')+rangee38('Chaussures','c',pal,'vs-c');
+  h+='<h4>Au hasard</h4><div class="vs-ligne"><button class="vs-s" data-a="hasard">🎲 Un coureur au hasard</button></div>';
+  h+='<div class="vs-info">Ton coureur est gardé sur cet appareil et, si tu es inscrit, partagé avec les autres coureurs de ta vague.</div>';
+  var pan=p.querySelector('.vs-pan'), haut=pan.scrollTop;
+  pan.innerHTML=h; pan.scrollTop=haut;
+  p.querySelectorAll('.vs-vues [data-a]').forEach(function(b){ var k=b.dataset.a; b.classList.toggle('on',(k==='pied'||k==='visage')?VEST.cadre===k:(k==='course')===(VEST.anim==='course')); });
+  /* photo pas encore prise : une pastille d'attente */
+  p.querySelectorAll('.vs-v').forEach(function(b){ if(!b.querySelector('img')){ b.textContent=''; b.style.background='radial-gradient(circle at 50% 40%,#5a6472,#262d38)'; } });
+  var det=pan.querySelector('.vs-aff'); if(det) det.addEventListener('toggle',function(){ VEST.affiner=det.open; });
+  if(!p.dataset.curseurs40){
+    p.dataset.curseurs40='1';
+    p.addEventListener('input',function(ev){
+      var t=ev.target; if(!t || !t.dataset || t.dataset.m===undefined) return;
+      ev.stopPropagation();
+      VEST.av.m[+t.dataset.m]=+t.value;
+      if(VEST.cadre!=='visage'){ VEST.cadre='visage'; p.querySelectorAll('.vs-vues [data-a]').forEach(function(b){ var k=b.dataset.a; if(k==='pied'||k==='visage') b.classList.toggle('on',k==='visage'); }); }
+      cancelAnimationFrame(VEST.raf40); VEST.raf40=requestAnimationFrame(poserVest38);
+    });
+  }
+  var cle=[a.s,a.p,a.h,a.ch,a.cc,a.y].join('|');
+  if(cle!==VIGN39.derniere){ VIGN39.derniere=cle; clearTimeout(VIGN39.t); VIGN39.t=setTimeout(demander39,250); }
+  clearTimeout(VEST.tVign); if(manque) VEST.tVign=setTimeout(function(){ if(VEST.ouvert) dessinerVest38(); },700);
+};
+var _actionVest40=actionVest38;
+actionVest38=function(a,ds){
+  if(a==='choix' && (ds.k==='ch' || ds.k==='cc' || ds.k==='y' || ds.k==='v' || ds.k==='s')){
+    var k=ds.k;
+    if(k==='s'){ if(VEST.av.s!==ds.v){ VEST.av={s:ds.v, p:VEST.av.p, h:VEST.av.h, b:VEST.av.b, c:VEST.av.c, v:0, cc:VEST.av.cc, y:VEST.av.y}; } }
+    else if(k==='v'){ VEST.av.v=+ds.v; VEST.av.m=preset40(VEST.av.s,VEST.av.v); }
+    else VEST.av[k]=+ds.v;
+    VEST.av=avatarValide32(VEST.av);
+    if((k==='v' || k==='y') && VEST.cadre!=='visage') VEST.cadre='visage';
+    dessinerVest38(); poserVest38();
+    return;
+  }
+  if(a==='visageRaz'){ VEST.av.m=preset40(VEST.av.s,VEST.av.v); dessinerVest38(); poserVest38(); return; }
+  if(a==='hasard'){
+    var r=avatarValide32(avatarDefaut32(String(Math.random())));
+    r.m=r.m.map(function(x,i){ return Math.max(CURSEURS40[i][2]?-10:0,Math.min(10,x+Math.round((Math.random()-0.5)*6))); });
+    VEST.av=avatarValide32(r); dessinerVest38(); poserVest38(); return;
+  }
+  return _actionVest40(a,ds);
+};
+function styleVest40(){
+  if($e('e3-style-40')) return;
+  var s=document.createElement('style'); s.id='e3-style-40';
+  s.textContent=[
+    '#e3-vestiaire .vs-ligne .vs-t{padding:8px 11px;font:600 13px Arial,sans-serif}',
+    '#e3-vestiaire .vs-ligne .vs-oeil{border-color:rgba(255,255,255,.35)}',
+    '#e3-vestiaire .vs-aff{margin:10px 0 2px;border:1px solid #2c3a50;border-radius:10px;padding:6px 10px;background:rgba(255,255,255,.03)}',
+    '#e3-vestiaire .vs-aff summary{cursor:pointer;font:700 13px Arial,sans-serif;color:#F2B33D;padding:4px 0}',
+    '#e3-vestiaire .vs-cur{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:12px}',
+    '#e3-vestiaire .vs-cur span{flex:0 0 46%;opacity:.9}',
+    '#e3-vestiaire .vs-cur input{flex:1;accent-color:#F2B33D;touch-action:pan-x}',
+    '#e3-vestiaire .vs-aff .vs-t{margin-top:6px;width:100%}'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+
+/* ---------- les adversaires : le détail là où il se voit ---------- */
+/* Une vague entière de coureurs détaillés coûte cher sur téléphone. Les
+   ombres portées ne sont gardées que pour les 5 plus proches, les yeux,
+   cils et sourcils disparaissent au-delà de 10 m, l'animation des
+   coureurs lointains (plus de 25 m) n'est recalculée qu'une image sur
+   trois, et rien n'est dessiné au-delà de 90 m. */
+var _majAdv40=majAdversaires31;
+majAdversaires31=function(dt,now){
+  var cam=camera;
+  LIVE.adv.forEach(function(a){
+    if(!a.rig || !a.rig.g) return;
+    if(!a.rig.mix40){
+      var m=a.rig.mix, acc=0, n=0; a.rig.mix40=m;
+      a.rig.mix={update:function(d){ acc+=d; if(!a.loin40 || (++n%3)===0){ m.update(acc); acc=0; } }};
+    }
+    a.dist40=cam ? Math.hypot(a.rig.g.position.x-cam.position.x, a.rig.g.position.z-cam.position.z) : 0;
+    a.loin40=a.dist40>25;
+  });
+  _majAdv40(dt,now);
+  var L=[];
+  LIVE.adv.forEach(function(a){ if(a.rig && a.rig.g) L.push(a); });
+  L.sort(function(x,y){ return x.dist40-y.dist40; });
+  L.forEach(function(a,i){
+    var g=a.rig.g, d=a.dist40, ombre=i<5 && d<25 && QUAL().ombre>0, proche=d<10;
+    g.visible=d<90;
+    (a.rig.meshes||[]).forEach(function(m){
+      m.castShadow=ombre;
+      if(m.name==='yeux' || m.name==='cils' || m.name==='sourcils') m.visible=proche;
+    });
+  });
+};
+/* les photos des visages : sur un écran en hauteur, l'angle de la prise de
+   vue s'ouvre pour que la découpe carrée au centre garde toute la tête */
+var _photo40=photo39;
+photo39=function(o){
+  sceneVign39();
+  var cv=renderer.domElement, W=cv.width, H=cv.height;
+  VIGN39.cam.fov=(W>=H) ? 24 : 2*Math.atan(Math.tan(12*PI/180)*H/W)*180/PI;
+  return _photo40(o);
+};
+/* le studio du vestiaire : la lumière renvoyée par le sol est chaude et
+   douce (un gris bleuté grisait le dessous du menton des peaux foncées) */
+var _sceneVest40=sceneVest38;
+sceneVest38=function(){
+  var s=_sceneVest40();
+  if(!s.userData.sol40){ s.userData.sol40=true; s.traverse(function(l){ if(l.isHemisphereLight){ l.groundColor.set(0x4a423a); l.intensity=0.95; } }); }
+  return s;
+};
+window.ESPACE3D.mh40=MH40;
 })();
