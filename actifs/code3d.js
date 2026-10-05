@@ -28127,50 +28127,114 @@ quitterCourse31=function(){
 };
 window.ESPACE3D.live.calque=function(){ return {barrieres:LIVEB34.im?LIVEB34.im.count:0, segments:LIVEB34.segs.length}; };
 
-/* ===== 35. les jalonneurs en treillis, gilet jaune ===== */
+/* ===== 35. les jalonneurs en treillis BME, gilet jaune ===== */
 /* Nicolas, 4-5 oct. 2026 : tous les jalonneurs sont des militaires en
-   treillis avec un gilet réfléchissant jaune, partout dans l'espace 3D, et
-   au moins six visages : quatre hommes, deux femmes. Rocketbox n'a qu'un
-   militaire (Military_Male_02, camouflage centre-Europe) : les cinq autres
-   sont des civils à manches longues et pantalon long dont les vêtements
-   sont repeints en camouflage (la peau, le visage et les chaussures sombres
-   restent). Les civils ne sont chargés que sur ordinateur : sur téléphone,
-   seul le militaire existe. Le gilet garde ses deux bandes réfléchissantes
-   et ne distingue plus indispensable et facultatif (la carte le fait). La
-   silhouette simplifiée, vue de loin, suit : gilet jaune, bras et pantalon
-   vert armée. Chaque jalonneur tire sa variante de sa position. */
-var JAL35=[['Military_Male_02','Military_Male_02'],['Male_Adult_08','Male_Adult_08_tr'],['Male_Adult_06','Male_Adult_06_tr'],
-           ['Male_Adult_02','Male_Adult_02_tr'],['Female_Adult_07','Female_Adult_07_tr'],['Female_Adult_04','Female_Adult_04_tr']];
+   treillis BME avec un gilet réfléchissant jaune, partout dans l'espace 3D,
+   avec des visages variés, hommes et femmes.
+   - Les hommes : le militaire Rocketbox (Military_Male_02, treillis BME,
+     casquette BME) prête son corps ; le visage vient d'un autre modèle
+     Rocketbox (toutes les têtes partagent la même disposition de texture).
+     La tête composée garde la casquette et le col du militaire (le bas de
+     sa texture) et prend le visage et les oreilles de l'autre ; les mains
+     prennent la teinte de peau du visage. Une image de 80 Ko par visage,
+     chargée après la construction, sans autre modèle.
+   - Les femmes (sur ordinateur, où les civils sont chargés) : deux
+     civiles à manches longues et pantalon long, vêtements repeints avec le
+     motif BME prélevé sur le treillis du militaire ; d'autres visages
+     féminins leur sont prêtés de la même façon.
+   Le gilet garde ses deux bandes réfléchissantes et ne distingue plus
+   indispensable et facultatif (la carte le fait). Vue de loin, la
+   silhouette simplifiée suit : gilet jaune, bras et pantalon kaki.
+   Chaque jalonneur tire sa variante de sa position. */
+var JAL35={
+  hommes:['m002','m003','m006','m011','m014','m017','m001','m026','m301'],
+  femmes:[['Female_Adult_07','f007'],['Female_Adult_04','f004']],
+  visagesF:['f001','f002','f005','f008','f201','f013'],
+  mil:null, base:{}
+};
 function varJal35(j){
   var n=VARIANTES.length||1;
   return Math.abs(Math.round((j.la||0)*1e5)*7+Math.round((j.lo||0)*1e5)*13)%n;
 }
-/* le motif : quatre teintes en taches superposées, dessinées une fois */
-var CAMO35=null;
-function motifCamo35(){
-  if(CAMO35) return CAMO35;
-  var S=512, c=toile(S,S), g=c.getContext('2d');
-  g.fillStyle='#6f6a4b'; g.fillRect(0,0,S,S);
-  var x=12345;
+function mobile35(){ return !!window.CONSULTATION || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent||''); }
+function imageTex35(nom){
+  return Promise.resolve(window.ACTIFS_DIFFERES).then(function(){ return actifTardif32(nom+'.jpg'); }).then(function(){ return imageActif32(nom); });
+}
+function pixels35(im,T){ var c=toile(T,T), g=c.getContext('2d',{willReadFrequently:true}); g.drawImage(im,0,0,T,T); return {c:c, g:g, d:g.getImageData(0,0,T,T)}; }
+function texDe35(P,modele){
+  P.g.putImageData(P.d,0,0);
+  var t=new THREE.CanvasTexture(P.c);
+  if(modele){ t.flipY=modele.flipY; t.wrapS=modele.wrapS; t.wrapT=modele.wrapT; if(modele.colorSpace!==undefined) t.colorSpace=modele.colorSpace; }
+  else if(t.colorSpace!==undefined) t.colorSpace=THREE.SRGBColorSpace;
+  t.anisotropy=4;
+  return t;
+}
+/* la teinte moyenne de la peau dans une zone [x0,y0,x1,y1] (fractions) */
+function peauMoy35(D,T,z){
+  var r=0, g=0, b=0, n=0;
+  for(var y=Math.floor(z[1]*T);y<z[3]*T;y+=2) for(var x=Math.floor(z[0]*T);x<z[2]*T;x+=2){
+    var o=(y*T+x)*4; if(estPeau32(D[o],D[o+1],D[o+2])){ r+=D[o]; g+=D[o+1]; b+=D[o+2]; n++; }
+  }
+  return n>40 ? [r/n,g/n,b/n] : null;
+}
+var VISAGE35=[0.35,0.18,0.65,0.45], MAINS35=[[0,0.83,0.24,1],[0.76,0.83,1,1]];
+function chroma35(c){ var s=c[0]+c[1]+c[2]+1e-6; return [c[0]/s,c[1]/s]; }
+/* tête composée : visage du civil, casquette et col du militaire */
+function teteMilitaire35(civ,mil,modele){
+  var T=1024, C=pixels35(civ,T), M=pixels35(mil,T), c=C.d.data, m=M.d.data;
+  var refM=peauMoy35(m,T,VISAGE35), cr=refM?chroma35(refM):[0.42,0.32];
+  for(var i=0;i<T*T;i++){
+    var o=i*4, y=(i/T)|0, Lc=(c[o]+c[o+1]+c[o+2])/765;
+    var s=m[o]+m[o+1]+m[o+2]+1e-6, peauM=estPeau32(m[o],m[o+1],m[o+2]) && Math.hypot(m[o]/s-cr[0],m[o+1]/s-cr[1])<0.05;
+    if(Lc<0.03 || (y>0.46*T && !peauM)){ c[o]=m[o]; c[o+1]=m[o+1]; c[o+2]=m[o+2]; }
+  }
+  return {tex:texDe35(C,modele), peau:peauMoy35(C.d.data,T,VISAGE35)};
+}
+/* les mains (ou toute la peau d'un corps) à la teinte du visage */
+function peauVers35(img,cible,zones,modele){
+  var T=1024, B=pixels35(img,T), d=B.d.data, ref=null, r=0, g=0, b=0, n=0;
+  zones.forEach(function(z){ var p=peauMoy35(d,T,z); if(p){ r+=p[0]; g+=p[1]; b+=p[2]; n++; } });
+  if(n && cible){
+    ref=[r/n,g/n,b/n];
+    var k=[0,1,2].map(function(q){ return Math.max(0.45,Math.min(1.7,cible[q]/Math.max(1,ref[q]))); });
+    zones.forEach(function(z){
+      for(var y=Math.floor(z[1]*T);y<z[3]*T;y++) for(var x=Math.floor(z[0]*T);x<z[2]*T;x++){
+        var o=(y*T+x)*4; if(!estPeau32(d[o],d[o+1],d[o+2])) continue;
+        d[o]=Math.min(255,d[o]*k[0]); d[o+1]=Math.min(255,d[o+1]*k[1]); d[o+2]=Math.min(255,d[o+2]*k[2]);
+      }
+    });
+  }
+  return texDe35(B,modele);
+}
+/* le motif BME recomposé : les teintes du treillis du militaire (sable,
+   sable clair, olive, olive sombre, brun-rouge, brun foncé, points blancs)
+   en taches irrégulières sans orientation, sur un carreau de 512 qui se
+   raccorde de tous les côtés. Prélevé tel quel sur la veste, le motif
+   faisait des rayures sur les textures des civiles, orientées autrement. */
+var BME35=null;
+function motifBME35(){
+  if(BME35) return BME35;
+  var S=512, c=toile(S,S), g=c.getContext('2d'), x=24680;
   function al(){ x=(x*1103515245+12345)&0x7fffffff; return x/0x7fffffff; }
-  [['#4d5536',70,26],['#5e4b33',60,22],['#2e2d25',55,14],['#8b8560',30,10]].forEach(function(L){
+  g.fillStyle='#c4ab88'; g.fillRect(0,0,S,S);
+  [['#ddcdb0',110,12],['#9a8b6a',140,8],['#6e6e4f',200,8],['#4a4b38',150,6],['#7a4a46',260,4],['#3d3330',160,3.2],['#ebe8e0',420,1.4]].forEach(function(L){
     g.fillStyle=L[0];
     for(var i=0;i<L[1];i++){
-      var cx=al()*S, cy=al()*S, r=L[2]*(0.6+al()*0.9);
-      for(var k=0;k<5;k++){
-        var ox=cx+(al()-0.5)*r*1.6, oy=cy+(al()-0.5)*r*1.6, rx=r*(0.5+al()*0.6), ry=r*(0.3+al()*0.5);
-        for(var dx=-1;dx<=1;dx++) for(var dy=-1;dy<=1;dy++){ g.beginPath(); g.ellipse(ox+dx*S,oy+dy*S,rx,ry,al()*PI,0,2*PI); g.fill(); }
+      var cx=al()*S, cy=al()*S, r=L[2]*(0.6+al()*0.8);
+      for(var k=0;k<4;k++){
+        var ox=cx+(al()-0.5)*r*1.5, oy=cy+(al()-0.5)*r*1.5, rx=r*(0.45+al()*0.7), ry=r*(0.3+al()*0.5), a=al()*PI;
+        for(var dx=-1;dx<=1;dx++) for(var dy=-1;dy<=1;dy++){ g.beginPath(); g.ellipse(ox+dx*S,oy+dy*S,rx,ry,a,0,2*PI); g.fill(); }
       }
     }
   });
-  return (CAMO35=g.getImageData(0,0,S,S).data);
+  return (BME35=g.getImageData(0,0,S,S).data);
 }
 function texTreillis35(tex,ref){
   var im=tex.image;
-  if(!im || !im.width) return null;
+  if(!im || !im.width || !JAL35.milCorps) return null;
   var W=im.width, H=im.height, c=toile(W,H), g=c.getContext('2d',{willReadFrequently:true});
   g.drawImage(im,0,0);
-  var D=g.getImageData(0,0,W,H), P=D.data, M=motifCamo35(), ech=Math.max(1,W/1024), n=W*H, i, s=0, k=0;
+  var D=g.getImageData(0,0,W,H), P=D.data, M=motifBME35(JAL35.milCorps), ech=Math.max(1,W/1024), n=W*H, i, s=0, k=0;
   var L=new Float32Array(n), habit=new Uint8Array(n);
   for(i=0;i<n;i++){
     var r=P[i*4], gg=P[i*4+1], b=P[i*4+2];
@@ -28183,7 +28247,7 @@ function texTreillis35(tex,ref){
   for(i=0;i<n;i++){
     if(!habit[i]) continue;
     var px=i%W, py=(i/W)|0, mx=((px/ech)|0)&511, my=((py/ech)|0)&511, q=(my*512+mx)*4;
-    var f=Math.max(0.6,Math.min(1.25,0.85+0.45*(L[i]/moy-1)));
+    var f=Math.max(0.6,Math.min(1.2,0.9+0.4*(L[i]/moy-1)));
     P[i*4]=Math.min(255,M[q]*f); P[i*4+1]=Math.min(255,M[q+1]*f); P[i*4+2]=Math.min(255,M[q+2]*f);
   }
   g.putImageData(D,0,0);
@@ -28199,8 +28263,7 @@ function peauRef35(f){
     if(ref || !o.isMesh) return;
     (Array.isArray(o.material)?o.material:[o.material]).forEach(function(m){
       if(ref || !m || !/head/i.test(m.name||"") || !m.map || !m.map.image || !m.map.image.width) return;
-      var im=m.map.image, c=toile(128,128), g=c.getContext("2d",{willReadFrequently:true}); g.drawImage(im,0,0,128,128);
-      var P=g.getImageData(0,0,128,128).data, a=0, b2=0, k=0;
+      var P=pixels35(m.map.image,128).d.data, a=0, b2=0, k=0;
       for(var i=0;i<P.length;i+=4){ var s=P[i]+P[i+1]+P[i+2]+1e-6; if(estPeau32(P[i],P[i+1],P[i+2])){ a+=P[i]/s; b2+=P[i+1]/s; k++; } }
       if(k>50) ref=[a/k,b2/k];
     });
@@ -28222,33 +28285,58 @@ function treillis35(f){
     o.material=multi?ms:ms[0];
   });
 }
+/* matières d'un modèle, par rôle (tête, corps) */
+function matieres35(g){ var r={}; g.traverse(function(o){ if(o.isMesh) (Array.isArray(o.material)?o.material:[o.material]).forEach(function(m){ if(/_head$/.test(m.name)) r.head=m; else if(/_body$/.test(m.name)) r.body=m; }); }); return r; }
+function remplacer35(mat,R){
+  function un(m){ return (R.head && /_head$/.test(m.name)) ? R.head : ((R.body && /_body$/.test(m.name)) ? R.body : m); }
+  return Array.isArray(mat) ? mat.map(un) : un(mat);
+}
+/* une variante : les poses figées d'un gabarit, avec ses propres matières */
+function poses35(g,R){
+  var out={};
+  ['d','g','n','x'].forEach(function(bras){
+    restaurerOs(R); g.updateMatrixWorld(true);
+    poserBrasJalon(g,bras);
+    var fige=figerAvatar(g);
+    out[bras]={parts:fige.map(function(q){ return {geo:q.geo, mat:q.mat}; }), chas:geoChasuble(fige)};
+  });
+  restaurerOs(R); g.updateMatrixWorld(true);
+  return out;
+}
+function enregistrerVariante35(alias,base,poses,mats,femme){
+  var vi=VARIANTES.length;
+  ['d','g','n','x'].forEach(function(bras){
+    var P=poses[bras];
+    PERSO.jal[vi+bras]={parts:P.parts.map(function(p){ return {geo:p.geo, mat:mats?remplacer35(p.mat,mats):p.mat}; }), chas:P.chas};
+  });
+  PERSO.gabarits=PERSO.gabarits||{};
+  PERSO.gabarits[alias]={g:base.g, f:base.f, rest:base.rest, femme:!!femme, mats:mats||null};
+  VARIANTES.push(alias);
+}
 var _prepPerso35=preparerPersonnages;
-VARIANTES=['Military_Male_02'];
+VARIANTES=[];
 preparerPersonnages=function(){
   _prepAncien();
   if(!EXT.FBXLoader || !window.ACTIFS || !ACTIFS['Military_Male_02.fbx']) return;
-  var faits=[], p=Promise.resolve();
-  JAL35.forEach(function(e){
-    var nom=e[0], alias=e[1];
+  VARIANTES=[];
+  var p=chargerAvatar('Military_Male_02').then(function(f){
+    var g=normaliserAvatar(f,1.78), R=reposOs(g), M=matieres35(g);
+    JAL35.mil={g:g, f:f, rest:R, poses:poses35(g,R), mats:M};
+    JAL35.milCorps=M.body && M.body.map && M.body.map.image; JAL35.milTete=M.head && M.head.map && M.head.map.image;
+    enregistrerVariante35('Military_Male_02',JAL35.mil,JAL35.mil.poses,null,false);
+  }).catch(function(e){ console.error('Jalonneur militaire',e); });
+  /* les femmes : civiles repeintes en BME (sur ordinateur) */
+  JAL35.femmes.forEach(function(e){
+    var nom=e[0];
     if(!ACTIFS[nom+'.fbx']) return;
     p=p.then(function(){ return chargerAvatar(nom); }).then(function(f){
-      if(alias!==nom) treillis35(f);
-      var femme=nom.indexOf('Female')===0;
-      var g=normaliserAvatar(f,femme?1.70:1.78), R=reposOs(g);
-      var vi=faits.length;
-      ['d','g','n','x'].forEach(function(bras){
-        restaurerOs(R); g.updateMatrixWorld(true);
-        poserBrasJalon(g,bras);
-        var fige=figerAvatar(g);
-        PERSO.jal[vi+bras]={parts:fige.map(function(q){ return {geo:q.geo, mat:q.mat}; }), chas:geoChasuble(fige)};
-      });
-      restaurerOs(R); g.updateMatrixWorld(true);
-      PERSO.gabarits=PERSO.gabarits||{};
-      PERSO.gabarits[alias]={g:g, f:f, rest:R, femme:femme};
-      faits.push(alias);
-    }).catch(function(er){ console.error('Jalonneur '+nom,er); });
+      treillis35(f);
+      var g=normaliserAvatar(f,1.70), R=reposOs(g), base={g:g, f:f, rest:R, poses:null, mats:matieres35(g), tex:e[1]};
+      base.poses=poses35(g,R);
+      JAL35.base[nom]=base;
+      enregistrerVariante35(nom+'_tr',base,base.poses,null,true);
+    }).catch(function(er){ console.error('Jalonneuse '+nom,er); });
   });
-  p=p.then(function(){ if(faits.length) VARIANTES=faits; });
   p=p.then(function(){ return chargerAvatar('Military_Male_02'); }).then(function(f){
     PERSO.coureurFbx=f;
     return Promise.all(['m_idle_neutral_01','m_walk_neutral_01','m_run_neutral_01'].map(chargerClip));
@@ -28256,16 +28344,48 @@ preparerPersonnages=function(){
     PERSO.clips={idle:c[0], walk:c[1], run:c[2]};
     PERSO.pret=true;
   }).catch(function(e){ console.error('Coureur réaliste indisponible',e); PERSO.pret=false; });
+  /* les visages, une fois la ville construite : ils ne retardent rien */
+  p.then(function(){ setTimeout(visages35,2500); });
   return p;
 };
 ETAPES.forEach(function(e){ if(e[1]===_prepPerso35) e[1]=preparerPersonnages; });
-/* les jalonneurs animés (près de la caméra) prennent les mêmes gabarits */
+function visages35(){
+  if(!JAL35.mil || !JAL35.milTete || JAL35.visagesFaits) return;
+  JAL35.visagesFaits=true;
+  var hommes=JAL35.hommes.slice(0,mobile35()?3:JAL35.hommes.length), q=Promise.resolve(), M=JAL35.mil.mats;
+  hommes.forEach(function(v){
+    q=q.then(function(){ return imageTex35(v+'_head_color'); }).then(function(im){
+      var t=teteMilitaire35(im,JAL35.milTete,M.head.map);
+      var corps=peauVers35(JAL35.milCorps,t.peau,MAINS35,M.body.map);
+      var mh=M.head.clone(); mh.map=t.tex; mh.needsUpdate=true;
+      var mb=M.body.clone(); mb.map=corps; mb.needsUpdate=true;
+      enregistrerVariante35('Military_v_'+v,JAL35.mil,JAL35.mil.poses,{head:mh, body:mb},false);
+    }).catch(function(e){ console.warn('visage '+v,e); });
+  });
+  /* d'autres visages pour les jalonneuses, sur leurs deux silhouettes */
+  var bases=Object.keys(JAL35.base);
+  if(bases.length) JAL35.visagesF.forEach(function(v,i){
+    var base=JAL35.base[bases[i%bases.length]];
+    q=q.then(function(){ return imageTex35(v+'_head_color'); }).then(function(im){
+      var T=1024, P=pixels35(im,T), ref=peauMoy35(P.d.data,T,VISAGE35);
+      var mh=base.mats.head.clone(); mh.map=texDe35(P,base.mats.head.map); mh.needsUpdate=true;
+      var bi=base.mats.body.map && base.mats.body.map.image, mats={head:mh};
+      if(bi && ref){ var mb=base.mats.body.clone(); mb.map=peauVers35(bi,ref,[[0,0,1,1]],base.mats.body.map); mb.needsUpdate=true; mats.body=mb; }
+      enregistrerVariante35('Female_v_'+v,base,base.poses,mats,true);
+    }).catch(function(e){ console.warn('visage '+v,e); });
+  });
+  q.then(function(){ try{ JOBJ.forEach(function(o){ o.cle=null; }); syncJalonneurs(); }catch(e){} });
+}
+/* les jalonneurs animés (près de la caméra) prennent les mêmes gabarits et matières */
 var _creerRig35=creerRig;
 creerRig=function(nom){
   var gb=PERSO.gabarits && PERSO.gabarits[nom];
-  if(VIE.modeles[nom] || !gb || !(nom.indexOf('Military')===0 || /_tr$/.test(nom))) return _creerRig35(nom);
+  if(VIE.modeles[nom] || !gb || !(nom.indexOf('Military')===0 || /_tr$/.test(nom) || nom.indexOf('Female_v_')===0)) return _creerRig35(nom);
   VIE.modeles[nom]={g:gb.g, f:gb.f, rest:gb.rest, femme:!!gb.femme};
-  try{ return _creerRig35(nom); } finally { delete VIE.modeles[nom]; }
+  var rig=null;
+  try{ rig=_creerRig35(nom); } finally { delete VIE.modeles[nom]; }
+  if(rig && gb.mats) rig.meshes.forEach(function(m){ m.material=remplacer35(m.material,gb.mats); });
+  return rig;
 };
 matChasuble=function(niv){
   if(!TEX_CHASUBLE) TEX_CHASUBLE=faireTexChasuble();
@@ -28276,7 +28396,7 @@ matChasuble=function(niv){
 geoJalonSimple=function(niv,bras){
   var cle='sj'+bras;
   if(CACHE_GEO[cle]) return CACHE_GEO[cle];
-  var t=new Tas(4096), m=teinte(0xe4ee12), kaki=teinte(0x4f5638), peau=teinte(0xc99a72), s=bras==='d'?1:-1;
+  var t=new Tas(4096), m=teinte(0xe4ee12), kaki=teinte(0x8a7d5c), peau=teinte(0xc99a72), s=bras==='d'?1:-1;
   tube(t,0,0.93,0.095, 0,0.03,0.105, 0.085,0.05,6,kaki,true,true);
   tube(t,0,0.93,-0.095, 0,0.03,-0.105, 0.085,0.05,6,kaki,true,true);
   tube(t,0,0.86,0, 0,1.46,0, 0.155,0.19,8,m,true,true);
@@ -28333,4 +28453,98 @@ function majZone36(dt){
 var _piloter36=piloterCourse31;
 piloterCourse31=function(dt){ try{ majZone36(dt); }catch(e){} return _piloter36(dt); };
 window.ESPACE3D.live.zone=function(){ return {zone:LIVE_REG.ZONE, vZone:LIVE_REG.V_ZONE, rap:Z36.rap}; };
+
+/* ===== 37. mon coureur : le visage au choix, et gardé hors du live ===== */
+/* Nicolas, 5 oct. 2026 :
+   - dans « Mon coureur », on choisit aussi son visage : ceux des modèles
+     Rocketbox du même sexe (les têtes partagent la même disposition de
+     texture, seul le visage change). La peau des bras et des jambes prend
+     la teinte du visage choisi, puis le réglage « Peau » s'applique aux
+     deux. Le choix (v) part avec l'avatar : les autres coureurs le voient ;
+   - le coureur composé reste le sien en dehors du live : en quittant la
+     course, en annulant un essayage, et dès l'ouverture de la 3D s'il a
+     été enregistré. */
+var VISAGES37={h:['m026','m301','m002','m003','m006','m011','m014','m017','m001'], f:['f013','f001','f002','f004','f005','f007','f008','f201']};
+var _valide37=avatarValide32;
+avatarValide32=function(a){
+  var r=_valide37(a), L=VISAGES37[r.s].length, v=(a && isFinite(+a.v)) ? Math.floor(+a.v) : 0;
+  r.v=(v>=0 && v<L) ? v : 0;
+  return r;
+};
+var _defaut37=avatarDefaut32;
+avatarDefaut32=function(cle){
+  var r=_defaut37(cle), k=0, s=String(cle||Math.random());
+  for(var i=0;i<s.length;i++) k=(k*37+s.charCodeAt(i))>>>0;
+  r.v=(k>>>9)%VISAGES37[r.s].length;
+  return r;
+};
+/* les textures : le visage choisi, la peau du corps accordée au visage */
+var _textures37=texturesAvatar32;
+texturesAvatar32=function(av,taille){
+  av=avatarValide32(av);
+  if(!av.v) return _textures37(av,taille);
+  var M=MODELES32[av.s], vis=VISAGES37[av.s][av.v], cle=['v',av.s,av.v,av.p,av.h,av.b,av.c,taille].join('|');
+  if(TEX32[cle]) return TEX32[cle];
+  TEX32[cle]=Promise.resolve(window.ACTIFS_DIFFERES).then(function(){ return actifTardif32(vis+'_head_color.jpg'); }).then(function(){
+    return Promise.all([imageActif32(M.tex+'_body_color'),imageActif32(vis+'_head_color')]);
+  }).then(function(I){
+    var f=PEAUX32[av.p][1];
+    var T0=256, pv=pixels35(I[1],T0).d.data, pc=pixels35(I[0],T0).d.data, rv=peauMoy35(pv,T0,VISAGE35), rc=peauMoy35(pc,T0,[0,0,1,1]);
+    var k=(rv && rc) ? [0,1,2].map(function(q){ return Math.max(0.45,Math.min(1.7,rv[q]/Math.max(1,rc[q]))); }) : [1,1,1];
+    function peau(P,accord){ for(var o=0;o<P.length;o+=4) if(estPeau32(P[o],P[o+1],P[o+2])){ var a=accord?k:[1,1,1]; P[o]=Math.min(255,P[o]*a[0]*f[0]); P[o+1]=Math.min(255,P[o+1]*a[1]*f[1]); P[o+2]=Math.min(255,P[o+2]*a[2]*f[2]); } }
+    var corps=peindre32(I[0],taille,function(P,T){ teindreZone32(P,T,M.haut,av.h); teindreZone32(P,T,M.bas,av.b); teindreZone32(P,T,M.chaus,av.c); peau(P,true); });
+    var tete=peindre32(I[1],taille,function(P){ peau(P,false); });
+    return {corps:corps, tete:tete};
+  });
+  TEX32[cle].catch(function(){ delete TEX32[cle]; });
+  return TEX32[cle];
+};
+/* les vignettes des visages, découpées dans les textures */
+var VIGN37={};
+function vignette37(vis){
+  if(VIGN37[vis]) return VIGN37[vis].url||null;
+  VIGN37[vis]={url:null};
+  Promise.resolve(window.ACTIFS_DIFFERES).then(function(){ return actifTardif32(vis+'_head_color.jpg'); }).then(function(){ return imageActif32(vis+'_head_color'); }).then(function(im){
+    var c=toile(64,64), g=c.getContext('2d');
+    g.beginPath(); g.arc(32,32,32,0,2*PI); g.clip();
+    g.drawImage(im,im.width*0.3,im.height*0.12,im.width*0.4,im.height*0.42,0,0,64,64);
+    VIGN37[vis].url=c.toDataURL('image/jpeg',0.8);
+    if(VUE31.page==='avatar') dessinerLive31();
+  }).catch(function(){});
+  return null;
+}
+var _htmlAvatar37=htmlAvatar32;
+htmlAvatar32=function(){
+  var h=_htmlAvatar37(), a=ESSAI32.av||monAvatar32(), L=VISAGES37[a.s];
+  var s='<div style="margin:8px 0 4px;color:#fff;font-weight:700">Visage</div><div style="display:flex;flex-wrap:wrap;gap:6px">';
+  L.forEach(function(vis,i){
+    var url=vignette37(vis), on=(+a.v===i);
+    s+='<button data-a="av" data-k="v" data-v="'+i+'" title="Visage '+(i+1)+'" style="width:44px;height:44px;padding:0;border-radius:50%;overflow:hidden;'+(on?'outline:3px solid #F2B33D;outline-offset:1px;':'')+'">'+
+       (url?'<img src="'+url+'" alt="" style="width:100%;height:100%;display:block;border-radius:50%">':(i+1))+'</button>';
+  });
+  s+='</div>';
+  /* le visage se place juste après « Coureur » (homme ou femme) */
+  var i0=h.indexOf('>Peau<');
+  if(i0<0) return h+s;
+  var debut=h.lastIndexOf('<div style="margin:8px 0 4px',i0);
+  return h.slice(0,debut)+s+h.slice(debut);
+};
+var _action37=actionLive31;
+actionLive31=function(a,ds){
+  if(a==='av' && ds.k==='v'){ ESSAI32.av.v=+ds.v; ESSAI32.av=avatarValide32(ESSAI32.av); dessinerLive31(); return; }
+  if(a==='av' && ds.k==='s' && ESSAI32.av){ ESSAI32.av.s=ds.v; ESSAI32.av.v=0; ESSAI32.av=avatarValide32(ESSAI32.av); dessinerLive31(); return; }
+  return _action37(a,ds);
+};
+/* hors du live, on garde son coureur s'il a été enregistré */
+function avatarGarde37(){ try{ var a=JSON.parse(localStorage.getItem('corrida-avatar')||'null'); return a ? avatarValide32(a) : null; }catch(e){ return null; } }
+var _devetir37=devetirJoueur32;
+devetirJoueur32=function(){
+  var g=avatarGarde37();
+  if(g){ revetirJoueur32(g); return; }
+  return _devetir37();
+};
+ETAPES.push(['Mon coureur',function(){
+  var g=avatarGarde37();
+  if(g) setTimeout(function(){ try{ revetirJoueur32(g); }catch(e){} },500);
+}]);
 })();
