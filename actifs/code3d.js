@@ -28060,6 +28060,9 @@ function construireLive34(){
   LIVEB34.segs=[];
   var D=donneesLive34();
   LIVEB34.cle=D ? JSON.stringify(D) : '';
+  /* la largeur de la zone de course, réglée au curseur sur la carte (20 m par défaut) */
+  var z=(D && isFinite(+D.z) && +D.z>0) ? +D.z : 20;
+  LIVE_REG.ZONE=z; LIVE_REG.ZONE_AVERT=Math.max(4,z-10);
   if(!D || !LIVE.enCours) { OBST22.ver++; return; }
   var B=(D.b||[]).map(function(b){ return {x:pX(b.lo), z:pZ(b.la), ang:+b.ang||0}; });
   B.forEach(function(b){

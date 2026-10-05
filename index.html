@@ -215452,20 +215452,27 @@ zjRedessiner();
    barrières se voient et arrêtent, les lignes arrêtent sans se voir.
    Enregistré avec le travail (clé live du paquet) ; les téléphones le
    reçoivent comme le reste. Sur la carte : menu Ajouter > Mode live. La
-   bande jaune montre la zone de course (20 m de part et d'autre du tracé).
+   bande jaune montre la zone de course (20 m de part et d'autre du tracé
+   par défaut, réglable au curseur). Une ligne choisie montre ses points
+   d'ancrage : on les tire, on en ajoute, on en retire.
 --------------------------------------------------------------- */
 (function(){
-var LV={b:[], l:[]};
+/* z : demi-largeur de la zone de course, en mètres (20 par défaut), réglée au curseur */
+var ZONE_DEF=20, ZONE_MIN=8, ZONE_MAX=60;
+var LV={b:[], l:[], z:ZONE_DEF};
 function lvVers(){
-  if(!LV.b.length && !LV.l.length) return null;
-  return {
+  if(!LV.b.length && !LV.l.length && LV.z===ZONE_DEF) return null;
+  var o={
     b:LV.b.map(function(b){ return [+b.la.toFixed(6), +b.lo.toFixed(6), ((Math.round(b.ang)%360)+360)%360]; }),
     l:LV.l.map(function(L){ var f=[]; L.forEach(function(p){ f.push(+p[0].toFixed(6), +p[1].toFixed(6)); }); return f; })
   };
+  if(LV.z!==ZONE_DEF) o.z=LV.z;
+  return o;
 }
 function lvDepuis(o){
-  var r={b:[], l:[]};
+  var r={b:[], l:[], z:ZONE_DEF};
   if(!o) return r;
+  if(isFinite(+o.z)) r.z=Math.max(ZONE_MIN,Math.min(ZONE_MAX,Math.round(+o.z)));
   (o.b||[]).forEach(function(b){ if(Array.isArray(b) && b.length>=2 && isFinite(+b[0]) && isFinite(+b[1])) r.b.push({la:+b[0], lo:+b[1], ang:+b[2]||0}); });
   (o.l||[]).forEach(function(f){
     if(!Array.isArray(f)) return;
@@ -215489,7 +215496,7 @@ chargerEtat=(function(orig){
 })(chargerEtat);
 CARTE.live=function(){
   return {b:LV.b.map(function(b){ return {la:b.la, lo:b.lo, ang:b.ang}; }),
-          l:LV.l.map(function(L){ return L.map(function(p){ return p.slice(); }); })};
+          l:LV.l.map(function(L){ return L.map(function(p){ return p.slice(); }); }), z:LV.z};
 };
 
 /* ---------- le calque sur la carte ---------- */
@@ -215506,12 +215513,12 @@ function dessiner(){
   while(gLive.firstChild) gLive.removeChild(gLive.firstChild);
   gLive.style.display=UI.on?'':'none';
   if(!UI.on) return;
-  /* la zone de course : 20 m de part et d'autre du tracé */
+  /* la zone de course : LV.z mètres de part et d'autre du tracé */
   try{
     var T=CARTE.traceDense().map(function(p){ return [p.la,p.lo]; });
     if(T.length>1){
       var u=unitesParMetre();
-      gLive.appendChild(el('path',{d:dPts(T), fill:'none', stroke:'#F2B33D', 'stroke-opacity':0.13, 'stroke-width':(40*u).toFixed(3),
+      gLive.appendChild(el('path',{d:dPts(T), fill:'none', stroke:'#F2B33D', 'stroke-opacity':0.13, 'stroke-width':(2*LV.z*u).toFixed(3),
         'stroke-linecap':'round', 'stroke-linejoin':'round', 'pointer-events':'none'}));
     }
   }catch(e){}
@@ -215525,6 +215532,22 @@ function dessiner(){
     var tt=el('title',{}); tt.textContent='Ligne invisible (course en live). Clic pour la choisir, Suppr ou clic droit pour la retirer.';
     prise.appendChild(tt); gLive.appendChild(prise);
   });
+  /* la ligne choisie montre ses points d'ancrage (à glisser, clic droit pour
+     retirer) et, au milieu de chaque segment, un point plus petit qui en
+     ajoute un nouveau quand on le tire */
+  if(UI.sel && UI.sel.type==='l' && LV.l.indexOf(UI.sel.o)>=0){
+    var Ls=UI.sel.o;
+    function pastille(la,lo,taille,coul,lv,titre){
+      var x=X(lo).toFixed(2), y=Y(la).toFixed(2), d='M'+x+' '+y+'L'+x+' '+y;
+      gLive.appendChild(el('path',{d:d, stroke:'#0B1019', 'stroke-width':taille+4, 'stroke-linecap':'round', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'}));
+      var p=el('path',{d:d, stroke:coul, 'stroke-width':taille, 'stroke-linecap':'round', 'vector-effect':'non-scaling-stroke', 'pointer-events':'stroke', style:'cursor:grab'});
+      p.__lv=lv; var t2=el('title',{}); t2.textContent=titre; p.appendChild(t2); gLive.appendChild(p);
+    }
+    for(var m=1;m<Ls.length;m++){
+      pastille((Ls[m-1][0]+Ls[m][0])/2,(Ls[m-1][1]+Ls[m][1])/2,9,'rgba(224,64,251,0.75)',{type:'m', o:Ls, i:m},'Tirer pour ajouter un point d’ancrage ici');
+    }
+    Ls.forEach(function(q,i){ pastille(q[0],q[1],13,'#FFFFFF',{type:'p', o:Ls, i:i},'Point d’ancrage : glisser pour le déplacer, clic droit pour le retirer'); });
+  }
   LV.b.forEach(function(b){
     var a=b.ang*Math.PI/180, dlo=Math.cos(a)/EQ_MLON, dla=-Math.sin(a)/EQ_MLAT;
     var d='M'+X(b.lo-dlo).toFixed(2)+' '+Y(b.la-dla).toFixed(2)+'L'+X(b.lo+dlo).toFixed(2)+' '+Y(b.la+dla).toFixed(2);
@@ -215599,7 +215622,11 @@ function panneau(){
     '#lv-carte button.on{background:#F2B33D;color:#14202f;border-color:#F2B33D}',
     '#lv-carte .n{font-weight:700}',
     '#lv-carte small{display:block;opacity:.7;margin-top:6px}',
-    '#lv-carte .leg{display:inline-block;width:18px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}'
+    '#lv-carte .leg{display:inline-block;width:18px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}',
+    '#lv-carte .z{margin:8px 0 6px}',
+    '#lv-carte .z label{display:block;margin-bottom:3px}',
+    '#lv-carte .z b{color:#F2B33D}',
+    '#lv-carte .z input{width:100%;accent-color:#F2B33D}'
   ].join('\n');
   document.head.appendChild(s);
   PAN=document.createElement('div'); PAN.id='lv-carte'; PAN.hidden=true;
@@ -215608,8 +215635,10 @@ function panneau(){
     '<div class="l"><button type="button" data-a="b"><span class="leg" style="background:#F2B33D"></span>+ Barrière</button>'+
     '<button type="button" data-a="l"><span class="leg" style="background:#E040FB"></span>+ Ligne invisible</button></div>'+
     '<div class="l"><button type="button" data-a="fin" hidden>✓ Terminer la ligne</button></div>'+
+    '<div class="z"><label for="lv-zone">Zone de course (bande jaune) : <b id="lv-zone-v"></b> de chaque côté du tracé</label>'+
+    '<input type="range" id="lv-zone" min="'+ZONE_MIN+'" max="'+ZONE_MAX+'" step="1"></div>'+
     '<div class="n"></div>'+
-    '<small>Clic sur un élément : le choisir. Glisser une barrière : la déplacer, <kbd>R</kbd> pour la tourner. <kbd>Suppr</kbd> ou clic droit : retirer. <kbd>Échap</kbd> : arrêter l’outil. Pense à enregistrer.</small>'+
+    '<small>Clic sur un élément : le choisir. Glisser une barrière : la déplacer, <kbd>R</kbd> pour la tourner. Ligne choisie : glisser ses points blancs, tirer les points violets pour en ajouter, clic droit sur un point pour le retirer, <kbd>Ctrl</kbd>+clic sur la carte pour la prolonger. <kbd>Suppr</kbd> ou clic droit : retirer. <kbd>Échap</kbd> : arrêter l’outil. Pense à enregistrer.</small>'+
     '<div class="l"><button type="button" data-a="quitter">Quitter le mode live</button></div>';
   document.body.appendChild(PAN);
   PAN.addEventListener('click',function(ev){
@@ -215620,6 +215649,10 @@ function panneau(){
     else if(a==='fin') finirLigne();
     else if(a==='quitter') basculerMode(false);
   });
+  /* le curseur : la bande suit en direct, la largeur est enregistrée au relâchement */
+  var rz=PAN.querySelector('#lv-zone');
+  rz.addEventListener('input',function(){ LV.z=Math.max(ZONE_MIN,Math.min(ZONE_MAX,+rz.value||ZONE_DEF)); dessiner(); });
+  rz.addEventListener('change',function(){ modifie(); dire('Zone de course : '+LV.z+' m de chaque côté du tracé.',''); });
   return PAN;
 }
 function majPanneau(){
@@ -215627,6 +215660,9 @@ function majPanneau(){
   PAN.querySelector('[data-a="b"]').classList.toggle('on',UI.outil==='b');
   PAN.querySelector('[data-a="l"]').classList.toggle('on',UI.outil==='l');
   PAN.querySelector('[data-a="fin"]').hidden=!(UI.ligne && UI.ligne.length>=2);
+  var rz=PAN.querySelector('#lv-zone');
+  if(document.activeElement!==rz) rz.value=LV.z;
+  PAN.querySelector('#lv-zone-v').textContent=LV.z+' m';
   var nb=LV.b.length, nl=LV.l.length;
   PAN.querySelector('.n').textContent=nb+' barrière'+(nb>1?'s':'')+' · '+nl+' ligne'+(nl>1?'s':'')+' invisible'+(nl>1?'s':'');
 }
@@ -215655,9 +215691,21 @@ svg.addEventListener('pointerdown',function(ev){
   }
   if(e){
     ev.preventDefault(); ev.stopImmediatePropagation();
+    /* un point d'ancrage de la ligne choisie : on le tire */
+    if(e.type==='p'){ UI.drag={L:e.o, i:e.i, id:ev.pointerId, bouge:false}; try{ svg.setPointerCapture(ev.pointerId); }catch(er){} return; }
+    /* le milieu d'un segment : un nouveau point, qu'on tire aussitôt */
+    if(e.type==='m'){ e.o.splice(e.i,0,point(ev)); UI.drag={L:e.o, i:e.i, id:ev.pointerId, bouge:true}; try{ svg.setPointerCapture(ev.pointerId); }catch(er){} dessiner(); return; }
     UI.sel=e;
     if(e.type==='b'){ UI.drag={o:e.o, id:ev.pointerId, bouge:false}; try{ svg.setPointerCapture(ev.pointerId); }catch(er){} }
     dessiner();
+    return;
+  }
+  /* Ctrl + clic : la ligne choisie se prolonge depuis son extrémité la plus proche */
+  if((ev.ctrlKey || ev.metaKey) && UI.sel && UI.sel.type==='l'){
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    var L2=UI.sel.o, pt=point(ev);
+    if(metresEntre(pt,L2[0])<metresEntre(pt,L2[L2.length-1])) L2.unshift(pt); else L2.push(pt);
+    modifie();
     return;
   }
   if(UI.sel){ UI.sel=null; dessiner(); }
@@ -215666,7 +215714,9 @@ svg.addEventListener('pointermove',function(ev){
   if(!UI.on) return;
   if(UI.drag && UI.drag.id===ev.pointerId){
     ev.stopImmediatePropagation();
-    var p=point(ev); UI.drag.o.la=p[0]; UI.drag.o.lo=p[1]; UI.drag.bouge=true;
+    var p=point(ev);
+    if(UI.drag.L) UI.drag.L[UI.drag.i]=p; else { UI.drag.o.la=p[0]; UI.drag.o.lo=p[1]; }
+    UI.drag.bouge=true;
     dessiner();
     return;
   }
@@ -215691,6 +215741,13 @@ svg.addEventListener('contextmenu',function(ev){
   if(UI.ligne){ ev.preventDefault(); ev.stopImmediatePropagation(); UI.ligne.pop(); if(!UI.ligne.length) UI.ligne=null; dessiner(); return; }
   if(!e) return;
   ev.preventDefault(); ev.stopImmediatePropagation();
+  if(e.type==='m') return;
+  /* clic droit sur un point d'ancrage : il disparaît (la ligne garde au moins deux points) */
+  if(e.type==='p'){
+    if(e.o.length>2){ e.o.splice(e.i,1); dire('Point d’ancrage retiré.',''); modifie(); }
+    else supprimer({type:'l', o:e.o});
+    return;
+  }
   supprimer(e);
 },true);
 window.addEventListener('keydown',function(ev){
