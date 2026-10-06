@@ -6101,7 +6101,7 @@ function etapeArbresReels(){
     if(a[2]===2 && MAT.haie) continue;
     var r=alea(Math.round(a[0]*7),Math.round(a[1]*7)), r2=alea(Math.round(a[1]*11),Math.round(a[0]*11));
     /* loin du parcours, on éclaircit : 6 arbres sur 10 */
-    if(r>0.6 && (!TRACE.length || surLeParcours(a[0],a[1]).ecart>30)) continue;
+    if(r>0.6 && !arbresPartout42() && (!TRACE.length || surLeParcours(a[0],a[1]).ecart>30)) continue;
     var conif=(a[2]===0 && r2>0.8);
     var vi=conif?4:Math.floor(r*3.999);
     var hc=conif?(11+r*6):(a[2]===2?4+r*2:(9+r*7));
@@ -9940,17 +9940,17 @@ semerArbresCanopee=function(arbres,voies,max){
   }
 })();
 construireLampes=function(voies){
-  var tas=new Tas(16384), tetes=new Tas(4096), gris=teinte(0x3d434b), verre=teinte(0xfff2cd), n=0;
-  for(var i=0;i<voies.length && n<420;i++){
+  var tas=new Tas(16384), tetes=new Tas(4096), gris=teinte(0x3d434b), verre=teinte(0xfff2cd), n=0, nMax=maxLampes42();
+  for(var i=0;i<voies.length && n<nMax;i++){
     var l=voies[i].split('\t');
     if(l.length<4 || l[0]!=='r' || (+l[1])<50) continue;
     var p=pointsDe(l[3]);
-    for(var j=1;j<p.length/2 && n<420;j++){
+    for(var j=1;j<p.length/2 && n<nMax;j++){
       var x0=p[(j-1)*2], z0=p[(j-1)*2+1], x1=p[j*2], z1=p[j*2+1], L=Math.hypot(x1-x0,z1-z0), m=Math.floor(L/38);
       for(var s=0;s<m;s++){
         var t=(s+0.5)/m, cx=x0+(x1-x0)*t, cz=z0+(z1-z0)*t, dx=(x1-x0)/L, dz=(z1-z0)/L, off=(+l[1])/20+1.1;
         var lx=cx+dz*off, lz=cz-dx*off;
-        if(surLeParcours(lx,lz).ecart>80 || dansPlace(lx,lz,1.5)) continue;
+        if(surLeParcours(lx,lz).ecart>rayonLampes42() || dansPlace(lx,lz,1.5)) continue;
         var y=hauteur(lx,lz);
         tube(tas,lx,y,lz, lx,y+4.6,lz, 0.11,0.075,7,gris,false,false);
         var hx=lx-dz*0.85, hz=lz+dx*0.85;
@@ -15062,7 +15062,7 @@ function construireSaillies(){
     if(Lg<2) continue;
     M.ux=dx/Lg; M.uz=dz/Lg; M.nx=dz/Lg; M.nz=-dx/Lg;
     var mx=(M.ax+M.bx)/2, mz=(M.az+M.bz)/2;
-    if(!presDuParcours(S,mx,mz,45)) continue;
+    if(!presDuParcours(S,mx,mz,rayonRelief42())) continue;
     /* mur mitoyen : de l'autre côté il y a un bâtiment, rien ne se voit */
     if(bloquer(mx+M.nx*0.9, mz+M.nz*0.9)) continue;
     RELIEF.murs++;
@@ -29670,4 +29670,178 @@ function preparerPNJ41(){
 /* une fois la ville ouverte, sans rien retarder */
 ETAPES.push(['Personnages variés',function(){ setTimeout(function(){ try{ preparerPNJ41(); }catch(e){ console.warn(e); } },6000); }]);
 window.ESPACE3D.pnj41=PNJ41;
+
+/* ===== 42. une ville détaillée partout (1/4 : des rues vivantes) ===== */
+/* Nicolas, 6 oct. 2026 : que les visiteurs soient stupéfaits, et dans
+   toute la ville, pas seulement le long du tracé. Sur ordinateur :
+   - le relief des façades (appuis, linteaux, bandeaux, descentes d'eau)
+     n'est plus réservé aux 45 m autour du parcours ;
+   - les lampadaires bordent toutes les rues, les arbres ne sont plus
+     éclaircis loin du tracé ;
+   - jardinières fleuries sous une partie des fenêtres, lanternes murales
+     dans les rues étroites, poubelles et pots de fleurs contre les murs
+     qui donnent sur un trottoir ;
+   - panneaux « sens interdit » à l'entrée des rues à sens unique.
+   Sur téléphone, allégé : tout cela reste aux abords du parcours, et les
+   petits objets ne se dessinent qu'à courte distance (comme le relief). */
+var VILLE42={ordi:!(SUR_IOS_3D || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'')), tas:null, verre:null, n:{}};
+function arbresPartout42(){ return VILLE42.ordi; }
+function rayonLampes42(){ return VILLE42.ordi ? 1e9 : 160; }
+function maxLampes42(){ return VILLE42.ordi ? 2200 : 700; }
+function rayonRelief42(){ return VILLE42.ordi ? 1e9 : 45; }
+
+/* ---------- les objets contre les façades ---------- */
+function jardiniere42(tas,M,u0,u1,yS,coulBac,fleurs,graine){
+  var ang=Math.atan2(M.uz,M.ux), cu=(u0+u1)/2, lx=u1-u0, prof=0.2;
+  var cx=M.ax+M.ux*cu+M.nx*(0.06+prof/2), cz=M.az+M.uz*cu+M.nz*(0.06+prof/2);
+  boiteOr(tas,cx,yS,cz,lx,0.17,prof,ang,coulBac,assombrir(coulBac,0.85));
+  var nb=Math.max(2,Math.round(lx/0.16)), vert=teinte(graine%2?0x4f7a32:0x3d6a2b);
+  for(var k=0;k<nb;k++){
+    var u=u0+(k+0.5)*lx/nb, r=alea(graine+k*3,k*7+graine);
+    var px=M.ax+M.ux*u+M.nx*(0.16+r*0.04), pz=M.az+M.uz*u+M.nz*(0.16+r*0.04), py=yS+0.2+r*0.05;
+    boule(tas,px,py,pz,0.085+r*0.03,0.8,6,vert);
+    if(r>0.25){
+      var c=fleurs[(graine+k)%fleurs.length];
+      boule(tas,px+M.nx*0.05,py+0.06,pz+M.nz*0.05,0.038,1,5,c);
+      boule(tas,px+M.ux*0.05,py+0.05,pz+M.uz*0.05,0.032,1,5,c);
+    }
+  }
+}
+function lanterne42(tas,verre,M,u,y){
+  var noir=teinte(0x23272c), lum=teinte(0xffe7b0);
+  var ax=M.ax+M.ux*u, az=M.az+M.uz*u, ex=ax+M.nx*0.55, ez=az+M.nz*0.55;
+  tube(tas,ax+M.nx*0.02,y,az+M.nz*0.02, ex,y,ez, 0.025,0.022,5,noir,false,false);
+  tube(tas,ax+M.nx*0.02,y-0.32,az+M.nz*0.02, ax+M.nx*0.38,y-0.02,az+M.nz*0.38, 0.018,0.018,5,noir,false,false);
+  tube(tas,ex,y,ez, ex,y-0.12,ez, 0.012,0.012,4,noir,false,false);
+  tube(tas,ex,y-0.12,ez, ex,y-0.18,ez, 0.05,0.15,6,noir,false,false);
+  tube(verre,ex,y-0.19,ez, ex,y-0.44,ez, 0.12,0.085,6,lum,false,true);
+  tube(tas,ex,y-0.44,ez, ex,y-0.5,ez, 0.09,0.04,6,noir,false,true);
+  if(typeof lampes!=='undefined') lampes.push([ex,y-0.3,ez]);
+}
+function poubelle42(tas,x,y,z,ang,couv){
+  var corps=teinte(0x2f5d3a);
+  boiteOr(tas,x,y,z,0.58,0.92,0.68,ang,corps,assombrir(corps,0.8));
+  boiteOr(tas,x,y+0.92,z,0.62,0.05,0.74,ang,couv,couv);
+}
+function pot42(tas,x,y,z,graine,fleurs){
+  var terre=teinte(graine%3?0xa4532f:0x8a8278), r=alea(graine,graine*3);
+  tube(tas,x,y,z, x,y+0.42,z, 0.16,0.22,8,terre,true,false);
+  boule(tas,x,y+0.62+r*0.15,z,0.24+r*0.12,1.1,7,teinte(r>0.5?0x3f6b2a:0x557f36));
+  if(r>0.4) for(var k=0;k<4;k++){ var a=k*1.7+r*3; boule(tas,x+Math.cos(a)*0.17,y+0.72+r*0.12,z+Math.sin(a)*0.17,0.045,1,5,fleurs[(graine+k)%fleurs.length]); }
+}
+function deco42(L){
+  if(!L || !L.length || typeof indexerChaussees!=='function') return;
+  var I=indexerChaussees(Dvoies), S=segmentsParcours(), R=rayonRelief42();
+  var tas=new Tas(65536), verre=new Tas(4096), N={jard:0, lant:0, poub:0, pots:0};
+  var fleurs=[0xd63a3a,0xe86aa0,0xf4f1ea,0xf3c63c,0x9a4ad0,0xe0662c,0xc4284a].map(teinte);
+  var bacs=[0xa4532f,0x3d4a3a,0xe9e4da,0x2f3a4a].map(teinte), couv=[0xe4c22a,0x2f5d3a,0x5a6068,0x2f5d3a].map(teinte);
+  for(var i=0;i<L.length;i++){
+    var M=L[i], dx=M.bx-M.ax, dz=M.bz-M.az, Lg=Math.hypot(dx,dz);
+    if(Lg<2) continue;
+    M.ux=dx/Lg; M.uz=dz/Lg; M.nx=dz/Lg; M.nz=-dx/Lg;
+    var mx=(M.ax+M.bx)/2, mz=(M.az+M.bz)/2, f, b, gr=Math.abs(Math.round(mx*7)*31+Math.round(mz*7)*17);
+    if(R<1e8 && (!S.length || !presDuParcours(S,mx,mz,R))) continue;
+    if(bloquer(mx+M.nx*0.9, mz+M.nz*0.9)) continue;
+    var fh=(M.y1-M.y0)/M.nEt, BW=Lg/M.ub, pat=FEN_FAM[M.fam];
+    /* jardinières sous une fenêtre sur six environ (habitations) */
+    if(pat && M.fam!==3 && M.fam!==4) for(f=0;f<M.nEt;f++) for(b=0;b<M.ub;b++){
+      if(alea(gr+b*7+f*13,gr*3+b+f*29)>0.15) continue;
+      var cu=(b+0.5)*BW;
+      if(bloquer(M.ax+M.ux*cu+M.nx*0.9, M.az+M.uz*cu+M.nz*0.9)) continue;
+      var rr=pat[0], s0=(b+rr[0]/256)*BW, s1=(b+(rr[0]+rr[2])/256)*BW;
+      var yS=M.y0+(f+(205-rr[1]-rr[3])/205)*fh-0.01;
+      jardiniere42(tas,M,s0+0.03,s1-0.03,yS,bacs[(gr+b+f)%bacs.length],fleurs,gr+b*5+f);
+      N.jard++;
+    }
+    /* la rue devant le mur : sa largeur, et la place pour un trottoir */
+    var rp=(typeof routeProche==='function') ? routeProche(I,mx+M.nx*2.5,mz+M.nz*2.5,9) : null;
+    if(!rp) continue;
+    var r0=routeProche(I,mx,mz,16), trottoir=r0 ? (r0.d-r0.w/2) : 0;
+    /* lanternes murales dans les rues étroites (sans lampadaires) */
+    if(rp.w<7.5 && Lg>3.5 && M.y0-M.base>2.4){
+      for(var u=Math.min(2.5,Lg/2);u<Lg-1;u+=17){
+        if(alea(gr+Math.round(u),gr+7)>0.62) continue;
+        var ub=Math.max(1,Math.round(u/BW))*BW; if(ub>Lg-0.6) ub=u;
+        lanterne42(tas,verre,M,ub,M.y0-0.25);
+        N.lant++;
+      }
+    }
+    /* contre le mur, entre deux travées (jamais devant une porte) */
+    if(trottoir>0.95 && M.ub>1) for(var k=1;k<M.ub;k++){
+      var h=alea(gr+k*11,gr*7+k), uk=k*BW, px=M.ax+M.ux*uk+M.nx*0.42, pz=M.az+M.uz*uk+M.nz*0.42;
+      if(h>0.11 || bloquer(px,pz)) continue;
+      var y=hauteur(px,pz), ang=Math.atan2(M.uz,M.ux);
+      if(h<0.045){ poubelle42(tas,px,y,pz,ang,couv[k%couv.length]); if(h<0.02) poubelle42(tas,px+M.ux*0.66,y,pz+M.uz*0.66,ang,couv[(k+1)%couv.length]); N.poub++; }
+      else { pot42(tas,px,y,pz,gr+k,fleurs); N.pots++; }
+    }
+  }
+  VILLE42.tas=tas; VILLE42.verre=verre; VILLE42.n=N;
+}
+var _saillies42=construireSaillies;
+construireSaillies=function(){
+  _saillies42();
+  try{ deco42(RELIEF_MURS); }catch(e){ console.warn('ville détaillée :',e); }
+};
+function ajouter42(){
+  if(!VILLE42.tas) return;
+  var m=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.8, metalness:0});
+  m.name='objets des façades'; m.userData.relief=true;
+  var v=new THREE.MeshBasicMaterial({vertexColors:true}); v.userData.relief=true;
+  var avant=CARRE; CARRE=40;
+  function sansUV(o){ if(o) o.traverse(function(c){ if(c.geometry && c.geometry.attributes.uv) c.geometry.deleteAttribute('uv'); }); }
+  try{ sansUV(ajouter(VILLE42.tas,m,true,true)); sansUV(ajouter(VILLE42.verre,v,false,false)); }
+  finally{ CARRE=avant; }
+  VILLE42.tas=VILLE42.verre=null;
+}
+etapeBatisRiche=envelopperEtape(etapeBatisRiche,ajouter42);
+
+/* ---------- panneaux « sens interdit » à l'entrée des sens uniques ---------- */
+function atlasSens42(){
+  var c=toile(256,256), g=c.getContext('2d');
+  g.clearRect(0,0,256,256);
+  g.fillStyle='#ffffff'; g.beginPath(); g.arc(128,128,126,0,2*PI); g.fill();
+  g.fillStyle='#c8161d'; g.beginPath(); g.arc(128,128,116,0,2*PI); g.fill();
+  g.fillStyle='#ffffff'; g.fillRect(36,108,184,40);
+  var t=new THREE.CanvasTexture(c); if(t.colorSpace!==undefined) t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4;
+  return t;
+}
+function panneauxSens42(){
+  if(!Dvoies || typeof indexerChaussees!=='function') return;
+  var poteau=new Tas(8192), face=new Tas(4096), gris=teinte(0x8d9399), blanc=teinte(0xffffff), dos=teinte(0x9aa0a6), n=0;
+  var S=segmentsParcours(), R=VILLE42.ordi ? 1e9 : 200;
+  for(var i=0;i<Dvoies.length;i++){
+    var l=Dvoies[i].split('\t');
+    if(l.length<5 || l[0]!=='r') continue;
+    var sens=+l[4]; if(sens!==1 && sens!==-1) continue;
+    var p=pointsDe(l[3]), m=p.length/2; if(m<2) continue;
+    var w=(+l[1])/10, Ltot=0;
+    for(var k=1;k<m;k++) Ltot+=Math.hypot(p[k*2]-p[k*2-2],p[k*2+1]-p[k*2-1]);
+    if(Ltot<25) continue;
+    /* l'entrée interdite : la fin du tracé OSM pour un sens +1, le début pour -1 */
+    var a, b2;
+    if(sens===1){ a=[p[(m-1)*2],p[(m-1)*2+1]]; b2=[p[(m-2)*2],p[(m-2)*2+1]]; }
+    else { a=[p[0],p[1]]; b2=[p[2],p[3]]; }
+    var dx=b2[0]-a[0], dz=b2[1]-a[1], L=Math.hypot(dx,dz); if(L<4) continue;
+    var ux=dx/L, uz=dz/L;           /* direction de qui entrerait à contresens */
+    var rx=-uz, rz=ux;              /* sa droite */
+    var x=a[0]+ux*3+rx*(w/2+0.45), z=a[1]+uz*3+rz*(w/2+0.45);
+    if(R<1e8 && (!S.length || !presDuParcours(S,x,z,R))) continue;
+    if(bloquer(x,z)) continue;
+    var y=hauteur(x,z);
+    tube(poteau,x,y,z, x,y+2.3,z, 0.032,0.032,6,gris,false,true);
+    /* le disque regarde l'automobiliste qui arrive (vers -u) */
+    var fx=-ux, fz=-uz, px=-fz*0.33, pz=fx*0.33, yc=y+2.25, cx=x+fx*0.04, cz=z+fz*0.04;
+    face.tri(cx-px,yc-0.33,cz-pz, cx+px,yc-0.33,cz+pz, cx+px,yc+0.33,cz+pz, fx,0,fz, [0,0,1,0,1,1], blanc);
+    face.tri(cx-px,yc-0.33,cz-pz, cx+px,yc+0.33,cz+pz, cx-px,yc+0.33,cz-pz, fx,0,fz, [0,0,1,1,0,1], blanc);
+    tube(poteau,x+fx*0.034,yc,z+fz*0.034, x+fx*0.006,yc,z+fz*0.006, 0.335,0.335,14,dos,true,true);
+    n++;
+  }
+  if(!n) return;
+  var mf=new THREE.MeshStandardMaterial({map:atlasSens42(), roughness:0.5, metalness:0, transparent:true, alphaTest:0.5, polygonOffset:true, polygonOffsetFactor:-2});
+  var mp=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.55, metalness:0.4});
+  ajouter(poteau,mp,true,false); ajouter(face,mf,false,false);
+  VILLE42.n.sens=n;
+}
+ETAPES.push(['Panneaux de sens interdit',function(){ try{ panneauxSens42(); }catch(e){ console.warn('panneaux :',e); } }]);
+window.ESPACE3D.ville42=VILLE42;
 })();
