@@ -29593,9 +29593,23 @@ function mixMH41(mix,clips){
     _mix:mix
   };
 }
+/* Cloner un modèle MakeHuman sans recopier ses données : ses userData
+   portent ~40 Mo (morphologies, géométries de base pour cuire40), que
+   Object3D.clone recopiait en JSON à chaque clone : 2 s et 40 Mo par
+   piéton ou coureur. Le clone partage ces données (lecture seule). */
+function cloneLeger41(src){
+  var sauv=[];
+  src.traverse(function(o){ if(o.userData && Object.keys(o.userData).length){ sauv.push([o,o.userData]); o.userData={}; } });
+  var c;
+  try{ c=EXT.clone(src); } finally{ sauv.forEach(function(p){ p[0].userData=p[1]; }); }
+  var A=[], B=[];
+  src.traverse(function(o){ A.push(o); }); c.traverse(function(o){ B.push(o); });
+  for(var i=0;i<A.length && i<B.length;i++) if(A[i].userData && Object.keys(A[i].userData).length) B[i].userData=Object.assign({},A[i].userData);
+  return c;
+}
 function rigMH41(nom){
   var T=PNJ41.modeles[nom]; if(!T) return null;
-  var g=EXT.clone(T.g), meshes=[];
+  var g=cloneLeger41(T.g), meshes=[];
   g.traverse(function(o){ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; meshes.push(o); } });
   g.visible=false;
   monde.add(g);
@@ -29612,7 +29626,7 @@ chasubleAnimee=function(rig,niv){ return (rig && rig.mh) ? null : _chasA41(rig,n
 
 /* un jalonneur figé (loin de la caméra) : posé au repos, bras placé, puis cuit */
 function figer41(tplG,bras){
-  var g=EXT.clone(tplG), suppr=[];
+  var g=cloneLeger41(tplG), suppr=[];
   g.traverse(function(o){ if(o.isMesh && !o.visible) suppr.push(o); });
   suppr.forEach(function(o){ o.parent.remove(o); });
   var mix=new THREE.AnimationMixer(g.children[0]), T=null;
