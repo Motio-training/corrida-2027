@@ -29929,6 +29929,36 @@ function zones43(){
     if('kpiwafM'.indexOf(l[0])>=0) marquer(pointsDe(l[2]),1);
     else if(l[0]==='c') marquer(pointsDe(l[2]),2);
   });
+  /* ni devant un commerce ni devant un bâtiment public : leur parvis reste
+     ouvert sur la rue (devantures, terrasses, entrées) */
+  function autour(p,m){
+    var n=p.length/2, x0=1e9,x1=-1e9,z0=1e9,z1=-1e9, i, j, k;
+    for(i=0;i<n;i++){ var x=p[i*2], z=p[i*2+1]; if(x<x0)x0=x; if(x>x1)x1=x; if(z<z0)z0=z; if(z>z1)z1=z; }
+    var ja=Math.max(0,Math.floor((z0-m-ZMIN)/GC_PAS)), jb=Math.min(GC_NZ-1,Math.ceil((z1+m-ZMIN)/GC_PAS));
+    var ia=Math.max(0,Math.floor((x0-m-XMIN)/GC_PAS)), ib=Math.min(GC_NX-1,Math.ceil((x1+m-XMIN)/GC_PAS));
+    for(j=ja;j<=jb;j++){ var zc=ZMIN+(j+0.5)*GC_PAS;
+      for(i=ia;i<=ib;i++){
+        if(E[j*GC_NX+i]===1) continue;
+        var xc=XMIN+(i+0.5)*GC_PAS, ok=dansPoly(p,xc,zc);
+        for(k=0;!ok && k<n;k++){ var c=(k+1)%n; if(distSeg(xc,zc,[p[k*2],p[k*2+1]],[p[c*2],p[c*2+1]])<m) ok=true; }
+        if(ok) E[j*GC_NX+i]=1;
+      }
+    }
+  }
+  (Dbats||[]).forEach(function(b){
+    var l=b.split('\t'); if(l.length<11) return;
+    var p=pointsDe(l[10]), n=p.length/2; if(n<3) return;
+    var x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+    for(var i=0;i<n;i++){ var x=p[i*2], z=p[i*2+1]; if(x<x0)x0=x; if(x>x1)x1=x; if(z<z0)z0=z; if(z>z1)z1=z; }
+    var t=(l[0]==='e') ? 'E' : typeDe(p,(+l[3])/10,(+l[4])/10,+l[7],x0,x1,z0,z1);
+    if(t) autour(p,7);
+  });
+  (typeof TYPES_A!=='undefined' ? TYPES_A : []).forEach(function(t){ if(t.c!=='C') marquer(t.p,1); });
+  if(typeof DEV!=='undefined' && DEV.poses) DEV.poses.forEach(function(D){
+    var x=pX(D.lo), z=pZ(D.la), q=[];
+    for(var a=0;a<8;a++) q.push(x+Math.cos(a*PI/4)*9, z+Math.sin(a*PI/4)*9);
+    marquer(q,1);
+  });
   return function(x,z){
     var i=Math.floor((x-XMIN)/GC_PAS), j=Math.floor((z-ZMIN)/GC_PAS);
     if(i<0||j<0||i>=GC_NX||j>=GC_NZ) return 1;
@@ -30512,6 +30542,11 @@ function toits44(){
       if(T.co*sp<0.2) sp=0;
       if(sp && surToit44(T,up,sp*vp,0.8)){ var Pp=P44(T,up,sp*vp,yToit44(T,vp)); parabole44(det,Pp[0],Pp[1],Pp[2]); N.paraboles++; ex44('par',T,up,sp); }
     }
+    /* un bout de faîtage où des pigeons pourront se poser */
+    if(c>0.72 && T.aire>50 && T.W>3 && surToit44(T,-T.W*0.45,0,0.5) && surToit44(T,T.W*0.45,0,0.5)){
+      var f0=P44(T,-T.W*0.45,0,T.top+T.rise), f1=P44(T,T.W*0.45,0,T.top+T.rise);
+      (VILLE44.faites||(VILLE44.faites=[])).push([f0[0],f0[2],f1[0],f1[2],f0[1]]);
+    }
     /* cheminées : une sur les maisons qui n'en ont pas, une seconde sur les longues */
     var uch=null;
     if(T.r>=0.72 && T.aire>40 && b>0.25) uch=(c<0.5?-1:1)*T.W*0.42;
@@ -30531,4 +30566,160 @@ function toits44(){
 
 ETAPES.push(['Toits : lucarnes, antennes, cheminées',function(){ try{ toits44(); }catch(e){ console.warn('toits :',e); } }]);
 window.ESPACE3D.ville44=VILLE44;
+
+/* ===== 45. une ville détaillée partout (4/4 : la vie et l'ambiance) ===== */
+/* - Les piétons marchent dans toutes les rues à trottoirs (ils n'existaient
+     qu'à 260 m du tracé) : on les croise où que l'on se promène.
+   - Des pigeons alignés sur les faîtages, et des vols d'oiseaux qui
+     tournent au-dessus de toute la ville (avant : seulement au bord du
+     tracé).
+   - Des terrasses devant les vrais cafés, bars, restaurants et
+     boulangeries relevés : tables bistrot, chaises, parasols là où le
+     trottoir est large, ardoise du menu près de la porte.
+   Sur téléphone : piétons comme avant, pigeons aux abords du
+   parcours, pas de vols d'oiseaux en plus. */
+var VILLE45={n:{}};
+
+/* ---------- piétons partout ---------- */
+var _chemins45=construireChemins;
+construireChemins=function(){
+  if(!VILLE42.ordi) return _chemins45();
+  var p0=pres;
+  pres=function(){ return true; };
+  try{ return _chemins45(); } finally{ pres=p0; }
+};
+
+/* ---------- pigeons ---------- */
+function pigeon45(tas,x,y,z,ang,g){
+  var r=alea(g,g*3), gris=teinte(r<0.7?0x8a8f99:(r<0.9?0x5e6168:0xd8d6d0)), cou=teinte(0x6a7f7a);
+  var ux=Math.cos(ang), uz=Math.sin(ang);
+  boule(tas,x,y+0.09,z,0.1,0.72,6,gris);
+  boule(tas,x+ux*0.08,y+0.15,z+uz*0.08,0.045,1,5,cou);
+  tube(tas,x+ux*0.115,y+0.15,z+uz*0.115, x+ux*0.15,y+0.145,z+uz*0.15, 0.012,0.004,3,teinte(0x2a2a2a),false,false);
+  tube(tas,x-ux*0.07,y+0.09,z-uz*0.07, x-ux*0.2,y+0.075,z-uz*0.2, 0.045,0.02,4,assombrir(gris,0.8),false,true);
+}
+
+/* ---------- terrasses ---------- */
+var GENRES45={restaurant:1, bar:1, pub:1, cafe:1, fast_food:1, bakery:1, ice_cream:1};
+function chaise45(tas,x,y,z,ang,col,assise){
+  var ux=Math.cos(ang), uz=Math.sin(ang), A=Math.atan2(uz,ux);
+  boiteOr(tas,x,y+0.43,z,0.4,0.04,0.4,A,assise,assise);
+  boiteOr(tas,x-ux*0.19,y+0.47,z-uz*0.19,0.04,0.42,0.38,A,assise,assise);
+  [[0.17,0.17],[0.17,-0.17],[-0.17,0.17],[-0.17,-0.17]].forEach(function(o){
+    var px=x+ux*o[0]-uz*o[1], pz=z+uz*o[0]+ux*o[1];
+    tube(tas,px,y,pz, px,y+0.43,pz, 0.012,0.012,3,col,false,false);
+  });
+}
+function table45(tas,x,y,z,pied,plateau){
+  tube(tas,x,y,z, x,y+0.02,z, 0.22,0.22,10,pied,false,true);
+  tube(tas,x,y,z, x,y+0.72,z, 0.025,0.025,5,pied,false,false);
+  tube(tas,x,y+0.72,z, x,y+0.75,z, 0.31,0.31,14,plateau,true,true);
+}
+function parasol45(tas,x,y,z,col){
+  tube(tas,x,y,z, x,y+2.35,z, 0.025,0.025,5,teinte(0xd8d4cc),false,true);
+  tube(tas,x,y+1.95,z, x,y+2.35,z, 1.25,0.04,12,col,true,false);
+  tube(tas,x,y+1.83,z, x,y+1.95,z, 1.25,1.25,12,assombrir(col,0.9),false,false);
+}
+function ardoise45(tas,x,y,z,ang){
+  var ux=Math.cos(ang), uz=Math.sin(ang), bois=teinte(0x6e4a2c), noir=teinte(0x23272a), A=Math.atan2(uz,ux);
+  [-1,1].forEach(function(s){
+    var ox=x+ux*s*0.14, oz=z+uz*s*0.14;
+    boiteOr(tas,ox,y,oz,0.04,1.0,0.5,A+s*0.16,bois,bois);
+    boiteOr(tas,ox+ux*s*0.025,y+0.32,oz+uz*s*0.025,0.01,0.6,0.42,A+s*0.16,noir,noir);
+  });
+}
+function terrasses45(tas){
+  if(typeof DEV==='undefined' || !DEV.poses || !DEV.poses.length) return 0;
+  var I=indexerChaussees(Dvoies), n=0, S=VILLE42.ordi ? null : segmentsParcours();
+  var pieds=[0x23272a,0x2c4a3a,0x3a3d42].map(teinte), plateaux=[0xece8e0,0x9a6a40,0x2c4a3a].map(teinte), assises=[0xb08550,0x8e1b1b,0x2c4a3a,0xd8d4cc].map(teinte);
+  var toiles=[0xece4d0,0x8e1b1b,0x2f4a3a,0x1d2b44].map(teinte);
+  DEV.poses.forEach(function(D,i){
+    if(!GENRES45[D.genre]) return;
+    var a=D.az*PI/180, nx=Math.sin(a), nz=-Math.cos(a), tx=-nz, tz=nx;
+    var mx=pX(D.lo), mz=pZ(D.la), wx=mx-nx*0.6, wz=mz-nz*0.6;   /* pied du mur */
+    if(S && (!S.length || !presDuParcours(S,mx,mz,200))) return;   /* téléphone : trottoirs seulement près du tracé */
+    var rp=routeProche(I,mx,mz,20), libre=rp ? rp.d-rp.w/2+0.45 : 6;
+    if(libre<2.4) return;
+    var rangs=libre>=4.2 ? 2 : 1, g=Math.abs(Math.round(mx*7)*31+Math.round(mz*7)*17)+i;
+    var pied=pieds[g%3], plateau=plateaux[(g>>1)%3], assise=assises[(g>>2)%4], toile=toiles[(g>>3)%4];
+    var nb=D.genre==='bakery' ? 2 : 3;
+    /* le dallage de la terrasse, posé sur le sol réellement dessiné */
+    var demi=(nb/2)*1.7+0.15, prof=(rangs===2) ? 3.3 : 1.35, yT=-1e9;
+    [[-demi,0.3],[demi,0.3],[-demi,prof],[demi,prof],[0,prof/2]].forEach(function(q){
+      var x=wx+nx*q[1]+tx*q[0], z=wz+nz*q[1]+tz*q[0], ys=(typeof solReel==='function') ? solReel(x,z) : null;
+      yT=Math.max(yT,(ys!==null && ys!==undefined) ? ys : hauteur(x,z));
+    });
+    var dalle=teinte(0xb3aa99), cxT=wx+nx*(prof/2+0.05), czT=wz+nz*(prof/2+0.05);
+    boiteOr(tas,cxT,yT-0.2,czT,demi*2,0.24,prof,Math.atan2(tz,tx),assombrir(dalle,0.85),dalle);
+    yT+=0.04;
+    for(var rg=0;rg<rangs;rg++){
+      var d=(rg===0) ? 0.55 : 2.35;
+      for(var k=0;k<nb;k++){
+        var u=(k-(nb-1)/2)*1.7+(rg?0.85:0), x=wx+nx*d+tx*u, z=wz+nz*d+tz*u;
+        if(bloquer(x,z) || dansChaussee(I,x,z,-1,0.3)) continue;
+        var y=yT;
+        table45(tas,x,y,z,pied,plateau);
+        chaise45(tas,x+tx*0.5,y,z+tz*0.5,Math.atan2(-tz,-tx),pied,assise);
+        chaise45(tas,x-tx*0.5,y,z-tz*0.5,Math.atan2(tz,tx),pied,assise);
+        if(rg===1 || (rangs===1 && libre>=3.1)) { if(k%2===0) parasol45(tas,x,y,z,toile); }
+        n++;
+      }
+    }
+    /* l'ardoise du menu, contre le mur à côté de la vitrine */
+    var bx=wx+nx*0.35+tx*((nb/2)*1.7+0.5), bz=wz+nz*0.35+tz*((nb/2)*1.7+0.5);
+    if(!bloquer(bx,bz) && D.genre!=='bakery'){ var yb=(typeof solReel==='function') ? solReel(bx,bz) : null; ardoise45(tas,bx,(yb!==null && yb!==undefined) ? yb : hauteur(bx,bz),bz,Math.atan2(tz,tx)); }
+  });
+  return n;
+}
+
+/* ---------- la construction ---------- */
+function vie45(){
+  var tas=new Tas(65536), N={pigeons:0, tables:0};
+  var S=VILLE42.ordi ? null : segmentsParcours(), R=90;
+  /* pigeons sur les faîtages, par petits groupes */
+  (VILLE44.faites||[]).forEach(function(f,i){
+    if(S && (!S.length || !presDuParcours(S,f[0],f[1],R))) return;
+    var g=Math.abs(Math.round(f[0]*11)+Math.round(f[1]*5))+i, nb=2+Math.floor(alea(g,g+3)*4);
+    if(alea(g+19,g*7)>0.45) return;
+    var dx=f[2]-f[0], dz=f[3]-f[1], L=Math.hypot(dx,dz); if(L<1) return;
+    var t0=alea(g+7,g)*0.4, ang=Math.atan2(dz,dx)+PI/2;
+    for(var k=0;k<nb;k++){
+      var t=t0+k*0.32/L*(1+alea(g+k,k)*0.8); if(t>1) break;
+      var sens=alea(g*3+k,k+1)<0.5 ? ang : ang+PI;
+      pigeon45(tas,f[0]+dx*t,f[4]+0.16,f[1]+dz*t,sens+(alea(k,g)-0.5)*0.6,g+k);
+      N.pigeons++;
+    }
+  });
+  N.tables=terrasses45(tas);
+  var m=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.75, metalness:0.05});
+  m.name='vie de la ville'; m.userData.relief=true;
+  var avant=CARRE; CARRE=40;
+  try{
+    var o=ajouter(tas,m,true,true);
+    if(o) o.traverse(function(c){ if(c.geometry && c.geometry.attributes.uv) c.geometry.deleteAttribute('uv'); });
+  } finally{ CARRE=avant; }
+  /* des vols d'oiseaux au-dessus de toute la ville (ordinateur) */
+  if(VILLE42.ordi && typeof OISEAUX!=='undefined' && OISEAUX.vols){
+    var mat=new THREE.MeshBasicMaterial({color:0x26282c, side:THREE.DoubleSide});
+    var aile=new THREE.BufferGeometry();
+    aile.setAttribute('position',new THREE.Float32BufferAttribute([0,0,-0.08, 0,0,0.1, 0.46,0.02,-0.06, 0,0,0.1, 0.3,0.01,0.05, 0.46,0.02,-0.06],3));
+    aile.computeVertexNormals();
+    var corps=new THREE.BoxGeometry(0.08,0.07,0.34);
+    for(var v=0;v<9;v++){
+      var cx=XMIN+(XMAX-XMIN)*(0.15+0.7*alea(v*7+1,v*3)), cz=ZMIN+(ZMAX-ZMIN)*(0.15+0.7*alea(v*5+2,v*11));
+      var V={cx:cx, cz:cz, y:hauteur(cx,cz)+26+v*3, r:30+v*5, w:(v%2?-1:1)*(0.15+v*0.015), a:v*1.3, gens:[]};
+      for(var i=0;i<5+(v%4)*2;i++){
+        var gg=new THREE.Group(), b=new THREE.Mesh(corps,mat), ad=new THREE.Mesh(aile,mat), ag=new THREE.Mesh(aile,mat);
+        ag.scale.x=-1; gg.add(b); gg.add(ad); gg.add(ag); gg.scale.setScalar(1.5);
+        monde.add(gg);
+        V.gens.push({g:gg, ad:ad, ag:ag, ox:(Math.random()-0.5)*14, oy:(Math.random()-0.5)*5, oz:(Math.random()-0.5)*14, ph:Math.random()*6.3, v:8+Math.random()*3});
+      }
+      OISEAUX.vols.push(V);
+    }
+    N.vols=9;
+  }
+  VILLE45.n=N;
+}
+ETAPES.push(['Vie de la ville : pigeons, terrasses',function(){ try{ vie45(); }catch(e){ console.warn('vie :',e); } }]);
+window.ESPACE3D.ville45=VILLE45;
 })();
