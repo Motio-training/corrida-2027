@@ -30340,4 +30340,195 @@ function clotures43(){
 }
 ETAPES.push(['Jardins et clôtures',function(){ try{ clotures43(); }catch(e){ console.warn('jardins :',e); } }]);
 window.ESPACE3D.ville43=VILLE43;
+
+/* ===== 44. une ville détaillée partout (3/4 : façades et toits) ===== */
+/* Les toits ne sont plus des pans nus :
+   - fenêtres de toit (châssis à tabatière) sur une maison sur trois ;
+   - lucarnes en pierre côté rue au cœur ancien, fenêtre à petits bois ;
+   - antennes râteau, toutes tournées vers le même émetteur, et
+     paraboles tournées vers le sud-sud-est, comme dans une vraie ville ;
+   - une cheminée de plus sur les longues maisons, une sur celles qui
+     n'en avaient pas.
+   Les commerces gardent leurs devantures relevées (section des
+   devantures) : pas d'enseigne inventée. Sur téléphone : aux abords du
+   parcours. */
+var VILLE44={toits:[], n:{}};
+var _toitTente44=toitTente;
+toitTente=function(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique,ctx){
+  var res=_toitTente44.apply(this,arguments);
+  if(VILLE44.toits && ctx && ctx.p && aire>30){
+    var co=Math.cos(ang), si=Math.sin(ang), ov=0.38;
+    VILLE44.toits.push({cx:cx, cz:cz, co:co, si:si, W:w/2+ov, L:l/2+ov, top:top, rise:FAITE_TOIT-top,
+      Q:empriseToit(ctx.p,ctx.n,cx,cz,co,si,ov), aire:aire, r:r, col:ctx.col, tuile:c, h:ctx.h, base:ctx.base,
+      ardoise:(tas===BAT.toitsA), metal:(tas===BAT.toitsM)});
+  }
+  return res;
+};
+
+/* repère d'un toit : u le long du faîte, v en travers, y en hauteur */
+function P44(T,u,v,y){ return [T.cx+u*T.co-v*T.si, y, T.cz+u*T.si+v*T.co]; }
+function yToit44(T,v){ var a=1-Math.abs(v)/T.L; return T.top+T.rise*(a>0?a:0); }
+function surToit44(T,u,v,m){
+  if(!T.Q) return Math.abs(u)<T.W-m && Math.abs(v)<T.L-m;
+  var q=[]; T.Q.forEach(function(a){ q.push(a[0],a[1]); });
+  if(!dansPoly(q,u,v)) return false;
+  return dansPoly(q,u+m,v) && dansPoly(q,u-m,v) && dansPoly(q,u,v+m) && dansPoly(q,u,v-m);
+}
+function quad44(tas,A,B,C,D,n,col){
+  triFace(tas,A,B,C,n,[0,0,1,0,1,1],col);
+  triFace(tas,A,C,D,n,[0,0,1,1,0,1],col);
+}
+function plus44(A,v,k){ return [A[0]+v[0]*k, A[1]+v[1]*k, A[2]+v[2]*k]; }
+
+/* fenêtre de toit posée dans le pan (côté s = ±1) */
+function velux44(tas,T,uc,vv,s){
+  var k=T.rise/T.L, nl=Math.hypot(1,k);
+  var N=[-T.si*s*k/nl, 1/nl, T.co*s*k/nl];                 /* normale du pan */
+  var U=[T.co,0,T.si], D=[-T.si*s/nl, -k/nl, T.co*s/nl];  /* le long du faîte, vers l'égout */
+  var C=P44(T,uc,s*vv,yToit44(T,vv));
+  function rect(du,dd,h,col){
+    var c=plus44(C,N,h);
+    quad44(tas,plus44(plus44(c,U,-du),D,-dd),plus44(plus44(c,U,du),D,-dd),plus44(plus44(c,U,du),D,dd),plus44(plus44(c,U,-du),D,dd),N,col);
+  }
+  rect(0.42,0.53,0.06,teinte(0x60666c));
+  rect(0.34,0.44,0.075,teinte(0x1f2a33));
+  rect(0.36,0.035,0.08,teinte(0x7a8086));
+}
+/* lucarne en pierre : front vertical, deux joues, petit toit à deux pans */
+function lucarne44(tas,T,uc,s,colMur,colToit){
+  var k=T.rise/T.L, vf=T.L-0.95, hd=1.3, wd=1.2, pr=0.5;
+  var tEnd=hd/k, tR=(hd+pr)/k;
+  if(tR>vf-0.5) return false;
+  var yb=yToit44(T,vf), yt=yb+hd, yr=yt+pr, a=uc-wd/2, b=uc+wd/2;
+  function Q(u,t,y){ return P44(T,u,s*(vf-t),y); }
+  var nF=[-T.si*s,0,T.co*s], nU=[T.co,0,T.si];
+  var Fbl=Q(a,0,yb-0.15), Fbr=Q(b,0,yb-0.15), Ftl=Q(a,0,yt), Ftr=Q(b,0,yt), Fa=Q(uc,0,yr);
+  var Bl=Q(a,tEnd,yt), Br=Q(b,tEnd,yt), Ba=Q(uc,tR,yr);
+  quad44(tas,Fbl,Fbr,Ftr,Ftl,nF,colMur);
+  triFace(tas,Ftl,Ftr,Fa,nF,[0,0,1,0,0.5,1],colMur);
+  triFace(tas,Fbl,Ftl,Q(a,tEnd,yt),[-nU[0],0,-nU[2]],[0,0,0,1,1,1],assombrir(colMur,0.9));
+  triFace(tas,Fbr,Br,Ftr,nU,[0,0,1,1,0,1],assombrir(colMur,0.9));
+  /* le toit déborde de 12 cm en façade et sur les côtés */
+  var e=0.14, Ftl2=Q(a-e,-0.12,yt-0.07), Ftr2=Q(b+e,-0.12,yt-0.07), Fa2=Q(uc,-0.12,yr+0.02), Bl2=Q(a-e,tEnd+0.2,yt-0.07), Br2=Q(b+e,tEnd+0.2,yt-0.07), Ba2=Q(uc,tR+0.1,yr+0.02);
+  var nL=nrm(Fa2,Ftl2,Bl2); if(nL[1]<0) nL=[-nL[0],-nL[1],-nL[2]];
+  var nR=nrm(Fa2,Ftr2,Br2); if(nR[1]<0) nR=[-nR[0],-nR[1],-nR[2]];
+  quad44(tas,Ftl2,Fa2,Ba2,Bl2,nL,colToit);
+  quad44(tas,Fa2,Ftr2,Br2,Ba2,nR,colToit);
+  /* fenêtre : dormant blanc, vitre, petits bois */
+  var w0=uc-0.38, w1=uc+0.38, y0=yb+0.12, y1=yt-0.1;
+  var blanc=teinte(0xeeeae2), vitre=teinte(0x26323c), nn=nF;
+  function R(u0,u1,ya,yb2,off,col){ quad44(tas,Q(u0,-off,ya),Q(u1,-off,ya),Q(u1,-off,yb2),Q(u0,-off,yb2),nn,col); }
+  R(w0-0.06,w1+0.06,y0-0.06,y1+0.06,0.012,blanc);
+  R(w0,w1,y0,y1,0.02,vitre);
+  R(uc-0.025,uc+0.025,y0,y1,0.026,blanc);
+  R(w0,w1,(y0+y1)/2-0.02,(y0+y1)/2+0.02,0.026,blanc);
+  return true;
+}
+/* antenne râteau sur le faîte */
+var ANT44=[-0.766,0.643];
+function antenne44(tas,x,y,z,g){
+  var gris=teinte(0x9aa0a6), h=1.8+alea(g,g*3)*0.9;
+  tube(tas,x,y-0.25,z, x,y+h,z, 0.022,0.02,4,gris,false,true);
+  var yb=y+h-0.18, dx=ANT44[0], dz=ANT44[1], px=-dz, pz=dx, L=1.3;
+  tube(tas,x-dx*0.35,yb,z-dz*0.35, x+dx*L,yb,z+dz*L, 0.012,0.012,3,gris,false,false);
+  for(var k=0;k<7;k++){
+    var t=-0.25+k*(L+0.2)/7, lg=0.28-k*0.022, cx=x+dx*t, cz=z+dz*t;
+    tube(tas,cx-px*lg,yb,cz-pz*lg, cx+px*lg,yb,cz+pz*lg, 0.006,0.006,3,gris,false,false);
+  }
+  if(alea(g+3,g)<0.4) tube(tas,x,yb-0.5,z, x+dx*0.9,yb-0.5,z+dz*0.9, 0.01,0.01,3,gris,false,false);
+}
+/* parabole tournée vers le satellite (sud-sud-est, 35° au-dessus de l'horizon) */
+var SAT44=(function(){ var az=158*PI/180, el=35*PI/180; return [Math.sin(az)*Math.cos(el), Math.sin(el), -Math.cos(az)*Math.cos(el)]; })();
+function parabole44(tas,x,y,z){
+  var d=SAT44, blanc=teinte(0xe9e9e6), gris=teinte(0x8d9399);
+  var R=[x+d[0]*0.05, y+0.45+d[1]*0.05, z+d[2]*0.05], B=[x-d[0]*0.1, y+0.45-d[1]*0.1, z-d[2]*0.1];
+  tube(tas,R[0],R[1],R[2], B[0],B[1],B[2], 0.32,0.07,12,blanc,false,true);
+  tube(tas,x,y-0.15,z, B[0],B[1],B[2], 0.022,0.022,4,gris,false,false);
+  var F=[R[0]+d[0]*0.42, R[1]+d[1]*0.42-0.05, R[2]+d[2]*0.42];
+  tube(tas,R[0],R[1]-0.3,R[2], F[0],F[1],F[2], 0.012,0.012,3,gris,false,false);
+  tube(tas,F[0],F[1],F[2], F[0]-d[0]*0.07,F[1]-d[1]*0.07,F[2]-d[2]*0.07, 0.035,0.03,5,gris,true,true);
+}
+/* souche de cheminée, comme celles des bâtiments riches */
+function cheminee44(tas,T,uc,g){
+  var r=alea(g,g*7), Pm=P44(T,uc,0,0), mx=Pm[0], mz=Pm[2], yF=T.top+T.rise;
+  var sz=0.34+r*0.16, hc=yF+0.7+r*0.7, cc=melange(T.col,teinte(0xe8e2d6),0.5);
+  boiteQuad(tas,[mx-sz,mz-sz],[mx+sz,mz-sz],[mx+sz,mz+sz],[mx-sz,mz+sz],yF-0.9,hc,cc,cc,1.2);
+  var s2=sz+0.08;
+  boiteQuad(tas,[mx-s2,mz-s2],[mx+s2,mz-s2],[mx+s2,mz+s2],[mx-s2,mz+s2],hc,hc+0.1,assombrir(cc,0.82),assombrir(cc,0.8),1.2);
+  var terre=teinte(0xa4552f);
+  tube(tas,mx-sz*0.4,hc+0.1,mz,mx-sz*0.4,hc+0.42,mz,0.085,0.07,6,terre,false,true);
+  if(r>0.3) tube(tas,mx+sz*0.4,hc+0.1,mz,mx+sz*0.4,hc+0.36,mz,0.085,0.07,6,terre,false,true);
+}
+
+/* quelques exemples gardés pour les vérifications (positions seulement) */
+function ex44(k,T,u,s){
+  var E=VILLE44.ex||(VILLE44.ex={}), L=E[k]||(E[k]=[]);
+  if(L.length<8) L.push([Math.round(T.cx),Math.round(T.cz),Math.round(-T.si*s*100)/100,Math.round(T.co*s*100)/100]);
+}
+function toits44(){
+  var L=VILLE44.toits; VILLE44.toits=null;
+  if(!L || !L.length) return;
+  var S=VILLE42.ordi ? null : segmentsParcours(), I=indexerChaussees(Dvoies), B=bati43();
+  var det=new Tas(65536), chem=new Tas(16384), N={velux:0, lucarnes:0, antennes:0, paraboles:0, cheminees:0};
+  for(var i=0;i<L.length;i++){
+    var T=L[i];
+    if(S && (!S.length || !presDuParcours(S,T.cx,T.cz,70))) continue;
+    if(T.rise<1.2 || T.metal) continue;
+    var g=Math.abs(Math.round(T.cx*7)*31+Math.round(T.cz*7)*17), a=alea(g,g*3+1), b=alea(g*5+2,g+7), c=alea(g+11,g*13);
+    var dens=B(T.cx,T.cz,30)/Math.pow(60/GC_PAS,2), colToit=T.ardoise ? teinte(0x4f565e) : assombrir(teinte(0xa9532c),0.88+b*0.2);
+    /* le pan qui donne sur la rue */
+    var rueS=0, best=1e9;
+    for(var s=-1;s<=1;s+=2){
+      var Pe=P44(T,0,s*T.L,0), rp=routeProche(I,Pe[0],Pe[2],14);
+      if(rp && rp.d<best){ best=rp.d; rueS=s; }
+    }
+    /* lucarnes : cœur ancien, maisons d'au moins deux niveaux */
+    var nLuc=0;
+    if(rueS && dens>0.24 && T.h>5.4 && T.rise>2.2 && a<0.42 && T.W>3.2){
+      var nl=Math.max(1,Math.min(4,Math.floor((T.W*2-1)/3.6)));
+      for(var k=0;k<nl;k++){
+        var uc=-T.W+(k+0.5)*(2*T.W)/nl;
+        if(!surToit44(T,uc,rueS*(T.L-1.2),0.9)) continue;
+        if(lucarne44(det,T,uc,rueS,melange(T.col,teinte(0xd9cfbd),0.4),colToit)){ nLuc++; N.lucarnes++; ex44('luc',T,uc,rueS); }
+      }
+    }
+    /* fenêtres de toit : sur l'autre pan s'il y a des lucarnes */
+    if(b<0.36 && T.aire>50){
+      var sv=nLuc ? -rueS : (c<0.5?1:-1), nv=T.W>6 ? (c<0.6?2:3) : 1;
+      for(k=0;k<nv;k++){
+        var uv=-T.W+(k+0.5)*(2*T.W)/nv+(c-0.5)*0.8, vv=T.L*(0.42+a*0.2);
+        if(!surToit44(T,uv,sv*vv,0.9)) continue;
+        velux44(det,T,uv,vv,sv); N.velux++; ex44('vel',T,uv,sv);
+      }
+    }
+    /* antenne râteau sur le faîte */
+    if(c<0.3 && T.aire>45){
+      var ua=(a-0.5)*T.W*1.2;
+      if(surToit44(T,ua,0,0.6)){ var Pa=P44(T,ua,0,T.top+T.rise); antenne44(det,Pa[0],Pa[1],Pa[2],g); N.antennes++; ex44('ant',T,ua,1); }
+    }
+    /* parabole sur le pan le plus au sud */
+    if(a>0.82 && T.aire>45){
+      var sp=(T.co>0 ? 1 : -1), up=(b-0.5)*T.W, vp=T.L*0.55;
+      if(T.co*sp<0.2) sp=0;
+      if(sp && surToit44(T,up,sp*vp,0.8)){ var Pp=P44(T,up,sp*vp,yToit44(T,vp)); parabole44(det,Pp[0],Pp[1],Pp[2]); N.paraboles++; ex44('par',T,up,sp); }
+    }
+    /* cheminées : une sur les maisons qui n'en ont pas, une seconde sur les longues */
+    var uch=null;
+    if(T.r>=0.72 && T.aire>40 && b>0.25) uch=(c<0.5?-1:1)*T.W*0.42;
+    else if(T.r<0.72 && T.aire>55 && T.W>7.5 && b>0.4) uch=-T.W+2*T.W*(T.r<0.36?0.78:0.22);
+    if(uch!==null && surToit44(T,uch,0,0.7)){ cheminee44(chem,T,uch,g+3); N.cheminees++; }
+  }
+  var m=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.62, metalness:0.15, side:THREE.DoubleSide});
+  m.name='détails des toits'; m.userData.relief=true;
+  var avant=CARRE; CARRE=40;
+  try{
+    var o=ajouter(det,m,false,true);
+    if(o) o.traverse(function(c2){ if(c2.geometry && c2.geometry.attributes.uv) c2.geometry.deleteAttribute('uv'); });
+    ajouter(chem,MAT.chem||m,true,true);
+  } finally{ CARRE=avant; }
+  for(var kN in N) VILLE44.n[kN]=N[kN];
+}
+
+ETAPES.push(['Toits : lucarnes, antennes, cheminées',function(){ try{ toits44(); }catch(e){ console.warn('toits :',e); } }]);
+window.ESPACE3D.ville44=VILLE44;
 })();
