@@ -29844,4 +29844,500 @@ function panneauxSens42(){
 }
 ETAPES.push(['Panneaux de sens interdit',function(){ try{ panneauxSens42(); }catch(e){ console.warn('panneaux :',e); } }]);
 window.ESPACE3D.ville42=VILLE42;
+
+/* ===== 43. une ville détaillée partout (2/4 : jardins et clôtures) ===== */
+/* Le long de chaque rue, là où aucune façade ne borde le trottoir et
+   qu'une maison se tient derrière, on ferme le jardin comme dans le
+   Poitou : murs de moellons à chaperon, murs enduits coiffés de tuiles,
+   murets surmontés d'une grille en fer, murets doublés d'une haie, haies
+   taillées, grillage rigide des lotissements. Chaque propriété a son
+   portail ou son portillon entre deux piliers, souvent une boîte aux
+   lettres, et quelques arbustes dépassent derrière (buis, hortensias,
+   rosiers, thuyas). Le style suit le quartier : pierre et grilles au
+   cœur ancien, haies et grillages en périphérie. Les cimetières gardent
+   leur haut mur. Les trottoirs, jusqu'ici réservés aux 260 m autour du
+   tracé, bordent désormais toutes les rues sur ordinateur.
+   Sur téléphone : seulement aux abords du parcours, comme le reste. */
+var VILLE43={n:{}};
+var _voies43=construireVoies;
+construireVoies=function(voies,dpres){ return _voies43(voies, VILLE42.ordi ? 0 : dpres); };
+
+/* emprise de chaque voie : chaussée + trottoir (ou accotement) */
+function index43(){
+  var I={segs:[], g:{}, C:12, trot:[]};
+  for(var i=0;i<Dvoies.length;i++){
+    var l=Dvoies[i].split('\t');
+    if(l.length<4) continue;
+    var k=l[0], w=(+l[1])/10, p=pointsDe(l[3]);
+    if(k!=='r' && k!=='s' && k!=='t' && k!=='v') continue;
+    var m=(k==='r') ? ((w>=5 && (VILLE42.ordi || pres(p,260))) ? 1.8 : 0.35) : 0.3;
+    I.trot[i]=m;
+    var h=w/2+m;
+    for(var s=2;s<p.length;s+=2){
+      var ax=p[s-2], az=p[s-1], bx=p[s], bz=p[s+1];
+      var n=I.segs.push({ax:ax,az:az,bx:bx,bz:bz,h:h,id:i})-1, e=h+1;
+      var c0=Math.floor((Math.min(ax,bx)-e)/I.C), c1=Math.floor((Math.max(ax,bx)+e)/I.C);
+      var r0=Math.floor((Math.min(az,bz)-e)/I.C), r1=Math.floor((Math.max(az,bz)+e)/I.C);
+      for(var cx=c0;cx<=c1;cx++) for(var cz=r0;cz<=r1;cz++) (I.g[cx+','+cz]||(I.g[cx+','+cz]=[])).push(n);
+    }
+  }
+  return I;
+}
+function emprise43(I,x,z,id,off){
+  var L=I.g[Math.floor(x/I.C)+','+Math.floor(z/I.C)];
+  if(!L) return false;
+  for(var k=0;k<L.length;k++){
+    var s=I.segs[L[k]], dx=s.bx-s.ax, dz=s.bz-s.az, l2=dx*dx+dz*dz;
+    var t=l2>0?((x-s.ax)*dx+(z-s.az)*dz)/l2:0; t=t<0?0:(t>1?1:t);
+    var d=Math.hypot(x-s.ax-dx*t,z-s.az-dz*t);
+    if(s.id===id ? d<off-0.3 : d<s.h+0.15) return true;
+  }
+  return false;
+}
+/* le tracé, rangé par cases de 20 m */
+function trace43(){
+  var S=segmentsParcours(), G={}, C=20;
+  S.forEach(function(s,i){
+    var c0=Math.floor((Math.min(s[0],s[2])-6)/C), c1=Math.floor((Math.max(s[0],s[2])+6)/C);
+    var r0=Math.floor((Math.min(s[1],s[3])-6)/C), r1=Math.floor((Math.max(s[1],s[3])+6)/C);
+    for(var a=c0;a<=c1;a++) for(var b=r0;b<=r1;b++) (G[a+','+b]||(G[a+','+b]=[])).push(i);
+  });
+  return function(x,z,R){
+    var L=G[Math.floor(x/C)+','+Math.floor(z/C)];
+    if(!L) return false;
+    for(var k=0;k<L.length;k++){
+      var s=S[L[k]], dx=s[2]-s[0], dz=s[3]-s[1], l2=dx*dx+dz*dz;
+      var t=l2>0?((x-s[0])*dx+(z-s[1])*dz)/l2:0; t=t<0?0:(t>1?1:t);
+      if(Math.hypot(x-s[0]-dx*t,z-s[1]-dz*t)<R) return true;
+    }
+    return false;
+  };
+}
+/* zones où l'on ne clôt rien (1) et cimetières (2), sur la grille de collision */
+function zones43(){
+  var E=new Uint8Array(GC_NX*GC_NZ);
+  function marquer(p,v){
+    var n=p.length/2, x0=1e9,x1=-1e9,z0=1e9,z1=-1e9, i, j;
+    for(i=0;i<n;i++){ var x=p[i*2], z=p[i*2+1]; if(x<x0)x0=x; if(x>x1)x1=x; if(z<z0)z0=z; if(z>z1)z1=z; }
+    var ja=Math.max(0,Math.floor((z0-ZMIN)/GC_PAS)), jb=Math.min(GC_NZ-1,Math.ceil((z1-ZMIN)/GC_PAS));
+    var ia=Math.max(0,Math.floor((x0-XMIN)/GC_PAS)), ib=Math.min(GC_NX-1,Math.ceil((x1-XMIN)/GC_PAS));
+    for(j=ja;j<=jb;j++){ var zc=ZMIN+(j+0.5)*GC_PAS;
+      for(i=ia;i<=ib;i++) if(dansPoly(p,XMIN+(i+0.5)*GC_PAS,zc)) E[j*GC_NX+i]=v; }
+  }
+  (Dzones||[]).forEach(function(z){
+    var l=z.split('\t'); if(l.length<3) return;
+    if('kpiwafM'.indexOf(l[0])>=0) marquer(pointsDe(l[2]),1);
+    else if(l[0]==='c') marquer(pointsDe(l[2]),2);
+  });
+  return function(x,z){
+    var i=Math.floor((x-XMIN)/GC_PAS), j=Math.floor((z-ZMIN)/GC_PAS);
+    if(i<0||j<0||i>=GC_NX||j>=GC_NZ) return 1;
+    return E[j*GC_NX+i];
+  };
+}
+/* nombre de cases bâties dans un carré (table des sommes) */
+function bati43(){
+  var W=GC_NX+1, A=new Int32Array(W*(GC_NZ+1));
+  for(var j=0;j<GC_NZ;j++){ var lg=0;
+    for(var i=0;i<GC_NX;i++){ lg+=grilleCol[j*GC_NX+i]===1?1:0; A[(j+1)*W+i+1]=A[j*W+i+1]+lg; } }
+  return function(x,z,r){
+    var i0=Math.max(0,Math.floor((x-r-XMIN)/GC_PAS)), i1=Math.min(GC_NX,Math.floor((x+r-XMIN)/GC_PAS));
+    var j0=Math.max(0,Math.floor((z-r-ZMIN)/GC_PAS)), j1=Math.min(GC_NZ,Math.floor((z+r-ZMIN)/GC_PAS));
+    if(i1<=i0 || j1<=j0) return 0;
+    return A[j1*W+i1]-A[j0*W+i1]-A[j1*W+i0]+A[j0*W+i0];
+  };
+}
+
+/* ---------- 1. les fronts de jardin : où poser une clôture ---------- */
+function fronts43(){
+  var I=index43(), T=trace43(), Z=zones43(), B=bati43(), runs=[];
+  var R=VILLE42.ordi ? 0 : 90, S=R ? segmentsParcours() : null;
+  var esc=(typeof ESCALIER!=='undefined') ? [ESCALIER.pts, RUELLE.pts] : [];
+  for(var i=0;i<Dvoies.length;i++){
+    var l=Dvoies[i].split('\t');
+    if(l.length<4 || l[0]!=='r') continue;
+    var w=(+l[1])/10, p=pointsDe(l[3]);
+    if(w<2.4 || p.length<4) continue;
+    if(R && !pres(p,R)) continue;
+    var off=w/2+I.trot[i]+0.05;
+    for(var side=1;side>=-1;side-=2){
+      var q=densifier(decaler(p,side*off),1), n=q.x.length, cur=null;
+      for(var j=0;j<n;j++){
+        var ja=Math.max(0,j-1), jb=Math.min(n-1,j+1), tx=q.x[jb]-q.x[ja], tz=q.z[jb]-q.z[ja], tl=Math.hypot(tx,tz)||1;
+        var x=q.x[j], z=q.z[j], nx=side*tz/tl, nz=-side*tx/tl, ok=true, cim=false;
+        if(emprise43(I,x,z,i,off)) ok=false;
+        else if(bloquer(x,z) || bloquer(x+nx*1.2,z+nz*1.2) || bloquer(x+nx*0.5,z+nz*0.5)) ok=false;
+        else {
+          var z1=Z(x,z), z2=Z(x+nx*2,z+nz*2);
+          if(z1===1 || z2===1) ok=false;
+          else if(z2===2) cim=true;
+          else if(B(x+nx*12,z+nz*12,10)<2) ok=false;
+        }
+        if(ok && T(x,z,3.2)) ok=false;
+        if(ok && typeof dansPlace==='function' && dansPlace(x,z,1.5)) ok=false;
+        if(ok) for(var e=0;e<esc.length;e++) if(presDuTrace(esc[e],x,z,3)) ok=false;
+        if(ok && R && !presDuParcours(S,x,z,R)) ok=false;
+        if(cur && (!ok || cim!==cur.cim)){ if(cur.x.length>=4) runs.push(cur); cur=null; }
+        if(!ok) continue;
+        if(!cur) cur={x:[],z:[],nx:[],nz:[],id:i,side:side,cim:cim};
+        cur.x.push(x); cur.z.push(z); cur.nx.push(nx); cur.nz.push(nz);
+      }
+      if(cur && cur.x.length>=4) runs.push(cur);
+    }
+  }
+  runs.forEach(function(r){
+    var s=[0];
+    for(var k=1;k<r.x.length;k++) s.push(s[k-1]+Math.hypot(r.x[k]-r.x[k-1],r.z[k]-r.z[k-1]));
+    r.s=s; r.L=s[s.length-1];
+    var m=r.x.length>>1;
+    r.dens=B(r.x[m]+r.nx[m]*10,r.z[m]+r.nz[m]*10,30)/Math.pow(60/GC_PAS,2);
+  });
+  return runs;
+}
+/* le point du front à l'abscisse s, avec sa normale (vers le jardin) */
+function pointFront43(r,s){
+  var k=1, n=r.s.length;
+  while(k<n-1 && r.s[k]<s) k++;
+  var a=r.s[k-1], b=r.s[k], t=b>a?(s-a)/(b-a):0; t=t<0?0:(t>1?1:t);
+  var nx=r.nx[k-1]+(r.nx[k]-r.nx[k-1])*t, nz=r.nz[k-1]+(r.nz[k]-r.nz[k-1])*t, nl=Math.hypot(nx,nz)||1;
+  return {x:r.x[k-1]+(r.x[k]-r.x[k-1])*t, z:r.z[k-1]+(r.z[k]-r.z[k-1])*t, nx:nx/nl, nz:nz/nl};
+}
+function ligneFront43(r,s0,s1,pas){
+  var L=[], m=Math.max(1,Math.ceil((s1-s0)/pas));
+  for(var k=0;k<=m;k++) L.push(pointFront43(r,s0+(s1-s0)*k/m));
+  return L;
+}
+
+/* ---------- 2. matières et teintes ---------- */
+function grilleTex43(){
+  var c=toile(256,256), g=c.getContext('2d');
+  g.clearRect(0,0,256,256); g.fillStyle='#ffffff';
+  g.fillRect(0,22,256,9); g.fillRect(0,214,256,8); g.fillRect(0,240,256,10);
+  for(var x=8;x<256;x+=32){
+    g.fillRect(x-3,22,6,228);
+    g.beginPath(); g.moveTo(x-7,24); g.lineTo(x,2); g.lineTo(x+7,24); g.closePath(); g.fill();
+  }
+  for(x=24;x<256;x+=32){ g.beginPath(); g.arc(x,226,6,0,7); g.lineWidth=3; g.strokeStyle='#ffffff'; g.stroke(); }
+  var t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=8;
+  return t;
+}
+var COUL43={
+  pierre:[0xffffff,0xf3eadb,0xe9e2d6,0xfff6e6,0xe2d7c4].map(teinte),
+  enduit:[0xeee6d6,0xe8dcc0,0xf2efe8,0xdcc9a6,0xe9d7c5,0xd8c8b0].map(teinte),
+  fer:[0x2c4a3a,0x23262a,0x55697a,0x2f3540,0x5a2e2c,0x3d5a45].map(teinte),
+  bois:[0x3d5a45,0x5b6f80,0xe6e3dc,0x6b2c2a,0x3a3d42,0x8a6a48,0x7d9aa8,0xc9c3b4].map(teinte),
+  chap:teinte(0xd9d2c3), tuile:teinte(0xa8603e),
+  feuil:[0x3f6a2c,0x4d7a35,0x355d28,0x557f36,0x2f5523].map(teinte),
+  fleurs:[0xd98fb5,0x8aa3d8,0xf2f0ea,0xc4284a,0xe86aa0,0xb07cd0].map(teinte),
+  bal:[0xe4c22a,0x2f5d3a,0x6a7076,0x23262a,0xb33a2e].map(teinte)
+};
+
+/* ---------- 3. les ouvrages ---------- */
+/* un mur qui suit la ligne L (points avec normales), centré à d du front */
+function mur43(tas,L,d,ep,h,col,colDessus){
+  for(var k=1;k<L.length;k++){
+    var A=L[k-1], Bp=L[k], da=d, db=d;
+    var ai=[A.x+A.nx*(da+ep/2),A.z+A.nz*(da+ep/2)], bi=[Bp.x+Bp.nx*(db+ep/2),Bp.z+Bp.nz*(db+ep/2)];
+    var bo=[Bp.x+Bp.nx*(db-ep/2),Bp.z+Bp.nz*(db-ep/2)], ao=[A.x+A.nx*(da-ep/2),A.z+A.nz*(da-ep/2)];
+    var ya=hauteur(A.x,A.z), yb=hauteur(Bp.x,Bp.z), ybas=Math.min(ya,yb)-0.3;
+    murPente(tas,ai,bi,bo,ao,ybas,ya+h,yb+h,col,colDessus||col);
+  }
+}
+/* chaperon : une dalle un peu plus large posée sur le mur */
+function chaperon43(tas,L,d,ep,h,col){
+  for(var k=1;k<L.length;k++){
+    var A=L[k-1], Bp=L[k], e=ep/2+0.05;
+    var ya=hauteur(A.x,A.z)+h, yb=hauteur(Bp.x,Bp.z)+h;
+    murPente(tas,[A.x+A.nx*(d+e),A.z+A.nz*(d+e)],[Bp.x+Bp.nx*(d+e),Bp.z+Bp.nz*(d+e)],
+                 [Bp.x+Bp.nx*(d-e),Bp.z+Bp.nz*(d-e)],[A.x+A.nx*(d-e),A.z+A.nz*(d-e)],
+             Math.min(ya,yb)-0.02,ya+0.07,yb+0.07,assombrir(col,0.92),col);
+  }
+}
+/* grille en fer entre y0 et y0+h au-dessus du sol, plan du mur */
+function grille43(tas,L,d,y0,h,col){
+  var s=0;
+  for(var k=1;k<L.length;k++){
+    var A=L[k-1], Bp=L[k], ax=A.x+A.nx*d, az=A.z+A.nz*d, bx=Bp.x+Bp.nx*d, bz=Bp.z+Bp.nz*d;
+    var l=Math.hypot(bx-ax,bz-az); if(l<0.05) continue;
+    var ya=hauteur(A.x,A.z)+y0, yb=hauteur(Bp.x,Bp.z)+y0, u0=s/0.9, u1=(s+l)/0.9, nx=(bz-az)/l, nz=-(bx-ax)/l;
+    tas.tri(ax,ya,az, bx,yb,bz, bx,yb+h,bz, nx,0,nz,[u0,0,u1,0,u1,1],col);
+    tas.tri(ax,ya,az, bx,yb+h,bz, ax,ya+h,az, nx,0,nz,[u0,0,u1,1,u0,1],col);
+    s+=l;
+  }
+}
+function pilier43(tas,P,d,cote,h,col,colCap){
+  var x=P.x+P.nx*d, z=P.z+P.nz*d, y=hauteur(x,z)-0.3, ang=Math.atan2(-P.nx,P.nz);
+  boiteOr(tas,x,y,z,cote,h+0.3,cote,ang,col,col);
+  boiteOr(tas,x,y+h+0.3,z,cote+0.1,0.08,cote+0.1,ang,colCap,colCap);
+  boiteOr(tas,x,y+h+0.38,z,cote*0.55,0.1,cote*0.55,ang,colCap,colCap);
+}
+/* un vantail plein (bois peint) ou à barreaux (texture de grille) */
+function portail43(tasPlein,tasGrille,A,Bp,d,h,col,ajoure,deux){
+  var ax=A.x+A.nx*d, az=A.z+A.nz*d, bx=Bp.x+Bp.nx*d, bz=Bp.z+Bp.nz*d;
+  var l=Math.hypot(bx-ax,bz-az); if(l<0.3) return;
+  var ux=(bx-ax)/l, uz=(bz-az)/l, ang=Math.atan2(uz,ux), y=Math.min(hauteur(ax,az),hauteur(bx,bz))+0.04;
+  var nv=deux?2:1, lv=(l-0.06*(nv+1))/nv;
+  for(var v=0;v<nv;v++){
+    var c0=0.06+v*(lv+0.06)+lv/2, cx=ax+ux*c0, cz=az+uz*c0;
+    if(ajoure){
+      var x0=cx-ux*lv/2, z0=cz-uz*lv/2, x1=cx+ux*lv/2, z1=cz+uz*lv/2, nx=uz, nz=-ux, u=lv/0.6;
+      tasGrille.tri(x0,y,z0, x1,y,z1, x1,y+h,z1, nx,0,nz,[0,0,u,0,u,1],col);
+      tasGrille.tri(x0,y,z0, x1,y+h,z1, x0,y+h,z0, nx,0,nz,[0,0,u,1,0,1],col);
+      boiteOr(tasPlein,cx,y,cz,lv,0.05,0.05,ang,col,col);
+    } else {
+      boiteOr(tasPlein,cx,y,cz,lv,h,0.05,ang,col,assombrir(col,1.06));
+      boiteOr(tasPlein,cx,y+h*0.72,cz,lv,0.06,0.075,ang,assombrir(col,0.8),col);
+      boiteOr(tasPlein,cx,y+h*0.18,cz,lv,0.06,0.075,ang,assombrir(col,0.8),col);
+    }
+  }
+}
+function boiteLettres43(tas,P,d,cote,y,col){
+  var x=P.x+P.nx*(d-cote/2-0.07), z=P.z+P.nz*(d-cote/2-0.07), ang=Math.atan2(-P.nx,P.nz);
+  boiteOr(tas,x,hauteur(x,z)+y,z,0.3,0.36,0.14,ang,col,assombrir(col,1.1));
+}
+/* une boule de feuillage : chaque facette prend sa nuance, ce qui donne
+   du grain aux arbustes sans texture (les UV d'une boule s'y prêtent mal) */
+function feuillage43(tas,cx,cy,cz,r,ky,seg,col,g){
+  var an=Math.max(3,Math.round(seg/2)), n=0;
+  function P(i,j){
+    var th=j/an*PI, ph=i/seg*2*PI, b=(j>0 && j<an) ? 1+(alea(g+i*7+j*13,g*3+i+j*5)-0.5)*0.22 : 1;
+    var nx=Math.sin(th)*Math.cos(ph), ny=Math.cos(th), nz=Math.sin(th)*Math.sin(ph);
+    return {p:[cx+nx*r*b, cy+ny*r*ky*b, cz+nz*r*b], n:[nx,ny/ky,nz]};
+  }
+  for(var j=0;j<an;j++) for(var i=0;i<seg;i++){
+    var a=P(i%seg,j), b=P((i+1)%seg,j), c=P((i+1)%seg,j+1), d=P(i%seg,j+1);
+    var f=0.8+alea(g+n*17,g+n*3)*0.38, cl=[col[0]*f,col[1]*f,col[2]*f]; n++;
+    tas.triN(a.p,b.p,c.p, a.n,b.n,c.n, [0,0,1,0,1,1], cl);
+    tas.triN(a.p,c.p,d.p, a.n,c.n,d.n, [0,0,1,1,0,1], assombrir(cl,0.9+alea(g+n,g*7+n)*0.2));
+  }
+}
+/* arbustes du jardin, juste derrière la clôture */
+function arbuste43(tas,x,z,g,haut){
+  var y=hauteur(x,z), r=alea(g,g*7+3), F=COUL43.feuil, vert=F[g%F.length];
+  if(haut || r<0.18){
+    /* thuya ou cyprès : un fuseau de feuillage, pas un cône lisse */
+    var hc=2.2+r*2.4, rc=0.5+r*0.22, cf=assombrir(F[(g>>3)%2?2:4],0.9);
+    feuillage43(tas,x,y+hc*0.42,z,rc,hc*0.45/rc,8,cf,g);
+    feuillage43(tas,x+0.08,y+hc*0.72,z-0.05,rc*0.7,hc*0.3/(rc*0.7),7,assombrir(cf,1.12),g+5);
+    return 1;
+  }
+  if(r<0.48){
+    var rb=0.42+r*0.5;
+    feuillage43(tas,x,y+rb*0.7,z,rb,0.85,7,vert,g);
+    feuillage43(tas,x+0.35,y+rb*0.55,z+0.2,rb*0.7,0.85,6,assombrir(vert,1.1),g+3);
+    return 1;
+  }
+  var rh=0.5+r*0.25, fl=COUL43.fleurs[(g>>2)%(r<0.75?3:6)];
+  feuillage43(tas,x,y+rh*0.75,z,rh,0.8,7,vert,g);
+  for(var k=0;k<6;k++){
+    var a=k*1.05+r*2, rr=rh*0.75;
+    boule(tas,x+Math.cos(a)*rr,y+rh*1.05+Math.sin(k*2.1)*0.08,z+Math.sin(a)*rr,0.15,0.9,5,fl);
+  }
+  return 1;
+}
+
+/* ---------- 4. une propriété ---------- */
+function style43(r,h){
+  if(r.cim) return 'pierre';
+  var t=r.dens>0.28 ? [0.34,0.58,0.74,0.87,1.0,1.0] : [0.12,0.32,0.46,0.66,0.86,1.0];
+  var S=['pierre','grille','enduit','muretHaie','haie','grillage'];
+  for(var k=0;k<6;k++) if(h<t[k]) return S[k];
+  return 'haie';
+}
+function propriete43(O,r,s0,s1,g){
+  var st=style43(r,alea(g,g*3+1)), a1=alea(g*5+2,g), a2=alea(g+9,g*11), a3=alea(g*13,g+5);
+  var len=s1-s0, N=VILLE43.n;
+  /* portail (3 m), portillon (1 m) ou rien */
+  var gw=0;
+  if(r.cim) gw=(len>30 && a2<0.3) ? 3.2 : 0;
+  else if(len>=9 && a2<0.6) gw=3.0; else if(len>=4 && a2<0.88) gw=1.0;
+  var g0=s1, g1=s1;
+  if(gw){ g0=s0+0.8+a3*(len-gw-1.6); g1=g0+gw; }
+  var tr=[]; if(g0-s0>0.3) tr.push([s0,g0]); if(s1-g1>0.3) tr.push([g1,s1]);
+  var pierre=(st==='pierre' || ((st==='grille' || st==='muretHaie') && a1<0.6));
+  var colP=pierre ? COUL43.pierre[g%COUL43.pierre.length] : COUL43.enduit[g%COUL43.enduit.length];
+  var tasM=pierre ? O.pierre : O.enduit, fer=COUL43.fer[(g>>1)%COUL43.fer.length];
+  var bois=COUL43.bois[(g>>2)%COUL43.bois.length], hMur=0, ep=0.4, pil=false, hPil=0, ajoure=false;
+  tr.forEach(function(iv){
+    var L=ligneFront43(r,iv[0],iv[1],2.5);
+    if(st==='pierre' || st==='enduit'){
+      hMur=r.cim ? 2.3 : (st==='pierre' ? 1.6+a1*0.5 : 1.3+a1*0.6); ep=st==='pierre'?0.45:0.32;
+      mur43(tasM,L,ep/2,ep,hMur,colP);
+      if(st==='enduit' || a3<0.4) chaperon43(O.detail,L,ep/2,ep,hMur,st==='enduit'?COUL43.tuile:assombrir(COUL43.tuile,0.95));
+      else chaperon43(O.pierre,L,ep/2,ep,hMur,COUL43.chap);
+      pil=true; hPil=hMur+0.15;
+    } else if(st==='grille'){
+      hMur=0.55+a1*0.3; ep=0.36;
+      mur43(tasM,L,ep/2,ep,hMur,colP);
+      chaperon43(O.pierre,L,ep/2,ep,hMur,COUL43.chap);
+      var hg=0.85+a3*0.3;
+      grille43(O.grille,L,ep/2,hMur+0.07,hg,fer);
+      pil=true; hPil=hMur+hg+0.1; ajoure=true;
+    } else if(st==='muretHaie'){
+      hMur=0.45+a1*0.2; ep=0.34;
+      mur43(tasM,L,ep/2,ep,hMur,colP);
+      chaperon43(O.pierre,L,ep/2,ep,hMur,COUL43.chap);
+      haie(O.haie,ligneDecalee43(L,ep+0.5),0.8,1.35+a3*0.4);
+      pil=true; hPil=hMur+0.6;
+    } else if(st==='haie'){
+      haie(O.haie,ligneDecalee43(L,0.5),0.85,1.2+a1*0.7);
+      ep=0.12; hPil=1.3;
+    } else {
+      grille43(O.grillage,L,0.06,0,1.5,teinte(0xffffff));
+      for(var k=0;k<L.length;k++) tube(O.detail,L[k].x+L[k].nx*0.06,hauteur(L[k].x,L[k].z)-0.2,L[k].z+L[k].nz*0.06, L[k].x+L[k].nx*0.06,hauteur(L[k].x,L[k].z)+1.56,L[k].z+L[k].nz*0.06,0.03,0.03,5,teinte(0x2e4c37),false,true);
+      if(a3<0.55) haie(O.haie,ligneDecalee43(L,0.6),0.8,1.6+a1*0.4);
+      ep=0.12; hPil=1.5;
+    }
+    N.m=(N.m||0)+(iv[1]-iv[0]);
+  });
+  N[st]=(N[st]||0)+1;
+  VILLE43.dernier={st:st, col:colP, pierre:pierre};
+  /* piliers aux deux bouts de la propriété et de part et d'autre du portail */
+  var colPil=(st==='grille' || st==='muretHaie') ? colP : colP;
+  if(pil){
+    pilier43(tasM,pointFront43(r,s0+0.25),ep/2,0.5,hPil,colPil,COUL43.chap);
+    if(gw){ pilier43(tasM,pointFront43(r,g0-0.25),ep/2,0.5,hPil,colPil,COUL43.chap);
+            pilier43(tasM,pointFront43(r,g1+0.25),ep/2,0.5,hPil,colPil,COUL43.chap); }
+  } else if(gw){
+    [g0-0.06,g1+0.06].forEach(function(s){ var P=pointFront43(r,s), x=P.x+P.nx*0.1, z=P.z+P.nz*0.1, y=hauteur(x,z);
+      boiteOr(O.detail,x,y-0.2,z,0.12,hPil+0.25,0.12,Math.atan2(-P.nx,P.nz),teinte(0x3a3d42)); });
+  }
+  if(gw){
+    var hp=r.cim ? 2.0 : (gw>2 ? (pil ? Math.max(1.4,Math.min(hPil-0.15,1.8)) : 1.4) : Math.min(1.3,Math.max(1.0,hPil-0.2)));
+    var aj=ajoure || r.cim || a1>0.6;
+    portail43(O.detail,O.grille,pointFront43(r,g0),pointFront43(r,g1),ep/2,hp,aj?fer:bois,aj,gw>2);
+    N.portails=(N.portails||0)+1;
+    /* boîte aux lettres sur le pilier côté rue */
+    if(!r.cim && a2<0.45){
+      var P=pointFront43(r,g1+0.25);
+      boiteLettres43(O.petit,P,ep/2,pil?0.5:0.12,pil?Math.max(0.9,hPil-0.55):0.95,COUL43.bal[g%COUL43.bal.length]);
+      N.bal=(N.bal||0)+1;
+    }
+  }
+  /* arbustes : on les voit par-dessus la grille, le muret, la haie basse */
+  if(r.cim) return st;
+  var dIn=(st==='haie' || st==='muretHaie' || st==='grillage') ? 1.9 : ep+0.9, haut=(st==='pierre' || st==='enduit');
+  for(var s=s0+1.2;s<s1-0.8;s+=2.6){
+    var h=alea(g+Math.round(s*7),g*3+Math.round(s));
+    if(h>(haut?0.22:0.42)) continue;
+    if(gw && s>g0-0.8 && s<g1+0.8) continue;
+    var P2=pointFront43(r,s), dd=dIn+h*1.4, x=P2.x+P2.nx*dd, z=P2.z+P2.nz*dd;
+    if(bloquer(x,z)) continue;
+    N.arb=(N.arb||0)+arbuste43(O.petit,x,z,g+Math.round(s*13),haut);
+  }
+  return st;
+}
+/* profondeur de la première maison derrière le front, à l'abscisse s */
+function maison43(r,s,max){
+  var P=pointFront43(r,s);
+  for(var d=1;d<=max;d+=1) if(bloquer(P.x+P.nx*d,P.z+P.nz*d)) return d;
+  return 0;
+}
+/* les limites des propriétés : au milieu des vides entre deux maisons,
+   puis en parts de 11 à 20 m là où les maisons se touchent */
+function limites43(r,g){
+  var pas=1, n=Math.floor(r.L/pas), occ=[], k, B=[0];
+  for(k=0;k<=n;k++) occ.push(maison43(r,k*pas,28)>0);
+  var deb=-1, ints=[];
+  for(k=0;k<=n;k++){
+    if(occ[k] && deb<0) deb=k;
+    if((!occ[k] || k===n) && deb>=0){ ints.push([deb*pas,(occ[k]?k:k-1)*pas]); deb=-1; }
+  }
+  for(k=0;k+1<ints.length;k++){
+    var a=ints[k][1], b=ints[k+1][0];
+    if(b-a>=2) B.push((a+b)/2);
+  }
+  B.push(r.L);
+  /* recoupe les parts trop longues, fond les trop courtes */
+  var C=[0];
+  for(k=1;k<B.length;k++){
+    var L=B[k]-B[k-1], m=Math.max(1,Math.round(L/(13+alea(g+k,g*7)*6)));
+    for(var j=1;j<=m;j++) C.push(B[k-1]+L*j/m);
+  }
+  var D=[0];
+  for(k=1;k<C.length;k++){
+    if(C[k]-D[D.length-1]<5 && k<C.length-1) continue;
+    if(C[k]-D[D.length-1]<5 && D.length>1) D.pop();
+    D.push(C[k]);
+  }
+  return D;
+}
+/* la limite entre deux jardins voisins, du front vers le fond */
+function mitoyen43(O,I,Z,r,s,st,g){
+  var P=pointFront43(r,s), dmax=Math.min(30,Math.max(maison43(r,s-4,28),maison43(r,s+4,28),8)+10), d;
+  for(d=0.6;d<dmax;d+=0.5){
+    var x=P.x+P.nx*d, z=P.z+P.nz*d;
+    if(bloquer(x,z) || Z(x,z)===1 || emprise43(I,x,z,-1,0)) break;
+  }
+  d-=0.7;
+  if(d<3) return;
+  var tx=-P.nz, tz=P.nx, pts=[], q, a=alea(g,g*5+1);
+  for(q=0.5;q<=d+0.01;q+=Math.min(2.5,d-0.5)) pts.push(P.x+P.nx*q, P.z+P.nz*q);
+  if(pts.length<4) return;
+  /* les points de la limite, avec une normale pour les murs (vers le voisin) */
+  var L=[];
+  for(q=0;q<pts.length;q+=2) L.push({x:pts[q], z:pts[q+1], nx:tx, nz:tz});
+  var info=VILLE43.dernier||{}, N=VILLE43.n;
+  if(st==='pierre' || st==='enduit' || (st==='grille' && a<0.5)){
+    var h=1.7+a*0.4, col=info.col||COUL43.pierre[0];
+    mur43(info.pierre===false && st==='enduit' ? O.enduit : O.pierre,L,0,0.35,h,col);
+    chaperon43(O.pierre,L,0,0.35,h,COUL43.chap);
+    N.mitM=(N.mitM||0)+d;
+  } else if(st==='grillage' || (a<0.3 && st!=='haie')){
+    grille43(O.grillage,L,0,0,1.5,teinte(0xffffff));
+    for(q=0;q<L.length;q++){ var yq=hauteur(L[q].x,L[q].z); tube(O.detail,L[q].x,yq-0.2,L[q].z, L[q].x,yq+1.56,L[q].z,0.03,0.03,5,teinte(0x2e4c37),false,true); }
+    if(a<0.6) haie(O.haie,pts,0.7,1.5+a*0.5);
+    N.mitG=(N.mitG||0)+d;
+  } else {
+    haie(O.haie,pts,0.8,1.4+a*0.6);
+    N.mitH=(N.mitH||0)+d;
+  }
+}
+function ligneDecalee43(L,d){
+  var p=[];
+  L.forEach(function(P){ p.push(P.x+P.nx*d, P.z+P.nz*d); });
+  return p;
+}
+
+/* ---------- 5. la construction ---------- */
+function clotures43(){
+  if(!Dvoies || !grilleCol) return;
+  var t0=performance.now(), runs=fronts43();
+  var O={pierre:new Tas(65536), enduit:new Tas(32768), detail:new Tas(32768), grille:new Tas(16384),
+         grillage:new Tas(8192), haie:new Tas(32768), petit:new Tas(65536)};
+  VILLE43.n={fronts:runs.length};
+  var I=index43(), Z=zones43();
+  runs.forEach(function(r,ir){
+    var gR=Math.abs(Math.round(r.x[0]*3)*37+Math.round(r.z[0]*3)*11+ir);
+    var B=r.cim ? [0,r.L] : limites43(r,gR);
+    for(var k=0;k+1<B.length;k++){
+      try{
+        var st=propriete43(O,r,B[k],B[k+1],gR+k*101);
+        if(k+1<B.length-1) mitoyen43(O,I,Z,r,B[k+1],st,gR+k*31);
+      }catch(e){ console.warn('clôture :',e); }
+    }
+  });
+  if(!MAT.enduit43){
+    MAT.enduit43=matTexture(faireMurNu(),1.6,{rugo:0.92});
+    MAT.detail43=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.7, metalness:0.1});
+    MAT.grille43=new THREE.MeshStandardMaterial({vertexColors:true, map:grilleTex43(), alphaTest:0.5, side:THREE.DoubleSide, roughness:0.5, metalness:0.45});
+    MAT.petit43=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.85, metalness:0});
+    MAT.petit43.userData.relief=true; MAT.petit43.name='jardins';
+  }
+  var objets=VILLE43.objets=[];
+  function garder(o){ if(o) objets.push(o); return o; }
+  function sansUV(o){ if(o) o.traverse(function(c){ if(c.geometry && c.geometry.attributes.uv) c.geometry.deleteAttribute('uv'); }); }
+  garder(ajouter(O.pierre,MAT.murets,true,true));
+  garder(ajouter(O.enduit,MAT.enduit43,true,true));
+  sansUV(garder(ajouter(O.detail,MAT.detail43,true,true)));
+  garder(ajouter(O.grille,MAT.grille43,false,true));
+  garder(ajouter(O.grillage,MAT.grille||MAT.grille43,false,true));
+  garder(ajouter(O.haie,MAT.haie||MAT.detail43,true,true));
+  var avant=CARRE; CARRE=40;
+  try{ sansUV(garder(ajouter(O.petit,MAT.petit43,false,true))); } finally{ CARRE=avant; }
+  VILLE43.n.ms=Math.round(performance.now()-t0);
+}
+ETAPES.push(['Jardins et clôtures',function(){ try{ clotures43(); }catch(e){ console.warn('jardins :',e); } }]);
+window.ESPACE3D.ville43=VILLE43;
 })();
