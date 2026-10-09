@@ -215786,8 +215786,8 @@ function docxFichesJal(postes,cartes,qrPos,qrWa){
       para(run(z && z.chef ? z.chef : ou(''),{b:true,sz:18}),{ap:10})+
       para(run('Tél. / radio : ',{sz:16})+run(z && z.tel ? z.tel : ou(''),{b:true,sz:17}),{ap:0});
     var carte=cartes[ip];
-    var corps=table([6350,4650],[{h:mm(80),c:[
-      {va:'center', mar:0, mh:0, x:para(carte ? image(carte,11.1,7.9) : run('Carte indisponible',{c:GRIS}),{jc:'center'})},
+    var corps=table([6350,4650],[{h:mm(77),c:[
+      {va:'center', mar:0, mh:0, x:para(carte ? image(carte,11.1,7.6) : run('Carte indisponible',{c:GRIS}),{jc:'center'})},
       {mar:200, x:info}
     ]}]);
     /* QR codes et signaleur */
@@ -215853,16 +215853,16 @@ function docxFichesJal(postes,cartes,qrPos,qrWa){
       {c:contact('PC course',FJ.pc)},
       {c:[{span:3, fond:'FBE9E7', x:para(run('Urgences : ',{b:true,sz:17,c:'B3261E'})+run('15 SAMU · 17 Police · 18 Pompiers · 112 tous secours',{sz:17,c:'B3261E'}),{jc:'center'})}]}
     ])+mini();
-    var corps=table([5450,5550],[{h:mm(121),c:[{mar:150, x:g},{mar:150, x:d}]}]);
+    var corps=table([5450,5550],[{h:mm(117),c:[{mar:150, x:g},{mar:150, x:d}]}]);
     return tete+mini()+corps+mini();
   }
 
   /* ----- feuilles : deux fiches par A4, recto puis verso ----- */
   function feuille(cartes2){
     var bordCarte=bords('single','B8BEC7',6);
-    var lignes=[{h:mm(140),c:[{bords:bordCarte, mar:113, mh:113, x:cartes2[0]||para('')}]},
+    var lignes=[{h:mm(136),c:[{bords:bordCarte, mar:113, mh:113, x:cartes2[0]||para('')}]},
       {h:mm(4),c:[{mar:0, mh:0, va:'center', x:para(run('✂  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·',{c:'9AA3B2',sz:12}),{jc:'center',ligne:200,regle:'exact'})}]},
-      {h:mm(140),c:[{bords:cartes2[1] ? bordCarte : bords('nil'), mar:113, mh:113, x:cartes2[1]||para('')}]}];
+      {h:mm(136),c:[{bords:cartes2[1] ? bordCarte : bords('nil'), mar:113, mh:113, x:cartes2[1]||para('')}]}];
     return table([W],lignes);
   }
   var corps='', ver=verso();
