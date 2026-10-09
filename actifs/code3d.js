@@ -5516,20 +5516,24 @@ function poserBrasJalon(g,bras,opt){
   orienterOs(at,mt,dirT);
   var m2=B['Bip01_'+S+'_Finger2']||B['Bip01_'+S+'_Finger1'];
   if(m2) orienterOs(mt,m2,dirT);
-  /* paume vers l'avant : normale de paume ramenée sur +x autour de l'axe du bras */
-  var i1=B['Bip01_'+S+'_Finger1'], i4=B['Bip01_'+S+'_Finger4']||B['Bip01_'+S+'_Finger3'];
-  if(i1 && i4 && m2){
-    var ph=mt.getWorldPosition(new THREE.Vector3()), p1=i1.getWorldPosition(new THREE.Vector3()), p4=i4.getWorldPosition(new THREE.Vector3());
-    var pm=m2.getWorldPosition(new THREE.Vector3());
-    var le=pm.sub(ph).normalize(), tr=p1.sub(p4).normalize();
-    var n=new THREE.Vector3().crossVectors(le,tr).normalize();
-    if(bras==='g') n.negate();
-    var ax=dirT.clone();
-    var np=n.clone().sub(ax.clone().multiplyScalar(n.dot(ax))).normalize();
-    var cible=avant.clone().sub(ax.clone().multiplyScalar(avant.dot(ax))).normalize();
-    var ang=Math.atan2(new THREE.Vector3().crossVectors(np,cible).dot(ax), np.dot(cible));
-    tournerOsMonde(bt,ax,ang*0.35);
-    tournerOsMonde(mt,ax,ang*0.65);
+  /* pouce vers le haut, paume vers l'avant (Nicolas, 8 oct. 2026 : les
+     jalonneurs tendaient le bras pouce vers le bas). On vise directement le
+     pouce : la normale de paume calculée avant sortait du dos de la main,
+     d'où la main retournée. La rotation autour de l'axe du bras est portée
+     par l'épaule (rotation externe) et un peu par l'avant-bras, jamais par
+     le poignet (sans os de torsion, la peau du poignet se tordait). */
+  var pouce=B['Bip01_'+S+'_Finger01']||B['Bip01_'+S+'_Finger0'];
+  if(pouce){
+    var ax=dirT.clone(), ph=mt.getWorldPosition(new THREE.Vector3());
+    var tp=pouce.getWorldPosition(new THREE.Vector3()).sub(ph);
+    tp.sub(ax.clone().multiplyScalar(tp.dot(ax)));
+    var haut=new THREE.Vector3(0,1,0); haut.sub(ax.clone().multiplyScalar(haut.dot(ax)));
+    if(tp.lengthSq()>1e-8 && haut.lengthSq()>1e-8){
+      tp.normalize(); haut.normalize();
+      var ang=Math.atan2(new THREE.Vector3().crossVectors(tp,haut).dot(ax), tp.dot(haut));
+      tournerOsMonde(bt,ax,ang*0.75);
+      tournerOsMonde(at,ax,ang*0.25);
+    }
   }
   if(opt.brasLibre){ g.updateMatrixWorld(true); return; }
   var bb=B['Bip01_'+A+'_UpperArm'], ab=B['Bip01_'+A+'_Forearm'], mb=B['Bip01_'+A+'_Hand'];
@@ -21093,9 +21097,11 @@ function construireOuvreur(){
   barre(PED,SELLE,0.022,cadre); barre(PED,DOUILLE,0.025,cadre); barre(SELLE,DOUILLE,0.02,cadre);
   barre(AR,PED,0.015,cadre); barre(AR,SELLE,0.013,cadre); barre(DOUILLE,AV,0.02,cadre);
   barre([0.4,0.84,0],[0.42,1.0,0],0.02,cadre); barre([0.42,1.0,-0.22],[0.42,1.0,0.22],0.014,noir);
-  barre([-0.12,0.86,0],[-0.14,0.93,0],0.015,acier);
+  OUVREUR.tige=barre([-0.12,0.86,0],[-0.14,0.93,0],0.015,acier);
   var selle=new THREE.Mesh(new THREE.BoxGeometry(0.24,0.04,0.12),noir); selle.position.set(-0.13,0.95,0); g.add(selle);
-  /* le cycliste */
+  OUVREUR.selle=selle;
+  /* le cycliste (fait main ; remplacé par un vrai personnage dès qu'il est prêt, section 46) */
+  var nAvant=g.children.length;
   var bassin=[-0.1,1.0,0], epaules=[0.2,1.42,0];
   var tronc=new THREE.Mesh(new THREE.CapsuleGeometry(0.15,0.36,4,10),gilet);
   tronc.position.set(0.05,1.21,0); tronc.rotation.z=-1.0; tronc.castShadow=true; g.add(tronc);
@@ -21117,6 +21123,7 @@ function construireOuvreur(){
     OUVREUR.jambes.push({s:s, cu:cu, mo:mo, pied:pied});
   });
   OUVREUR.bassin=new THREE.Vector3().fromArray(bassin); OUVREUR.ped=new THREE.Vector3().fromArray(PED);
+  OUVREUR.cycliste=g.children.slice(nAvant);
   g.visible=false;
   monde.add(g);
   OUVREUR.g=g;
@@ -21138,7 +21145,9 @@ function majOuvreur(dt){
   O.g.rotation.y=-cap;
   var v=VITESSE;
   O.roues.forEach(function(r){ r.rotation.z-=v*dt/0.34; });
-  O.ang+=v*dt/0.34/2.6;
+  /* vu de droite, la pédale passe en haut, puis devant, puis en bas :
+     l'angle décroît (il croissait : le cycliste pédalait en arrière) */
+  O.ang-=v*dt/0.34/2.6;
   /* le pédalier : manivelle de 17 cm, genou trouvé par les deux segments */
   O.jambes.forEach(function(J2){
     var a=O.ang+(J2.s>0?PI:0), s=J2.s*0.11;
@@ -21970,10 +21979,18 @@ if(COULOIR.D) COULOIR.D.fill(-1);
    les pieds ne glissent pas. */
 var FOULEE22={moy:null, os:['Bip01_L_Thigh','Bip01_R_Thigh','Bip01_L_Calf','Bip01_R_Calf',
   'Bip01_L_UpperArm','Bip01_R_UpperArm','Bip01_L_Forearm','Bip01_R_Forearm'], vRef:3.4};
-function moyennesFoulee22(){
-  if(FOULEE22.moy || !FOULE.run) return FOULEE22.moy;
+/* La pose moyenne est celle de l'animation que joue CE coureur : les
+   coureurs MakeHuman ont leur propre course, sur des os orientés autrement
+   que ceux des Rocketbox. Mélangés à la moyenne Rocketbox, cuisses et bras
+   tournaient de 20 à 25° et certains couraient le corps tordu (Nicolas,
+   8 oct. 2026). Une moyenne par animation, calculée une fois. */
+function moyennesFoulee22(clip){
+  clip=clip||FOULE.run;
+  if(!clip) return null;
+  FOULEE22.parClip=FOULEE22.parClip||{};
+  if(FOULEE22.parClip[clip.uuid]) return FOULEE22.parClip[clip.uuid];
   var M={};
-  FOULE.run.tracks.forEach(function(t){
+  clip.tracks.forEach(function(t){
     var k=t.name.lastIndexOf('.'), os=t.name.slice(0,k), pr=t.name.slice(k+1);
     os=os.slice(os.lastIndexOf('/')+1);
     if(pr!=='quaternion' || FOULEE22.os.indexOf(os)<0) return;
@@ -21984,12 +22001,13 @@ function moyennesFoulee22(){
     }
     M[os]=new THREE.Quaternion(s[0],s[1],s[2],s[3]).normalize();
   });
-  FOULEE22.moy=M;
+  FOULEE22.parClip[clip.uuid]=M;
+  if(clip===FOULE.run) FOULEE22.moy=M;
   return M;
 }
 var _qF22=new THREE.Quaternion();
 function appliquerFoulee22(c){
-  var M=moyennesFoulee22();
+  var M=moyennesFoulee22(c.act && c.act.getClip ? c.act.getClip() : FOULE.run);
   if(!M) return;
   var B=c.rig.g.userData.os||(c.rig.g.userData.os=osAvatar(c.rig.g));
   FOULEE22.os.forEach(function(n){
@@ -28623,12 +28641,13 @@ actionLive31=function(a,ds){
 function avatarGarde37(){ try{ var a=JSON.parse(localStorage.getItem('corrida-avatar')||'null'); return a ? avatarValide32(a) : null; }catch(e){ return null; } }
 var _devetir37=devetirJoueur32;
 devetirJoueur32=function(){
-  var g=avatarGarde37();
+  var g=avatarGarde37()||joueurDefaut46();
   if(g){ revetirJoueur32(g); return; }
   return _devetir37();
 };
 ETAPES.push(['Mon coureur',function(){
-  var g=avatarGarde37();
+  /* sans coureur enregistré : le militaire MakeHuman (section 46), tête nue */
+  var g=avatarGarde37()||joueurDefaut46();
   if(g) setTimeout(function(){ try{ revetirJoueur32(g); }catch(e){} },500);
 }]);
 
@@ -29033,7 +29052,7 @@ avatarValide32=function(a){
   r.cc=ent(a&&a.cc, MH40.couleurs.length, MH40.chevPeau[r.p]||0);
   r.y=ent(a&&a.y, MH40.yeux.length, (k>>>8)%MH40.yeux.length);
   r.bb=(r.s==='h' && a && +a.bb===1) ? 1 : 0;           /* barbe */
-  if(a && (a.t==='civil' || a.t==='treillis')) r.t=a.t;   /* tenue de ville (piétons, jalonneurs) */
+  if(a && (a.t==='civil' || a.t==='treillis' || a.t==='militaire')) r.t=a.t;   /* tenue de ville (piétons), treillis (jalonneurs), treillis sans gilet (coureur principal) */
   r.m=preset40(r.s,r.v);
   return r;
 };
@@ -29180,7 +29199,7 @@ function appliquer40(g,av,taille){
         M.map=T[4]; M.color.copy(teintePoils40(coulCh,0.72)); M.needsUpdate=true;
       } else if(n==='chaussures'){
         if(!ud.mh40) M=m.material=chaussures40(T[5],av.c);
-        M.userData.teinte.set(tenue==='treillis' ? '#24211e' : av.c);
+        M.userData.teinte.set((tenue==='treillis' || tenue==='militaire') ? '#24211e' : av.c);
       } else if(n==='haut' || n==='short'){
         m.visible=(tenue==='course');
         if(!m.visible) return;
@@ -29194,10 +29213,10 @@ function appliquer40(g,av,taille){
       } else if(n==='pantalon'){
         m.visible=(tenue!=='course');
         if(!m.visible) return;
-        if(!ud.mh40) M=m.material=(tenue==='treillis') ? camo41() : tissu40(av.b,[0.010,0.035,0.8,0.7]);
-        if(tenue!=='treillis') M.color.set(av.b);
+        if(!ud.mh40) M=m.material=(tenue==='treillis' || tenue==='militaire') ? camo41() : tissu40(av.b,[0.010,0.035,0.8,0.7]);
+        if(tenue!=='treillis' && tenue!=='militaire') M.color.set(av.b);
       } else if(n==='veste'){
-        m.visible=(tenue==='treillis');
+        m.visible=(tenue==='treillis' || tenue==='militaire');
         if(!m.visible) return;
         if(!ud.mh40) M=m.material=camo41();
       } else if(n==='gilet'){
@@ -29653,7 +29672,7 @@ function preparerPNJ41(){
   if(PNJ41.enCours || !EXT.GLTFLoader || !EXT.clone) return;
   if(/iPhone|iPad|iPod/i.test(navigator.userAgent||'')) return;   /* mémoire courte de Safari : on garde les modèles actuels */
   PNJ41.enCours=true;
-  var tel=telephone40(), n={civ:tel?4:10, run:tel?4:8, jal:tel?2:4}, graine=Date.now();
+  var tel=telephone40(), n={civ:tel?4:10, run:tel?4:8, jal:tel?4:8}, graine=Date.now();
   var liste=[];
   for(var i=0;i<n.civ;i++) liste.push(['MH_civil_'+i,'civil',i%2?'f':'h']);
   for(i=0;i<n.run;i++) liste.push(['MH_coureur_'+i,'course',i%2?'f':'h']);
@@ -30736,4 +30755,281 @@ function vie45(){
 }
 ETAPES.push(['Vie de la ville : pigeons, terrasses',function(){ try{ vie45(); }catch(e){ console.warn('vie :',e); } }]);
 window.ESPACE3D.ville45=VILLE45;
+
+/* ===== 46. des personnages plus justes (8 oct. 2026) ===== */
+/* Retours de Nicolas, 8 oct. 2026 :
+   - plus de casquette : ni sur les jalonneurs, ni sur le coureur principal.
+     Les militaires Rocketbox la portent dans la tête même, sans crâne
+     dessous : on ne peut pas l'ôter. Les jalonneurs sont donc les
+     jalonneurs MakeHuman en treillis (8 sur ordinateur, 4 sur téléphone) ;
+     tant qu'ils ne sont pas prêts, et sur iPhone où on ne les construit
+     pas, on ne garde que les variantes sans casquette. Le coureur principal
+     qu'on n'a pas encore composé devient un militaire MakeHuman en treillis,
+     tête nue ;
+   - un vrai cycliste sur le vélo de l'ouvreur, qui pédale dans le bon sens. */
+
+/* ---------- les jalonneurs : des variantes sans casquette ---------- */
+var _varJal46=varJal35;
+varJal35=function(j){
+  var mh=[], nues=[];
+  VARIANTES.forEach(function(n,i){
+    if(n.indexOf('MH_jalon_')===0) mh.push(i);
+    else if(n.indexOf('Female')===0) nues.push(i);
+  });
+  var L=mh.length ? mh : nues;
+  if(!L.length) return _varJal46(j);
+  var k=Math.abs(Math.round((j.la||0)*1e5)*7+Math.round((j.lo||0)*1e5)*13);
+  return L[k%L.length];
+};
+
+/* ---------- le coureur principal, tête nue ---------- */
+function joueurDefaut46(){
+  var av=genAvatar41('coureur principal',{s:'h', tenue:'militaire'});
+  av.ch=1; av.bb=0;
+  return av;
+}
+
+/* ---------- l'ouvreur : un cycliste MakeHuman ---------- */
+/* Sa pose est calculée, pas animée :
+   - la selle est réglée sur ses jambes (jambe presque tendue en bas du
+     coup de pédale), il y est assis, bassin basculé vers l'avant ;
+   - le buste se penche juste assez pour que les mains tombent sur le
+     guidon, coudes légèrement fléchis vers l'extérieur ; la tête se relève
+     pour regarder la route ;
+   - chaque jambe par cinématique inverse à deux os : la plante du pied
+     (l'articulation des orteils) sur la pédale, le genou vers l'avant, la
+     charnière du genou relevée sur la foulée de course (pas de torsion) ;
+     la cheville accompagne le tour de pédale (talon un peu plus bas quand
+     le pied pousse vers l'avant).
+   Le cycliste fait main reste affiché tant que le modèle n'est pas prêt. */
+var OUV46={rig:null, enCours:false, echec:false, manivelles:null};
+function v46(x,y,z){ return new THREE.Vector3(x,y,z); }
+/* direction du repère du vélo (x avant, y haut, z droite) vers le monde */
+function dirVelo46(O,x,y,z){ return v46(x,y,z).transformDirection(O.g.matrixWorld); }
+function ptVelo46(O,x,y,z){ return O.g.localToWorld(v46(x,y,z)); }
+/* cinématique inverse à deux os (épaule-coude-poignet, hanche-genou-cheville) :
+   o1 orienté par son axe et sa charnière, o2 tourné autour de la charnière seulement */
+function ik46(r,T,pole){
+  var o1=r.o1, o2=r.o2;
+  o2.quaternion.copy(r.q2);
+  o1.updateWorldMatrix(true,true);
+  var S0=o1.getWorldPosition(v46()), Lt=r.L1+r.L2;
+  var d=Math.max(Math.abs(r.L1-r.L2)+1e-3,Math.min(Lt*0.999,T.distanceTo(S0)));
+  var u=T.clone().sub(S0).normalize();
+  var a=(r.L1*r.L1-r.L2*r.L2+d*d)/(2*d), hh=Math.sqrt(Math.max(0,r.L1*r.L1-a*a));
+  var pp=pole.clone().addScaledVector(u,-pole.dot(u));
+  if(pp.lengthSq()<1e-8) pp.set(0,1,0).addScaledVector(u,-u.y);
+  pp.normalize();
+  var E=S0.clone().addScaledVector(u,a).addScaledVector(pp,hh), Tc=S0.clone().addScaledVector(u,d);
+  var a1=E.clone().sub(S0).normalize(), a2=Tc.clone().sub(E).normalize();
+  var hw=new THREE.Vector3().crossVectors(a1,a2);
+  if(hw.lengthSq()<1e-8) hw.crossVectors(a1,pp);
+  hw.normalize();
+  var m1=new THREE.Matrix4().makeBasis(r.d1,r.h,new THREE.Vector3().crossVectors(r.d1,r.h));
+  var m2=new THREE.Matrix4().makeBasis(a1,hw,new THREE.Vector3().crossVectors(a1,hw));
+  var Qw=new THREE.Quaternion().setFromRotationMatrix(m2.multiply(m1.transpose()));
+  o1.quaternion.copy(o1.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(Qw));
+  o1.updateMatrixWorld(true);
+  var qI=o1.getWorldQuaternion(new THREE.Quaternion()).invert();
+  var fT=a2.clone().applyQuaternion(qI), fR=r.d2.clone().applyQuaternion(o2.quaternion);
+  fT.addScaledVector(r.h,-fT.dot(r.h)).normalize(); fR.addScaledVector(r.h,-fR.dot(r.h)).normalize();
+  var ang=Math.atan2(new THREE.Vector3().crossVectors(fR,fT).dot(r.h),fR.dot(fT));
+  o2.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(r.h,ang));
+  o2.updateMatrixWorld(true);
+}
+/* tourne un os autour d'un axe monde, dans le sens qui fait croître mesure() */
+function tourner46(os,ax,a,mesure){
+  var q0=os.quaternion.clone(), m0=mesure();
+  tournerOsMonde(os,ax,0.05); var m1=mesure(); os.quaternion.copy(q0); os.updateMatrixWorld(true);
+  tournerOsMonde(os,ax,(m1>m0?1:-1)*a);
+}
+function preparerOuvreur46(){
+  if(OUV46.enCours || OUV46.rig || OUV46.echec) return;
+  if(typeof construireAvatar32!=='function' || typeof genAvatar41!=='function') return;
+  OUV46.enCours=true;
+  var av=genAvatar41('ouvreur à vélo',{s:'h', tenue:'course', h:'#d9ff2e', b:'#15171b', c:'#1a1a1a'});
+  av.ch=1; av.bb=0;
+  construireAvatar32(av,512).then(function(o){
+    var O=OUVREUR;
+    if(!O.g){ OUV46.enCours=false; return; }
+    o.mix.stopAllAction();
+    var R={g:o.g, mix:o.mix, B:{}, corps:null};
+    o.g.traverse(function(x){
+      if(x.isBone) R.B[x.name]=x;
+      if(x.isMesh){ x.castShadow=true; x.frustumCulled=false; if(x.isSkinnedMesh && !R.corps) R.corps=x; }
+    });
+    O.g.add(o.g);
+    installerCycliste46(O,R,o);
+    OUV46.rig=R; OUV46.enCours=false;
+  }).catch(function(e){ console.warn('ouvreur :',e); OUV46.enCours=false; OUV46.echec=true; });
+}
+/* les charnières (coudes, genoux) relevées sur la foulée de course, au
+   moment où chacune est la plus fléchie */
+function charnieres46(R,o){
+  var act=o.acts && o.acts.run, paires=[['L_UpperArm','L_Forearm','L_Hand'],['R_UpperArm','R_Forearm','R_Hand'],
+    ['L_Thigh','L_Calf','L_Foot'],['R_Thigh','R_Calf','R_Foot']], res={};
+  if(!act) return null;
+  o.mix.stopAllAction();
+  act.reset().play(); act.setEffectiveWeight(1);
+  var clip=act.getClip(), best={};
+  for(var i=0;i<16;i++){
+    o.mix.setTime(i*clip.duration/16);
+    paires.forEach(function(p){
+      var o1=R.B['Bip01_'+p[0]], o2=R.B['Bip01_'+p[1]], o3=R.B['Bip01_'+p[2]];
+      var d1=o2.position.clone().normalize(), d2=o3.position.clone().normalize();
+      var f=d2.clone().applyQuaternion(o2.quaternion), ang=d1.angleTo(f);
+      if(!best[p[0]] || ang>best[p[0]].ang) best[p[0]]={ang:ang, q2:o2.quaternion.clone(), h:new THREE.Vector3().crossVectors(d1,f).normalize(), d1:d1, d2:d2, o1:o1, o2:o2, o3:o3};
+    });
+  }
+  act.stop(); o.mix.stopAllAction();
+  return best;
+}
+function installerCycliste46(O,R,o){
+  var B=R.B, G=O.g;
+  var ch=charnieres46(R,o);
+  if(R.corps) R.corps.skeleton.pose();
+  G.updateMatrixWorld(true);
+  /* longueurs des membres, au repos */
+  Object.keys(ch).forEach(function(k){
+    var c=ch[k], p1=c.o1.getWorldPosition(v46()), p2=c.o2.getWorldPosition(v46()), p3=c.o3.getWorldPosition(v46());
+    c.L1=p1.distanceTo(p2); c.L2=p2.distanceTo(p3);
+  });
+  R.ch=ch;
+  /* le pied : de la cheville à l'articulation des orteils, au repos (pied à plat) */
+  var inv=new THREE.Matrix4().copy(G.matrixWorld).invert();
+  function loc(os){ return os.getWorldPosition(v46()).applyMatrix4(inv); }
+  var fa=loc(B.Bip01_R_Foot), ta=loc(B.Bip01_R_Toe0);
+  R.pied={L:Math.hypot(ta.x-fa.x,ta.y-fa.y), a0:Math.atan2(fa.y-ta.y,ta.x-fa.x)};
+  /* côté de chaque jambe dans le repère du vélo */
+  R.cote={L:Math.sign(loc(B.Bip01_L_Thigh).z)||-1, R:Math.sign(loc(B.Bip01_R_Thigh).z)||1};
+  R.largeur=Math.max(0.08,Math.abs(loc(B.Bip01_R_Thigh).z-loc(B.Bip01_L_Thigh).z)/2);
+  /* le casque, sur la tête au repos (debout, regard vers +x) */
+  var tete=B.Bip01_Head, pt=loc(tete);
+  var M=function(c,r,m){ return new THREE.MeshStandardMaterial({color:c, roughness:r, metalness:m||0}); };
+  var cq=new THREE.Mesh(new THREE.SphereGeometry(0.124,18,10,0,2*PI,0,PI*0.52),M(0xf4f4f4,0.35));
+  cq.scale.set(1.15,0.86,0.97); cq.position.set(pt.x-0.016,pt.y+0.064,pt.z); cq.castShadow=true;
+  O.g.add(cq); cq.updateMatrixWorld(true); tete.attach(cq);
+  var nez=tete.worldToLocal(ptVelo46(O,pt.x+0.3,pt.y+0.05,pt.z));
+  /* la pose fixe du haut du corps */
+  var lat=dirVelo46(O,0,0,1);
+  /* bassin basculé vers l'avant */
+  tourner46(B.Bip01_Pelvis,lat,0.32,function(){ return loc(B.Bip01_Spine1).x; });
+  /* la hauteur de selle : jambe presque tendue en bas du coup de pédale */
+  function cheville(a,s){
+    var P=v46(O.ped.x+Math.cos(a)*0.17, O.ped.y+Math.sin(a)*0.17+0.03, s*R.largeur), b=R.pied.a0+0.25-0.12*Math.sin(a);
+    return P.add(v46(-Math.cos(b)*R.pied.L, Math.sin(b)*R.pied.L, 0));
+  }
+  R.cheville=cheville;
+  var hanche=v46(-0.11,0,0), Lj=ch.R_Thigh.L1+ch.R_Thigh.L2, yh=1.2;
+  for(var y=1.25;y>0.75;y-=0.004){
+    var mx=0; for(var k=0;k<24;k++){ var a=k/24*2*PI; mx=Math.max(mx,cheville(a,1).distanceTo(v46(hanche.x,y,R.largeur))); }
+    yh=y; if(mx<=0.955*Lj) break;
+  }
+  hanche.y=yh;
+  /* poser le corps : milieu des hanches sur ce point */
+  G.updateMatrixWorld(true);
+  var mil=loc(B.Bip01_L_Thigh).add(loc(B.Bip01_R_Thigh)).multiplyScalar(0.5);
+  R.g.position.add(hanche.clone().sub(mil));
+  /* la selle et sa tige suivent */
+  var hs=yh-0.095;
+  if(O.selle){ O.selle.position.y=hs; O.selle.position.x=hanche.x-0.02; }
+  if(O.tige){ O.g.remove(O.tige); }
+  var tA=v46(-0.12,0.86,0), tB=v46(hanche.x-0.025,hs-0.015,0);
+  var tg=new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,tA.distanceTo(tB),8),M(0xb7bcc2,0.3,0.8));
+  tg.position.copy(tA).add(tB).multiplyScalar(0.5); tg.quaternion.setFromUnitVectors(v46(0,1,0),tB.clone().sub(tA).normalize());
+  O.g.add(tg); O.tige=tg;
+  G.updateMatrixWorld(true);
+  /* le buste : penché juste assez pour que les mains tombent sur le guidon */
+  var poignets={L:v46(0.37,1.035,R.cote.L*0.175), R:v46(0.37,1.035,R.cote.R*0.175)};
+  var sp=[B.Bip01_Spine,B.Bip01_Spine1,B.Bip01_Spine2], q0=sp.map(function(o){ return o.quaternion.clone(); });
+  var La=ch.R_UpperArm.L1+ch.R_UpperArm.L2, mieux=null;
+  for(var l=0.1;l<=1.3;l+=0.025){
+    sp.forEach(function(o,i){ o.quaternion.copy(q0[i]); });
+    sp.forEach(function(o){ tourner46(o,lat,l/3,function(){ return loc(B.Bip01_Neck).x; }); });
+    G.updateMatrixWorld(true);
+    var e=Math.abs(loc(B.Bip01_R_UpperArm).distanceTo(poignets.R)-0.86*La);
+    if(!mieux || e<mieux[0]) mieux=[e,l];
+  }
+  sp.forEach(function(o,i){ o.quaternion.copy(q0[i]); });
+  sp.forEach(function(o){ tourner46(o,lat,mieux[1]/3,function(){ return loc(B.Bip01_Neck).x; }); });
+  /* la tête se relève : regard vers la route, un peu plongeant */
+  G.updateMatrixWorld(true);
+  function regardBas(){ var w=tete.localToWorld(nez.clone()).applyMatrix4(inv); var c=loc(tete); return -(w.y-c.y)/Math.max(1e-3,w.x-c.x); }
+  var pente=regardBas(), cible=Math.tan(0.18);
+  if(pente>cible){ var an=Math.atan(pente)-0.18; tourner46(B.Bip01_Neck,lat,an*0.5,function(){ return -regardBas(); }); tourner46(tete,lat,an*0.5,function(){ return -regardBas(); }); }
+  /* les bras : mains sur le guidon, coudes un peu fléchis vers l'extérieur */
+  ['L','R'].forEach(function(S){
+    var c=ch[S+'_UpperArm'], s=R.cote[S];
+    ik46(c,ptVelo46(O,poignets[S].x,poignets[S].y,poignets[S].z),dirVelo46(O,-0.35,-0.45,s*0.8));
+    var main=B['Bip01_'+S+'_Hand'], doigt=B['Bip01_'+S+'_Finger2'];
+    if(main && doigt) orienterOs(main,doigt,dirVelo46(O,0.75,-0.55,s*0.05));
+  });
+  /* « OUVREUR » dans le dos */
+  G.updateMatrixWorld(true);
+  var cou=loc(B.Bip01_Neck), bas=loc(B.Bip01_Spine1), u=cou.clone().sub(bas).normalize(), nd=new THREE.Vector3().crossVectors(v46(0,0,1),u).normalize();
+  var c2=toile(256,64), cg=c2.getContext('2d'); cg.fillStyle='#d9ff2e'; cg.fillRect(0,0,256,64); cg.fillStyle='#111'; cg.font='900 44px system-ui, sans-serif'; cg.textAlign='center'; cg.textBaseline='middle'; cg.fillText('OUVREUR',128,34);
+  var tx=new THREE.CanvasTexture(c2); tx.colorSpace=THREE.SRGBColorSpace;
+  var dos=new THREE.Mesh(new THREE.PlaneGeometry(0.26,0.065),new THREE.MeshStandardMaterial({map:tx, roughness:0.6}));
+  /* posé à plat sur le dos : on cherche la surface du maillot le long de la normale */
+  var cen=bas.clone().lerp(cou,0.56), ecart=0.095;
+  try{
+    var ray=new THREE.Raycaster(ptVelo46(O,cen.x+nd.x*0.4,cen.y+nd.y*0.4,cen.z+nd.z*0.4),dirVelo46(O,-nd.x,-nd.y,-nd.z),0,0.45), cibles=[];
+    R.g.updateMatrixWorld(true);
+    R.g.traverse(function(x){ if(x.isSkinnedMesh && x.visible){ x.skeleton.update(); x.boundingSphere=null; cibles.push(x); } });
+    var hit=ray.intersectObjects(cibles,false)[0];
+    if(hit) ecart=Math.max(0.03,Math.min(0.16,0.4-hit.distance+0.024));
+  }catch(e){}
+  cen.addScaledVector(nd,ecart);
+  dos.position.copy(cen); dos.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(v46(0,0,1),u,nd));
+  O.g.add(dos); dos.updateMatrixWorld(true); B.Bip01_Spine2.attach(dos);
+  /* la pose fixe est gardée ; les jambes sont recalculées à chaque image */
+  R.fixe=[]; R.g.traverse(function(x){ if(x.isBone) R.fixe.push([x,x.quaternion.clone()]); });
+  /* le cycliste fait main disparaît */
+  (O.cycliste||[]).forEach(function(m){ m.visible=false; });
+}
+function poserCycliste46(O){
+  var R=OUV46.rig; if(!R) return;
+  R.fixe.forEach(function(e){ e[0].quaternion.copy(e[1]); });
+  O.g.updateMatrixWorld(true);
+  ['L','R'].forEach(function(S){
+    var s=R.cote[S], a=O.ang+(s>0?PI:0), c=R.ch[S+'_Thigh'];
+    var A=R.cheville(a,s);
+    ik46(c,O.g.localToWorld(A),dirVelo46(O,1,0.15,s*0.12));
+    /* le pied : orteils sur la pédale */
+    var b=R.pied.a0+0.25-0.12*Math.sin(a), pied=R.B['Bip01_'+S+'_Foot'], orteil=R.B['Bip01_'+S+'_Toe0'];
+    if(pied && orteil) orienterOs(pied,orteil,dirVelo46(O,Math.cos(b),-Math.sin(b),0));
+  });
+}
+/* manivelles et pédales, pour qu'on voie le pédalier tourner */
+function manivelles46(O){
+  if(OUV46.manivelles || !O.g) return;
+  var M=new THREE.MeshStandardMaterial({color:0x2a2d33, roughness:0.4, metalness:0.6}), L=[];
+  [-1,1].forEach(function(s){
+    var bras=new THREE.Mesh(new THREE.BoxGeometry(0.17,0.025,0.012),M), ped=new THREE.Mesh(new THREE.BoxGeometry(0.09,0.02,0.1),M);
+    bras.castShadow=ped.castShadow=true; O.g.add(bras); O.g.add(ped); L.push({s:s, bras:bras, ped:ped});
+  });
+  var axe=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,0.06,14),M); axe.rotation.x=PI/2; axe.position.copy(O.ped); O.g.add(axe);
+  OUV46.manivelles=L;
+}
+function majManivelles46(O){
+  manivelles46(O);
+  (OUV46.manivelles||[]).forEach(function(m){
+    var a=O.ang+(m.s>0?PI:0), z=m.s*0.075;
+    m.bras.position.set(O.ped.x+Math.cos(a)*0.085, O.ped.y+Math.sin(a)*0.085, z); m.bras.rotation.set(0,0,a);
+    var w=(OUV46.rig ? OUV46.rig.largeur : 0.11);
+    m.ped.position.set(O.ped.x+Math.cos(a)*0.17, O.ped.y+Math.sin(a)*0.17, m.s*Math.max(w,0.09));
+  });
+}
+var _majOuv46=majOuvreur;
+majOuvreur=function(dt){
+  _majOuv46(dt);
+  var O=OUVREUR;
+  if(!O.g || !O.g.visible) return;
+  try{
+    preparerOuvreur46();
+    majManivelles46(O);
+    if(OUV46.rig) poserCycliste46(O);
+  }catch(e){ if(!OUV46.err){ OUV46.err=true; console.warn('ouvreur :',e); } }
+};
+window.ESPACE3D.ouvreur46=OUV46;
 })();
