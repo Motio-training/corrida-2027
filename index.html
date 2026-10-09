@@ -212983,7 +212983,7 @@ function zjDepuis(o){
   var pts=[], i;
   for(i=0;i+1<o.pts.length;i+=2) pts.push([+o.pts[i], +o.pts[i+1]]);
   return {nom:String(o.nom||'Zone'), couleur:(/^#[0-9a-fA-F]{6}$/.test(o.couleur||'') ? o.couleur : '#3B82F6'), pts:pts,
-    chef:String(o.chef||''), tel:String(o.tel||''), notes:String(o.notes||''),
+    chef:String(o.chef||''), tel:String(o.tel||''), notes:String(o.notes||''), wa:String(o.wa||''),
     mat:(Array.isArray(o.mat) ? o.mat.filter(Array.isArray).map(function(m){ return [String(m[0]||''), String(m[1]===undefined||m[1]===null ? '' : m[1])]; }) : [])};
 }
 function zjVers(z){
@@ -212993,15 +212993,25 @@ function zjVers(z){
   if(z.chef) o.chef=z.chef;
   if(z.tel) o.tel=z.tel;
   if(z.notes) o.notes=z.notes;
+  if(z.wa) o.wa=z.wa;
   var m=z.mat.filter(function(x){ return x[0] || x[1]; });
   if(m.length) o.mat=m.map(function(x){ return x.slice(); });
   return o;
 }
-paquet=(function(orig){ return function(){ var p=orig(); p.zones_jal=ZJ.map(zjVers); return p; }; })(paquet);
+/* Fiches jalonneurs : réglages communs (prise de poste, regroupement,
+   contacts sécurité, antenne médicale, PC course), clé fiche_jal du
+   paquet ; un parcours qui n'en a pas garde ceux qui sont chargés. */
+var FJ={prise:'18:15', regroupement:'', secu:['',''], med:['',''], pc:['','']};
+function fjDepuis(o){
+  function paire(p){ return Array.isArray(p) ? [String(p[0]||''), String(p[1]||'')] : ['','']; }
+  return {prise:String(o.prise||'18:15'), regroupement:String(o.regroupement||''), secu:paire(o.secu), med:paire(o.med), pc:paire(o.pc)};
+}
+paquet=(function(orig){ return function(){ var p=orig(); p.zones_jal=ZJ.map(zjVers); p.fiche_jal=JSON.parse(JSON.stringify(FJ)); return p; }; })(paquet);
 chargerEtat=(function(orig){
   return function(data,refRef){
     if(!data) return orig(data,refRef);
     var avant=ZJ;
+    if(data.fiche_jal && typeof data.fiche_jal==='object') FJ=fjDepuis(data.fiche_jal);
     ZJ=Array.isArray(data.zones_jal) ? data.zones_jal.map(zjDepuis).filter(Boolean) : [];
     var ok=orig(data,refRef);
     if(!ok) ZJ=avant;
@@ -213837,7 +213847,7 @@ function imageParcoursSVG(ch){
   var kk=(L-2*marge)/larg, cart=(ch.cTitre||ch.cChiffres||ch.cEchelle||ch.cNord);
   var H=Math.round(haut*kk+2*marge+(cart?92:0));
   k=kk; tx=marge-mnx*k; ty=marge-mny*k;
-  TAILLE=s.T*(L/VBW);
+  TAILLE=s.T*(L/VBW)*(ch.taille||1);   /* ch.taille : repères agrandis pour une carte imprimée petite */
   SELC=null;
   /* le matériel partage un seul calque : on filtre les listes le temps du dessin */
   var tousEq=ch.bar&&ch.rub&&ch.mat&&ch.veh&&ch.pol&&ch.zones;
@@ -214912,6 +214922,7 @@ function ouvrirFicheZJ(z){
       '<label class="zj-ch">Couleur<input type="color" data-f="couleur" style="width:60px;height:30px;padding:0;border:1px solid var(--trait-fort);background:none;cursor:pointer"></label>'+
       '<label class="zj-ch">Chef de zone<input type="text" data-f="chef" placeholder="Grade, nom"></label>'+
       '<label class="zj-ch">Téléphone ou indicatif radio<input type="text" data-f="tel" placeholder="06 …"></label></div>'+
+      '<label class="zj-ch">Lien d’invitation du groupe WhatsApp de la zone (le QR code des fiches jalonneurs en est tiré)<input type="text" data-f="wa" placeholder="https://chat.whatsapp.com/…"></label>'+
       '<label class="zj-ch">Consignes particulières<textarea data-f="notes" rows="4" placeholder="Accès des secours, riverains, point de regroupement, horaire de mise en place…"></textarea></label>'+
       '<div><div class="menu-titre" style="margin-bottom:4px">Matériel particulier</div>'+
       '<p class="mode" style="margin:0 0 6px">Panneaux kilométriques, barrières, rubalise et équipements posés dans la zone sont comptés tout seuls. Ajoute ici le reste (choix proposés ou texte libre).</p>'+
@@ -214949,7 +214960,7 @@ function ouvrirFicheZJ(z){
   }
   m.__z=z;
   m.querySelector('h2').textContent='Fiche · '+z.nom;
-  ['nom','chef','tel','notes'].forEach(function(f){ m.querySelector('[data-f="'+f+'"]').value=z[f]||''; });
+  ['nom','chef','tel','notes','wa'].forEach(function(f){ m.querySelector('[data-f="'+f+'"]').value=z[f]||''; });
   m.querySelector('[data-f="couleur"]').value=z.couleur.toLowerCase();
   remplirMatZJ(m);
   var b=zjBilan(z), ul=m.querySelector('.zj-auto'), lignes=[];
@@ -215075,7 +215086,7 @@ function zjCadreGeneral(){
    épais). On donne aux rues leur largeur réelle, blanches bordées sur fond
    clair, et on affine les contours. */
 var ZJ_ROUTES={'#242D3C':2.2, '#283341':1.4, '#2E3B4D':6.5, '#42536F':9};
-function zjRetoucheFond(clair,cadre){
+function zjRetoucheFond(clair,cadre,fPolice){
   return function(c,kk,mpu){
     var V=c.querySelector('#vecteur');
     if(!V) return;
@@ -215092,7 +215103,7 @@ function zjRetoucheFond(clair,cadre){
       g.setAttribute('stroke-linecap','round');
       if(clair){
         var b=g.cloneNode(true);
-        b.setAttribute('stroke','#B7AD99'); b.setAttribute('stroke-width',(w+1.1/mpu).toFixed(4));
+        b.setAttribute('stroke','#B7AD99'); b.setAttribute('stroke-width',(w+Math.min(1.1/mpu,5/kk)).toFixed(4));
         bordures.push([par,b]);
         g.setAttribute('stroke','#FFFFFF');
       }
@@ -215104,7 +215115,7 @@ function zjRetoucheFond(clair,cadre){
       var g=c.querySelector('#'+id);
       if(g) Array.prototype.slice.call(g.querySelectorAll('[stroke-width]')).forEach(function(p){ p.setAttribute('stroke-width',(+p.getAttribute('stroke-width')*1.6).toFixed(2)); });
     });
-    if(cadre) zjNomsRues(V,kk,cadre,clair);
+    if(cadre) zjNomsRues(V,kk,cadre,clair,fPolice);
   };
 }
 /* noms des rues le long de chaque voie nommée qui traverse le cadre */
@@ -215124,9 +215135,10 @@ function zjVoies(){
   });
   return ZJ_VOIES;
 }
-function zjNomsRues(V,kk,cadre,clair){
-  var g=el('g',{'font-family':'Arial, Helvetica, sans-serif','font-size':(12.5/kk).toFixed(4),'font-style':'italic',
-    fill:clair?'#4A4234':'#C9CED4', stroke:clair?'#FFFFFF':'#0B1019','stroke-width':(3/kk).toFixed(4),'paint-order':'stroke','stroke-linejoin':'round'});
+function zjNomsRues(V,kk,cadre,clair,fPolice){
+  var fp=fPolice||1;
+  var g=el('g',{'font-family':'Arial, Helvetica, sans-serif','font-size':(12.5*fp/kk).toFixed(4),'font-style':'italic',
+    fill:clair?'#4A4234':'#C9CED4', stroke:clair?'#FFFFFF':'#0B1019','stroke-width':(3*fp/kk).toFixed(4),'paint-order':'stroke','stroke-linejoin':'round'});
   var m=(cadre[2]-cadre[0])*0.04, x0=cadre[0]+m, x1=cadre[2]-m, y0=cadre[1]+m, y1=cadre[3]-m, faits={};
   function dedans(p){ return p[0]>=x0 && p[0]<=x1 && p[1]>=y0 && p[1]<=y1; }
   zjVoies().forEach(function(v){
@@ -215139,7 +215151,7 @@ function zjNomsRues(V,kk,cadre,clair){
       if(!best || L>best.L) best={a:a, b:b, L:L};
     }
     if(!best || faits[v.nom]) return;
-    var larg=v.nom.length*6.6/kk;
+    var larg=v.nom.length*6.6*fp/kk;
     if(best.L<larg*1.05) return;
     faits[v.nom]=1;
     var ang=Math.atan2(best.b[1]-best.a[1],best.b[0]-best.a[0])*180/Math.PI;
@@ -215158,8 +215170,8 @@ function zjChoixImage(cadre,focus){
     plan:false, sat:(f==='sat'), trace:true, halo:true, fleches:true, km:true, da:true, autres:false,
     jal:true, jalNum:true, bar:true, rub:true, mat:true, veh:true, pol:true, zones:true, pois:false, piste:false,
     cTitre:false, cChiffres:false, cEchelle:true, cNord:true,
-    clair:(f==='dessin' || f==='plan'), dessin:(f==='dessin'), couleur:'', cadre:cadre,
-    retouche:(focus && (f==='dessin' || f==='sombre')) ? zjRetoucheFond(f==='dessin',cadre) : null};
+    clair:(f==='dessin' || f==='plan'), dessin:(f==='dessin'), couleur:'', cadre:cadre, taille:focus ? 1.3 : 1,
+    retouche:(focus && (f==='dessin' || f==='sombre')) ? zjRetoucheFond(f==='dessin',cadre,1.7) : null};
 }
 /* peinture d'un SVG en JPEG (plus léger que le PNG dans le document) */
 function zjPeindre(svgTxt,L,H,largeur){
@@ -215192,7 +215204,8 @@ function zjImage(z,largeur){
   finally{ ZJ_VIS=vis; ZJ_FOCUS=null; SELZ=(sel && ZJ.indexOf(sel)>=0) ? sel : null; dessinerZJ(); }
   return zjPeindre(r.txt,r.L,r.H,largeur);
 }
-function docxZJ(images){
+function docxZJ(images,qrs){
+  qrs=qrs||{};
   var H=zjHoraires();
   if(!H) throw new Error('heure ou allure illisible (écrire 19:00, 3:00, 12:00)');
   var ENCRE='1A2433', GRIS='5A6579', OR='8A5510', VERT='215158', FOND='EDEFE9', LARGEUR=9638;
@@ -215220,15 +215233,15 @@ function docxZJ(images){
   var idImg=0, rels=[], medias=[];
   function image(im,largCm,hautMax){
     idImg++;
-    var nom='media/image'+idImg+'.jpeg', rid='rIdImg'+idImg;
+    var ext=im.ext||'jpeg', nom='media/image'+idImg+'.'+ext, rid='rIdImg'+idImg;
     rels.push('<Relationship Id="'+rid+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="'+nom+'"/>');
     medias.push({nom:'word/'+nom, data:im.data});
     var cx=Math.round(largCm*360000), cy=Math.round(cx*im.h/im.l), mx=Math.round(hautMax*360000);
     if(cy>mx){ cx=Math.round(cx*mx/cy); cy=mx; }
-    return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="'+cx+'" cy="'+cy+'"/><wp:docPr id="'+idImg+'" name="Carte '+idImg+'"/>'+
+    return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="'+cx+'" cy="'+cy+'"/><wp:docPr id="'+idImg+'" name="Image '+idImg+'"/>'+
       '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'+
       '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'+
-      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="'+idImg+'" name="carte'+idImg+'.jpeg"/><pic:cNvPicPr/></pic:nvPicPr>'+
+      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="'+idImg+'" name="image'+idImg+'.'+ext+'"/><pic:cNvPicPr/></pic:nvPicPr>'+
       '<pic:blipFill><a:blip r:embed="'+rid+'"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'+
       '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+cx+'" cy="'+cy+'"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'+
       '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
@@ -215240,7 +215253,6 @@ function docxZJ(images){
 
   var total=CUM.length ? CUM[CUM.length-1] : 0, nomP=nomParcours();
   var anc=ancragesRubalise(), bilans=ZJ.map(function(z){ return zjBilan(z,anc); });
-  var dotation=ZJ_WORD.dotation.split(/[,;\n]/).map(function(s){ s=s.trim(); return s.charAt(0).toUpperCase()+s.slice(1); }).filter(Boolean);
   var corps='', iImg=0;
   var sousTitre='Parcours '+nomP+' · '+kmTxt(total)+' km · départ '+hEsp(H.t0)+' · premier coureur à '+allureTxt(RUES_HOR.tete)+', dernier à '+allureTxt(RUES_HOR.dernier);
 
@@ -215311,28 +215323,28 @@ function docxZJ(images){
     corps+=titreSection('Jalonneurs ('+b.jal.length+')');
     if(!b.jal.length) corps+=para(run('Aucun jalonneur dans cette zone.',{i:true,c:GRIS}));
     else {
-      var lj=[560,4300,2000,2778];
-      corps+=tableau(lj,['N°','Emplacement','1er → dernier coureur','Signaleur (nom, tél.)'],b.jal.map(function(x){
+      var lj=[560,3700,1650,1250,2478];
+      corps+=tableau(lj,['N°','Emplacement','1er → dernier coureur','Position','Signaleur (nom, tél.)'],b.jal.map(function(x){
         var j=x.j, C=zjConsignes(j), emp=zjEmplacement(j.la,j.lo);
         var hor=C.map(function(c){ return (C.length>1 ? 'km '+kmTxt(c.d)+' : ' : '')+heureH(H.entree(c.d,H.aT))+' → '+heureH(H.sortie(c.d,H.aD)); }).join('\n');
+        var q=qrs[x.n];
         return [
           {x:para(run(String(x.n),{b:true,sz:22,c:j.niv==='r'?'B3261E':'B8651B'}),{jc:'center'})},
           {x:para(run(emp||'Position GPS',{b:!!emp}))+para(run('km '+kmTxt(C[0].d)+' · '+j.la.toFixed(5)+', '+j.lo.toFixed(5),{c:GRIS,sz:16}))},
           {x:para(run(hor,{sz:18}),{jc:'center'})},
+          {x:q ? para(image(q,1.9,1.9),{jc:'center'})+para(run('Google Maps',{c:GRIS,sz:12}),{jc:'center'}) : para('')},
           {x:para('')}
         ];
       }));
     }
-    /* matériel */
+    /* matériel : panneaux kilométriques, barrières, rubalise, gilets */
     corps+=titreSection('Matériel');
     var lm=[], nbJ=b.jal.length, nb=b.poses+b.ancrages;
     function lig(nom,q,det){ lm.push([{x:para(run(nom,{b:true,sz:19}))},{x:para(run(String(q),{b:true,sz:19}),{jc:'center'})},{x:para(run(det||'',{c:GRIS,sz:18}))}]); }
     if(b.bornes.length) lig('Panneau'+(b.bornes.length>1?'x':'')+' kilométrique'+(b.bornes.length>1?'s':''),b.bornes.length,'km '+b.bornes.join(', '));
     if(nb) lig('Barrières municipales',nb,b.ancrages ? (b.poses ? b.poses+' posée'+(b.poses>1?'s':'')+' + ' : '')+b.ancrages+' d’ancrage de rubalise' : '');
     if(b.rub) lig('Rubalise',b.rub+' m','soit '+Math.max(1,Math.ceil(b.rub*1.1/ROULEAU_M))+' rouleau'+(Math.ceil(b.rub*1.1/ROULEAU_M)>1?'x':'')+' de '+ROULEAU_M+' m (10 % de marge)');
-    Object.keys(b.veh).forEach(function(t){ lig((VEH_TYPES[t] && VEH_TYPES[t].nom) || t,b.veh[t],''); });
-    if(nbJ) dotation.forEach(function(d){ lig(d,nbJ,'un par jalonneur'); });
-    z.mat.forEach(function(m){ if(m[0] || m[1]) lig(m[0]||'(sans nom)',m[1]||'',''); });
+    if(nbJ) lig('Gilets haute visibilité',nbJ,'un par jalonneur');
     if(!lm.length) corps+=para(run('Aucun matériel particulier.',{i:true,c:GRIS}));
     else corps+=tableau([4000,1100,4538],['Matériel','Quantité','Précisions'],lm);
     /* consignes */
@@ -215351,13 +215363,24 @@ function docxZJ(images){
   return zipStocke([
     {nom:'[Content_Types].xml', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
       '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'+
-      '<Default Extension="jpeg" ContentType="image/jpeg"/>'+
+      '<Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/>'+
       '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'},
     {nom:'_rels/.rels', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
     {nom:'word/_rels/document.xml.rels', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+rels.join('')+'</Relationships>'},
     {nom:'word/document.xml', txt:doc}
   ].concat(medias));
+}
+/* QR code de la position d'un jalonneur : ouvre Google Maps (application ou site) sur le point */
+function lienMapsJal(j){ return 'https://maps.google.com/?q='+j.la.toFixed(6)+','+j.lo.toFixed(6); }
+/* QR codes des jalonneurs rangés dans les zones, par numéro */
+function qrsJalonneurs(){
+  var out={}, l=[];
+  ZJ.forEach(function(z){ zjBilan(z).jal.forEach(function(x){ if(!out[x.n]){ out[x.n]=1; l.push(x); } }); });
+  out={};
+  return l.reduce(function(p,x){
+    return p.then(function(){ return qrPNG(lienMapsJal(x.j),8); }).then(function(im){ out[x.n]=im; });
+  },Promise.resolve()).then(function(){ return out; });
 }
 /* images puis document ; le navigateur respire entre deux cartes */
 function produireWordZJ(etat){
@@ -215379,8 +215402,11 @@ function produireWordZJ(etat){
       .then(function(im){ images.push(im); i++; return suite(); });
   }
   return suite().then(function(){
+    if(etat) etat('QR codes des jalonneurs…');
+    return qrsJalonneurs();
+  }).then(function(qrs){
     if(etat) etat('Assemblage du document…');
-    try{ return docxZJ(images); } finally { ZJ_RUES=null; }
+    try{ return docxZJ(images,qrs); } finally { ZJ_RUES=null; }
   });
 }
 function ouvrirWordZJ(){
@@ -215391,14 +215417,13 @@ function ouvrirWordZJ(){
     function champ(id,lib,aide){ return '<label class="mode" style="display:grid;grid-template-columns:200px 110px 1fr;align-items:center;gap:10px;margin:0">'+lib+
       '<input id="'+id+'" type="text" style="width:100px"><span style="opacity:.75">'+aide+'</span></label>'; }
     m.innerHTML='<div class="modale-in" style="width:min(660px,100%)"><h2>Récapitulatif des zones</h2>'+
-      '<p class="mode">Un document Word : une page de synthèse, puis une page par zone avec la carte centrée sur la zone, le passage des coureurs, les jalonneurs (emplacement, consigne, horaires, case pour le nom du signaleur), le matériel et les consignes.</p>'+
+      '<p class="mode">Un document Word : une page de synthèse, puis une page par zone avec la carte centrée sur la zone, le passage des coureurs, les jalonneurs (emplacement, horaires, QR code de la position, case pour le nom du signaleur), le matériel et les consignes.</p>'+
       champ('zw-depart','Heure de départ','ex. 19:00')+
       champ('zw-tete','Allure du premier coureur','min:s par km, ex. 3:00')+
       champ('zw-dernier','Allure du dernier coureur','min:s par km, ex. 12:00')+
       '<div class="mode" style="display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center"><span class="menu-titre" style="margin:0">Fond des cartes</span>'+
       '<label><input type="radio" name="zw-fond" value="dessin"> Dessin clair</label><label><input type="radio" name="zw-fond" value="sombre"> Dessin sombre</label>'+
       '<label><input type="radio" name="zw-fond" value="plan"> Plan OpenStreetMap</label><label><input type="radio" name="zw-fond" value="sat"> Satellite</label></div>'+
-      '<label class="zj-ch">Dotation de chaque jalonneur (séparer par des virgules, laisser vide pour ne rien compter)<input type="text" id="zw-dotation"></label>'+
       '<label class="mode" style="display:flex;gap:8px;align-items:center;margin:0"><input type="checkbox" id="zw-synthese"> Page de synthèse (vue d’ensemble, tableau de toutes les zones, contrôle des jalonneurs hors zone)</label>'+
       '<p class="mode" id="zw-etat"></p>'+
       '<div class="modale-actions"><button id="zw-ok" class="primaire">Télécharger (.docx)</button><button id="zw-non">Fermer</button></div></div>';
@@ -215414,7 +215439,6 @@ function ouvrirWordZJ(){
     Array.prototype.slice.call(m.querySelectorAll('input[name="zw-fond"]')).forEach(function(r){
       r.addEventListener('change',function(){ if(r.checked){ ZJ_WORD.fond=r.value; retenirWordZJ(); } });
     });
-    m.querySelector('#zw-dotation').addEventListener('input',function(){ ZJ_WORD.dotation=this.value; retenirWordZJ(); });
     m.querySelector('#zw-synthese').addEventListener('change',function(){ ZJ_WORD.synthese=this.checked; retenirWordZJ(); });
     m.addEventListener('click',function(ev){ if(ev.target===m && !m.__occupe) m.hidden=true; });
     m.querySelector('#zw-non').onclick=function(){ m.hidden=true; };
@@ -215434,12 +215458,563 @@ function ouvrirWordZJ(){
   }
   Object.keys(m.__cles).forEach(function(k2){ m.querySelector('#'+m.__cles[k2]).value=RUES_HOR[k2]; });
   Array.prototype.slice.call(m.querySelectorAll('input[name="zw-fond"]')).forEach(function(r){ r.checked=(r.value===ZJ_WORD.fond); });
-  m.querySelector('#zw-dotation').value=ZJ_WORD.dotation;
   m.querySelector('#zw-synthese').checked=ZJ_WORD.synthese;
   m.querySelector('h2').textContent='Récapitulatif des zones · parcours '+nomParcours();
   m.querySelector('#zw-etat').textContent=ZJ.length ? ZJ.length+' zone'+(ZJ.length>1?'s':'')+' sur ce parcours.' : 'Aucune zone sur ce parcours : Ajouter › Zone de jalonnement.';
   m.hidden=false;
 }
+/* ---------------------------------------------------------------
+   QR codes (modèle 2, mode octets, correction M, versions 1 à 10),
+   écrits ici pour ne dépendre d'aucune bibliothèque : position des
+   jalonneurs (lien Google Maps) et groupes WhatsApp des zones.
+   Même construction que la référence de Nayuki (domaine public dans
+   son esprit, ré-écrite) : blocs Reed-Solomon, motifs, masque le
+   moins pénalisé.
+--------------------------------------------------------------- */
+var QR_EC_M=[0,10,16,26,18,24,16,18,22,22,26];
+var QR_BLOCS_M=[0,1,1,1,2,2,4,4,4,5,5];
+function qrMul(x,y){
+  var z=0;
+  for(var i=7;i>=0;i--){ z=(z<<1)^((z>>>7)*0x11D); z^=((y>>>i)&1)*x; }
+  return z&255;
+}
+function qrDiviseur(deg){
+  var r=[], i, j, racine=1;
+  for(i=0;i<deg-1;i++) r.push(0);
+  r.push(1);
+  for(i=0;i<deg;i++){
+    for(j=0;j<r.length;j++){ r[j]=qrMul(r[j],racine); if(j+1<r.length) r[j]^=r[j+1]; }
+    racine=qrMul(racine,2);
+  }
+  return r;
+}
+function qrReste(data,div){
+  var r=div.map(function(){ return 0; });
+  data.forEach(function(b){
+    var f=b^r.shift();
+    r.push(0);
+    div.forEach(function(c,i){ r[i]^=qrMul(c,f); });
+  });
+  return r;
+}
+function qrModulesBruts(v){
+  var r=(16*v+128)*v+64;
+  if(v>=2){ var na=Math.floor(v/7)+2; r-=(25*na-10)*na-55; if(v>=7) r-=36; }
+  return r;
+}
+function qrAlignement(v){
+  if(v===1) return [];
+  var na=Math.floor(v/7)+2, n=v*4+17, pas=Math.ceil((v*4+4)/(na*2-2))*2, r=[6];
+  for(var p=n-7;r.length<na;p-=pas) r.splice(1,0,p);
+  return r;
+}
+function qrCode(texte){
+  var oct=Array.prototype.slice.call(new TextEncoder().encode(texte)), v, cap, i, k;
+  for(v=1;v<=10;v++){
+    cap=Math.floor(qrModulesBruts(v)/8)-QR_EC_M[v]*QR_BLOCS_M[v];
+    if(4+(v<10?8:16)+oct.length*8<=cap*8) break;
+  }
+  if(v>10) throw new Error('texte trop long pour un QR code');
+  /* bits : mode octets, longueur, données, fin, remplissage */
+  var bits=[];
+  function ajout(val,n){ for(var q=n-1;q>=0;q--) bits.push((val>>>q)&1); }
+  ajout(4,4); ajout(oct.length,v<10?8:16);
+  oct.forEach(function(b){ ajout(b,8); });
+  ajout(0,Math.min(4,cap*8-bits.length));
+  ajout(0,(8-bits.length%8)%8);
+  for(var pad=0xEC;bits.length<cap*8;pad^=0xEC^0x11) ajout(pad,8);
+  var data=[];
+  for(i=0;i<bits.length;i+=8){ var o=0; for(k=0;k<8;k++) o=(o<<1)|bits[i+k]; data.push(o); }
+  /* blocs et correction d'erreurs, entrelacés */
+  var nb=QR_BLOCS_M[v], ec=QR_EC_M[v], brut=Math.floor(qrModulesBruts(v)/8), courts=nb-brut%nb, lgCourt=Math.floor(brut/nb);
+  var div=qrDiviseur(ec), blocs=[], pos=0;
+  for(i=0;i<nb;i++){
+    var d=data.slice(pos,pos+lgCourt-ec+(i<courts?0:1));
+    pos+=d.length;
+    var e=qrReste(d,div);
+    if(i<courts) d.push(0);
+    blocs.push(d.concat(e));
+  }
+  var cw=[];
+  for(i=0;i<blocs[0].length;i++) blocs.forEach(function(bl,j){ if(i!==lgCourt-ec || j>=courts) cw.push(bl[i]); });
+  /* motifs fixes */
+  var n=v*4+17, M=new Uint8Array(n*n), F=new Uint8Array(n*n);
+  function pose(x,y,noir){ M[y*n+x]=noir?1:0; F[y*n+x]=1; }
+  for(i=0;i<n;i++){ pose(6,i,i%2===0); pose(i,6,i%2===0); }
+  [[3,3],[n-4,3],[3,n-4]].forEach(function(c){
+    for(var dy=-4;dy<=4;dy++) for(var dx=-4;dx<=4;dx++){
+      var x=c[0]+dx, y=c[1]+dy, dist=Math.max(Math.abs(dx),Math.abs(dy));
+      if(x>=0 && x<n && y>=0 && y<n) pose(x,y,dist!==2 && dist!==4);
+    }
+  });
+  var al=qrAlignement(v), na=al.length;
+  al.forEach(function(a,ia){ al.forEach(function(b,ib){
+    if((ia===0 && ib===0) || (ia===0 && ib===na-1) || (ia===na-1 && ib===0)) return;
+    for(var dy=-2;dy<=2;dy++) for(var dx=-2;dx<=2;dx++) pose(a+dx,b+dy,Math.max(Math.abs(dx),Math.abs(dy))!==1);
+  }); });
+  function format(masque){
+    var dd=masque, r=dd, q;   /* correction M : bits 00 */
+    for(q=0;q<10;q++) r=(r<<1)^((r>>>9)*0x537);
+    var f=((dd<<10)|r)^0x5412;
+    for(q=0;q<=5;q++) pose(8,q,(f>>>q)&1);
+    pose(8,7,(f>>>6)&1); pose(8,8,(f>>>7)&1); pose(7,8,(f>>>8)&1);
+    for(q=9;q<15;q++) pose(14-q,8,(f>>>q)&1);
+    for(q=0;q<8;q++) pose(n-1-q,8,(f>>>q)&1);
+    for(q=8;q<15;q++) pose(8,n-15+q,(f>>>q)&1);
+    pose(8,n-8,1);
+  }
+  format(0);
+  if(v>=7){
+    var rv=v;
+    for(k=0;k<12;k++) rv=(rv<<1)^((rv>>>11)*0x1F25);
+    var vb=(v<<12)|rv;
+    for(k=0;k<18;k++){ var bit=(vb>>>k)&1, a=n-11+k%3, b2=Math.floor(k/3); pose(a,b2,bit); pose(b2,a,bit); }
+  }
+  /* données, en zigzag par colonnes de deux depuis la droite */
+  var ib=0;
+  for(var droite=n-1;droite>=1;droite-=2){
+    if(droite===6) droite=5;
+    for(var vert=0;vert<n;vert++) for(var j=0;j<2;j++){
+      var x=droite-j, monte=((droite+1)&2)===0, y=monte ? n-1-vert : vert;
+      if(!F[y*n+x] && ib<cw.length*8){ M[y*n+x]=(cw[ib>>>3]>>>(7-(ib&7)))&1; ib++; }
+    }
+  }
+  function masquer(mk){
+    for(var y=0;y<n;y++) for(var x=0;x<n;x++){
+      if(F[y*n+x]) continue;
+      var inv;
+      switch(mk){
+        case 0: inv=(x+y)%2===0; break;
+        case 1: inv=y%2===0; break;
+        case 2: inv=x%3===0; break;
+        case 3: inv=(x+y)%3===0; break;
+        case 4: inv=(Math.floor(x/3)+Math.floor(y/2))%2===0; break;
+        case 5: inv=x*y%2+x*y%3===0; break;
+        case 6: inv=(x*y%2+x*y%3)%2===0; break;
+        default: inv=((x+y)%2+x*y%3)%2===0;
+      }
+      if(inv) M[y*n+x]^=1;
+    }
+  }
+  /* pénalités : suites de 5 et plus, carrés 2×2, déséquilibre noir/blanc */
+  function penalite(){
+    var p=0, x, y, noirs=0;
+    for(var sens=0;sens<2;sens++) for(var a=0;a<n;a++){
+      var prec=-1, lg=0;
+      for(var b=0;b<n;b++){
+        var c=sens ? M[b*n+a] : M[a*n+b];
+        if(c===prec){ lg++; if(lg===5) p+=3; else if(lg>5) p++; }
+        else { prec=c; lg=1; }
+      }
+    }
+    for(y=0;y<n-1;y++) for(x=0;x<n-1;x++){ var c0=M[y*n+x]; if(c0===M[y*n+x+1] && c0===M[(y+1)*n+x] && c0===M[(y+1)*n+x+1]) p+=3; }
+    for(x=0;x<n*n;x++) noirs+=M[x];
+    p+=(Math.ceil(Math.abs(noirs*20-n*n*10)/(n*n))-1)*10;
+    return p;
+  }
+  var meilleur=0, pm=Infinity;
+  for(var mk=0;mk<8;mk++){ masquer(mk); format(mk); var pn=penalite(); if(pn<pm){ pm=pn; meilleur=mk; } masquer(mk); }
+  masquer(meilleur); format(meilleur);
+  return {n:n, m:M, v:v, masque:meilleur};
+}
+/* image PNG du QR code, marge blanche de 4 modules */
+function qrPNG(texte,px){
+  var q=qrCode(texte), t=px||8, L=(q.n+8)*t, cv=document.createElement('canvas');
+  cv.width=L; cv.height=L;
+  var g=cv.getContext('2d');
+  g.fillStyle='#FFFFFF'; g.fillRect(0,0,L,L);
+  g.fillStyle='#000000';
+  for(var y=0;y<q.n;y++) for(var x=0;x<q.n;x++) if(q.m[y*q.n+x]) g.fillRect((x+4)*t,(y+4)*t,t,t);
+  /* conversion immédiate (toBlob est bridé quand l'onglet est en arrière-plan) */
+  var b64=cv.toDataURL('image/png').split(',')[1], bin=atob(b64), data=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) data[i]=bin.charCodeAt(i);
+  return Promise.resolve({data:data, l:L, h:L, ext:'png'});
+}
+CARTE.qrCode=qrCode;
+
+/* ---------------------------------------------------------------
+   Fiches jalonneurs (Word) : deux fiches A5 par feuille A4, à
+   imprimer en recto verso (bord long) puis à couper au milieu.
+   Recto, propre à chaque poste : numéro, zone et chef de zone, carte
+   très resserrée sur le poste, emplacement, horaires, QR code de la
+   position (Google Maps), QR code du groupe WhatsApp de la zone.
+   Verso, commun : mission, équipement, déroulé, conduite à tenir,
+   contacts (responsable sécurité, antenne médicale, PC course).
+--------------------------------------------------------------- */
+var FJ_CHOIX={zone:'tous'};
+function zoneDuJalon(j){
+  for(var i=0;i<ZJ.length;i++) if(zjContient(ZJ[i],j.la,j.lo)) return ZJ[i];
+  return null;
+}
+/* postes à imprimer : rangés par zone, puis par numéro */
+function postesFiches(){
+  var l=JAL.map(function(j,i){ var z=zoneDuJalon(j); return {n:i+1, j:j, z:z, iz:z ? ZJ.indexOf(z) : 1e6}; });
+  if(FJ_CHOIX.zone!=='tous'){
+    var cible=+FJ_CHOIX.zone;
+    l=l.filter(function(p){ return cible===-1 ? !p.z : p.iz===cible; });
+  }
+  return l.sort(function(a,b){ return a.iz-b.iz || a.n-b.n; });
+}
+/* carte resserrée sur le poste : 110 m de large, le poste cerclé et étiqueté à la couleur de sa zone ;
+   ni zones ni zones sans voitures, qui teinteraient toute l'image à ce zoom */
+function fjImage(p,largeur){
+  var vis=ZJ_VIS, sel=SELZ, mpu=metresParUnite(), R=1.52, cx=X(p.j.lo), cy=Y(p.j.la), w=110/mpu, h=w/R;
+  var cadre=[cx-w/2, cy-h/2, cx+w/2, cy+h/2], f=ZJ_WORD.fond, coul=p.z ? p.z.couleur : '#E0453C';
+  var ch=zjChoixImage(cadre,true);
+  ch.zones=false; ch.taille=2;
+  var base=(f==='dessin' || f==='sombre') ? zjRetoucheFond(f==='dessin',cadre,2.6) : null;
+  ch.retouche=function(c,kk,m){
+    if(base) base(c,kk,m);
+    var W=c.querySelector('#world');
+    if(!W) return;
+    var g=el('g',{}), r=9/m, txt='POSTE '+p.n, lg=(txt.length*24+40)/kk, ht=54/kk, ly=cy-r-ht*0.7;
+    g.appendChild(el('circle',{cx:cx.toFixed(3), cy:cy.toFixed(3), r:r.toFixed(4), fill:'none', stroke:'#FFFFFF', 'stroke-width':(16/kk).toFixed(4)}));
+    g.appendChild(el('circle',{cx:cx.toFixed(3), cy:cy.toFixed(3), r:r.toFixed(4), fill:'none', stroke:coul, 'stroke-width':(10/kk).toFixed(4)}));
+    g.appendChild(el('rect',{x:(cx-lg/2).toFixed(3), y:(ly-ht/2).toFixed(3), width:lg.toFixed(3), height:ht.toFixed(3), rx:(10/kk).toFixed(3),
+      fill:coul, stroke:'#FFFFFF', 'stroke-width':(4/kk).toFixed(4)}));
+    var t=el('text',{x:cx.toFixed(3), y:ly.toFixed(3), 'text-anchor':'middle', 'dominant-baseline':'central', 'font-family':'Arial, Helvetica, sans-serif',
+      'font-weight':700, 'font-size':(36/kk).toFixed(4), fill:zjEncre(coul)});
+    t.textContent=txt; g.appendChild(t);
+    /* sens de course : une flèche avant et une après le poste, à chaque passage */
+    zjConsignes(p.j).forEach(function(c){
+      [-16,16].forEach(function(o){
+        var a=pointADistance(c.d+o-3.5), b=pointADistance(c.d+o+3.5), dx=b.x-a.x, dy=b.y-a.y, L=Math.hypot(dx,dy);
+        if(L<1e-6) return;
+        var ux=dx/L, uy=dy/L, l=5/m, wv=3/m;
+        var d='M'+(b.x-ux*l+uy*wv).toFixed(3)+' '+(b.y-uy*l-ux*wv).toFixed(3)+'L'+b.x.toFixed(3)+' '+b.y.toFixed(3)+'L'+(b.x-ux*l-uy*wv).toFixed(3)+' '+(b.y-uy*l+ux*wv).toFixed(3);
+        g.appendChild(el('path',{d:d, fill:'none', stroke:'#FFFFFF', 'stroke-width':(15/kk).toFixed(4), 'stroke-linecap':'round', 'stroke-linejoin':'round'}));
+        g.appendChild(el('path',{d:d, fill:'none', stroke:'#16264A', 'stroke-width':(8/kk).toFixed(4), 'stroke-linecap':'round', 'stroke-linejoin':'round'}));
+      });
+    });
+    W.appendChild(g);
+  };
+  ZJ_VIS=false; ZJ_FOCUS=null; SELZ=null;
+  var r;
+  try{ r=imageParcoursSVG(ch); }
+  finally{ ZJ_VIS=vis; ZJ_FOCUS=null; SELZ=(sel && ZJ.indexOf(sel)>=0) ? sel : null; dessinerZJ(); }
+  return zjPeindre(r.txt,r.L,r.H,largeur);
+}
+function docxFichesJal(postes,cartes,qrPos,qrWa){
+  var H=zjHoraires();
+  var ENCRE='1A2433', GRIS='5A6579', NUIT='0B1019', ROUGE='B3261E', FOND='EDEFE9', W=11226, IW=11000;
+  function mm(x){ return Math.round(x*56.693); }
+  function e(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function run(t,o){ o=o||{};
+    var rp='<w:rFonts w:ascii="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'+(o.b?'<w:b/><w:bCs/>':'')+(o.i?'<w:i/><w:iCs/>':'')+(o.caps?'<w:caps/>':'')+
+      '<w:color w:val="'+(o.c||ENCRE)+'"/>'+(o.esp?'<w:spacing w:val="'+o.esp+'"/>':'')+'<w:sz w:val="'+(o.sz||16)+'"/><w:szCs w:val="'+(o.sz||16)+'"/>';
+    return String(t).split('\n').map(function(l,i){ return '<w:r><w:rPr>'+rp+'</w:rPr>'+(i?'<w:br/>':'')+'<w:t xml:space="preserve">'+e(l)+'</w:t></w:r>'; }).join('');
+  }
+  function para(runs,o){ o=o||{};
+    return '<w:p><w:pPr>'+(o.bord||'')+(o.shd?'<w:shd w:val="clear" w:color="auto" w:fill="'+o.shd+'"/>':'')+(o.tabs||'')+
+      '<w:spacing w:before="'+(o.av||0)+'" w:after="'+(o.ap||0)+'" w:line="'+(o.ligne||240)+'" w:lineRule="'+(o.regle||'auto')+'"/>'+(o.ind||'')+(o.jc?'<w:jc w:val="'+o.jc+'"/>':'')+
+      (o.rp?'<w:rPr><w:sz w:val="'+o.rp+'"/><w:szCs w:val="'+o.rp+'"/></w:rPr>':'')+'</w:pPr>'+runs+'</w:p>'; }
+  /* paragraphe minuscule : sépare deux tableaux, termine une cellule */
+  function mini(saut){ return para(saut ? '<w:r><w:br w:type="page"/></w:r>' : '',{ligne:30,regle:'exact',rp:2}); }
+  function bords(v,c,sz){ return ['top','left','bottom','right'].map(function(b){ return '<w:'+b+' w:val="'+v+'" w:sz="'+(sz||4)+'" w:space="0" w:color="'+(c||'FFFFFF')+'"/>'; }).join(''); }
+  function cell(w,contenu,o){ o=o||{};
+    var m=o.mar===undefined ? 90 : o.mar;
+    return '<w:tc><w:tcPr><w:tcW w:w="'+w+'" w:type="dxa"/>'+(o.span?'<w:gridSpan w:val="'+o.span+'"/>':'')+
+      '<w:tcBorders>'+(o.bords||bords('nil'))+'</w:tcBorders>'+(o.fond?'<w:shd w:val="clear" w:color="auto" w:fill="'+o.fond+'"/>':'')+
+      '<w:tcMar><w:top w:w="'+(o.mh===undefined?40:o.mh)+'" w:type="dxa"/><w:left w:w="'+m+'" w:type="dxa"/><w:bottom w:w="'+(o.mh===undefined?40:o.mh)+'" w:type="dxa"/><w:right w:w="'+m+'" w:type="dxa"/></w:tcMar>'+
+      '<w:vAlign w:val="'+(o.va||'top')+'"/></w:tcPr>'+contenu+'</w:tc>'; }
+  function table(larg,lignes,o){ o=o||{};
+    var tot=larg.reduce(function(a,b){ return a+b; },0);
+    var x='<w:tbl><w:tblPr><w:tblW w:w="'+tot+'" w:type="dxa"/>'+(o.jc?'<w:jc w:val="'+o.jc+'"/>':'')+'<w:tblBorders>'+bords('nil')+'<w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders>'+
+      '<w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'+
+      larg.map(function(w){ return '<w:gridCol w:w="'+w+'"/>'; }).join('')+'</w:tblGrid>';
+    lignes.forEach(function(l){
+      x+='<w:tr><w:trPr><w:cantSplit/>'+(l.h?'<w:trHeight w:val="'+l.h+'" w:hRule="exact"/>':'')+'</w:trPr>';
+      var k=0;
+      l.c.forEach(function(c){ var s=c.span||1, w=0; for(var q=0;q<s;q++) w+=larg[k+q]; k+=s; x+=cell(w,c.x||para(''),c); });
+      x+='</w:tr>';
+    });
+    return x+'</w:tbl>';
+  }
+  var idImg=0, rels=[], medias=[];
+  function image(im,largCm,hautMax){
+    idImg++;
+    var ext=im.ext||'jpeg', nom='media/image'+idImg+'.'+ext, rid='rIdImg'+idImg;
+    rels.push('<Relationship Id="'+rid+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="'+nom+'"/>');
+    medias.push({nom:'word/'+nom, data:im.data});
+    var cx=Math.round(largCm*360000), cy=Math.round(cx*im.h/im.l), mx=Math.round(hautMax*360000);
+    if(cy>mx){ cx=Math.round(cx*mx/cy); cy=mx; }
+    return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="'+cx+'" cy="'+cy+'"/><wp:docPr id="'+idImg+'" name="Image '+idImg+'"/>'+
+      '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>'+
+      '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'+
+      '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="'+idImg+'" name="image'+idImg+'.'+ext+'"/><pic:cNvPicPr/></pic:nvPicPr>'+
+      '<pic:blipFill><a:blip r:embed="'+rid+'"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'+
+      '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+cx+'" cy="'+cy+'"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'+
+      '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  }
+  function hex(c){ return String(c).replace('#','').toUpperCase(); }
+  function kmTxt(d){ return (d/1000).toFixed(2).replace('.',','); }
+  function titre(t,c){ return para(run(t,{b:true,caps:true,c:c||GRIS,esp:14,sz:14}),{av:70,ap:20}); }
+  function ou(v,vide){ return v ? v : (vide||'………………………'); }
+  var TAB_DROITE='<w:tabs><w:tab w:val="right" w:leader="dot" w:pos="4200"/></w:tabs>';
+  function ligneH(lib,val,o){ o=o||{}; return para(run(lib,{sz:16,c:o.c})+'<w:r><w:tab/></w:r>'+run(val,{b:true,sz:o.sz||17,c:o.c||ENCRE}),{tabs:TAB_DROITE,ap:10}); }
+  var nomP=nomParcours(), dep=H ? heureH(H.t0) : RUES_HOR.depart;
+  var prise=minutesDe(FJ.prise);
+
+  /* ----- recto : une fiche par poste ----- */
+  function recto(p,ip){
+    var z=p.z, coul=z ? hex(z.couleur) : '8A93A3', encreZ=z ? (zjEncre(z.couleur)==='#FFFFFF' ? 'FFFFFF' : NUIT) : 'FFFFFF';
+    var C=zjConsignes(p.j), emp=zjEmplacement(p.j.la,p.j.lo);
+    /* en-tête : numéro, titre, zone */
+    var tete=table([1900,6500,2600],[{h:mm(19),c:[
+      {fond:coul, va:'center', x:para(run('POSTE',{b:true,c:encreZ,sz:14,esp:30}),{jc:'center'})+para(run(String(p.n),{b:true,c:encreZ,sz:60}),{jc:'center',ligne:216})},
+      {fond:NUIT, va:'center', mar:200, x:para(run('CORRIDA 2027 · FICHE JALONNEUR',{b:true,c:'FFFFFF',sz:26,esp:6}))+
+        para(run('ENSOA · Saint-Maixent-l’École · vendredi 29 janvier 2027 · départ '+dep+' · parcours '+nomP,{c:'C9CED4',sz:14}),{av:20})},
+      {fond:coul, va:'center', x:para(run(z ? 'ZONE' : 'HORS ZONE',{b:true,c:encreZ,sz:14,esp:30}),{jc:'center'})+
+        para(run(z ? z.nom.replace(/^zone\s+/i,'') : '–',{b:true,c:encreZ,sz:z && z.nom.length>8 ? 26 : 44}),{jc:'center',ligne:216})}
+    ]}]);
+    /* infos à droite de la carte */
+    var info=titre('Emplacement',coul==='8A93A3'?GRIS:coul)+
+      para(run(emp||'Position GPS ci-dessous',{b:true,sz:20}),{ap:20})+
+      para(run('km '+kmTxt(C[0].d)+' du parcours '+nomP+' · GPS '+p.j.la.toFixed(5)+', '+p.j.lo.toFixed(5),{c:GRIS,sz:15}),{ap:40})+
+      titre('Horaires')+
+      ligneH('Prise de poste',isNaN(prise) ? ou('') : heureH(prise))+
+      ligneH('Départ de la course',dep);
+    C.forEach(function(c,i){
+      var lib=C.length>1 ? ' (passage '+(i+1)+', km '+kmTxt(c.d)+')' : '';
+      if(H){
+        info+=ligneH('Premier coureur'+lib,'≈ '+heureH(H.entree(c.d,H.aT)));
+        info+=ligneH('Dernier coureur'+lib,'≈ '+heureH(H.sortie(c.d,H.aD)));
+      }
+    });
+    info+=ligneH('Fin de mission','après le serre-file',{sz:15})+
+      titre('Chef de zone')+
+      para(run(z && z.chef ? z.chef : ou(''),{b:true,sz:18}),{ap:10})+
+      para(run('Tél. / radio : ',{sz:16})+run(z && z.tel ? z.tel : ou(''),{b:true,sz:17}),{ap:0});
+    var carte=cartes[ip];
+    var corps=table([6350,4650],[{h:mm(80),c:[
+      {va:'center', mar:0, mh:0, x:para(carte ? image(carte,11.1,7.9) : run('Carte indisponible',{c:GRIS}),{jc:'center'})},
+      {mar:200, x:info}
+    ]}]);
+    /* QR codes et signaleur */
+    var qp=qrPos[p.n], qw=z ? qrWa[ZJ.indexOf(z)] : null;
+    var celWa;
+    if(qw) celWa=para(image(qw,2.45,2.45),{jc:'center'})+para(run('Groupe WhatsApp '+z.nom,{b:true,sz:14}),{jc:'center',av:10});
+    else celWa=table([1420],[{h:mm(24.5),c:[{va:'center', bords:bords('dashed','9AA3B2',6), x:para(run('QR code\ndu groupe\nWhatsApp\n'+(z ? z.nom : 'de la zone')+'\nà venir',{c:GRIS,sz:13}),{jc:'center'})}]}],{jc:'center'})+
+      mini()+para(run('Groupe WhatsApp '+(z ? z.nom : 'de la zone'),{b:true,sz:14}),{jc:'center',av:10});
+    var bas=table([3400,3400,4200],[{h:mm(33),c:[
+      {va:'center', x:(qp ? para(image(qp,2.45,2.45),{jc:'center'}) : para(''))+para(run('Ma position · Google Maps',{b:true,sz:14}),{jc:'center',av:10})},
+      {va:'center', x:celWa},
+      {va:'center', mar:160, x:titre('Signaleur')+
+        para(run('Nom : ',{sz:16})+'<w:r><w:tab/></w:r>',{tabs:TAB_DROITE.replace('4200','3850'),ap:60})+
+        para(run('Tél. : ',{sz:16})+'<w:r><w:tab/></w:r>',{tabs:TAB_DROITE.replace('4200','3850'),ap:90})+
+        table([3850],[{c:[{fond:ROUGE, va:'center', x:para(run('URGENCE VITALE : 15 ou 112',{b:true,c:'FFFFFF',sz:17}),{jc:'center'})+
+          para(run('puis prévenir le chef de zone',{c:'FFFFFF',sz:13}),{jc:'center'})}]}])+mini()}
+    ]}]);
+    return tete+mini()+corps+mini()+bas+mini();
+  }
+
+  /* ----- verso : consignes communes ----- */
+  function puce(t,o){ return para(run('•',{b:true,c:o&&o.c||ENCRE,sz:17})+'<w:r><w:tab/></w:r>'+t,{tabs:'<w:tabs><w:tab w:val="left" w:pos="170"/></w:tabs>',ind:'<w:ind w:left="170" w:hanging="170"/>',ap:14}); }
+  function caseC(t){ return para(run('☐',{sz:19})+'<w:r><w:tab/></w:r>'+t,{tabs:'<w:tabs><w:tab w:val="left" w:pos="230"/></w:tabs>',ind:'<w:ind w:left="230" w:hanging="230"/>',ap:10}); }
+  function r15(t,b,c){ return run(t,{sz:17,b:!!b,c:c}); }
+  function verso(){
+    var tete=table([IW],[{h:mm(11),c:[{fond:NUIT, va:'center', mar:200,
+      x:para(run('CONSIGNES À TOUS LES JALONNEURS',{b:true,c:'FFFFFF',sz:24,esp:6})+'<w:r><w:tab/></w:r>'+run('Corrida 2027 · ENSOA · 29 janvier 2027',{c:'C9CED4',sz:14}),
+        {tabs:'<w:tabs><w:tab w:val="right" w:pos="'+(IW-400)+'"/></w:tabs>'})}]}]);
+    var g=titre('Votre mission','1F5FBF')+
+      puce(r15('Orienter les coureurs : ')+r15('bien visible, indiquer la direction de loin, du bras et de la voix.',false))+
+      puce(r15('Sécuriser le passage : faire patienter piétons et véhicules le temps du passage des coureurs, ')+r15('sans jamais se mettre en danger.',true))+
+      puce(r15('Rester à son poste du passage du véhicule ouvreur jusqu’au serre-file (fin de course).'))+
+      puce(r15('Rendre compte au chef de zone de tout incident, par téléphone ou sur le groupe WhatsApp de la zone.'))+
+      titre('À avoir sur soi','1F5FBF')+
+      caseC(r15('Gilet haute visibilité, ',true)+r15('porté du début à la fin'))+
+      caseC(r15('Lampe frontale chargée',true)+r15(' et piles de rechange (course de nuit)'))+
+      caseC(r15('Vêtements chauds',true)+r15(' : bonnet, gants, coupe-vent ou imperméable'))+
+      caseC(r15('Eau',true)+r15(' et ')+r15('de quoi manger',true))+
+      caseC(r15('Téléphone chargé',true)+r15(', batterie externe, sonnerie activée'))+
+      caseC(r15('Cette fiche',true)+r15(' et un stylo'))+
+      titre('Déroulé','1F5FBF')+
+      puce(r15('Prise de poste : ')+r15(isNaN(prise) ? '…………' : heureH(prise),true)+r15(' ; envoyer « Poste n° … en place » sur le groupe de la zone.'))+
+      puce(r15('Départ de la course : ')+r15(dep,true)+r15(' ; le véhicule ouvreur précède les premiers coureurs.'))+
+      puce(r15('Fin de mission : ')+r15('après le passage du serre-file',true)+r15(' et sur ordre du chef de zone.'))+
+      puce(r15('Regroupement : ')+r15(FJ.regroupement ? FJ.regroupement : '……………………………………',!!FJ.regroupement));
+    var d=titre('Conduite à tenir','B3261E')+
+      para(r15('Véhicule qui force le passage',true),{ap:10})+
+      puce(r15('Ne pas s’interposer. Protéger les coureurs, les alerter de la voix.'))+
+      puce(r15('Relever l’immatriculation, le type, la couleur et l’heure.'))+
+      puce(r15('Rendre compte au chef de zone, prévenir les postes suivants sur WhatsApp, reprendre la mission.'))+
+      para(r15('Coureur blessé ou malaise',true),{av:40,ap:10})+
+      puce(r15('Protéger : ',true)+r15('le mettre à l’abri du flot des coureurs, signaler la zone.'))+
+      puce(r15('Alerter : ',true)+r15('urgence vitale (inconscient, ne respire pas, saigne abondamment) ')+r15('15 ou 112',true,'B3261E')+r15(', puis antenne médicale et chef de zone ; sinon antenne médicale. Donner le n° de poste et le n° de dossard.'))+
+      puce(r15('Secourir : ',true)+r15('couvrir, rassurer, ne pas le laisser seul ; ne pas le déplacer en cas de chute ou de choc.'))+
+      para(r15('Coureur qui abandonne ou se perd',true),{av:40,ap:10})+
+      puce(r15('Noter son dossard, prévenir le chef de zone, l’orienter vers l’arrivée ou le poste de secours.'))+
+      puce(r15('Ne jamais quitter son poste sans relève ou accord du chef de zone.',true))+
+      titre('Contacts','B3261E');
+    function contact(role,c){ return [{x:para(r15(role,true))},{x:para(r15(c[0] ? c[0] : '……………………',!!c[0],c[0]?ENCRE:GRIS))},{x:para(r15(c[1] ? c[1] : '……………………',true,c[1]?ENCRE:GRIS))}]; }
+    d+=table([1850,1900,1500],[
+      {c:contact('Responsable sécurité',FJ.secu)},
+      {c:contact('Antenne médicale',FJ.med)},
+      {c:contact('PC course',FJ.pc)},
+      {c:[{span:3, fond:'FBE9E7', x:para(run('Urgences : ',{b:true,sz:17,c:'B3261E'})+run('15 SAMU · 17 Police · 18 Pompiers · 112 tous secours',{sz:17,c:'B3261E'}),{jc:'center'})}]}
+    ])+mini();
+    var corps=table([5450,5550],[{h:mm(121),c:[{mar:150, x:g},{mar:150, x:d}]}]);
+    return tete+mini()+corps+mini();
+  }
+
+  /* ----- feuilles : deux fiches par A4, recto puis verso ----- */
+  function feuille(cartes2){
+    var bordCarte=bords('single','B8BEC7',6);
+    var lignes=[{h:mm(140),c:[{bords:bordCarte, mar:113, mh:113, x:cartes2[0]||para('')}]},
+      {h:mm(4),c:[{mar:0, mh:0, va:'center', x:para(run('✂  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·',{c:'9AA3B2',sz:12}),{jc:'center',ligne:200,regle:'exact'})}]},
+      {h:mm(140),c:[{bords:cartes2[1] ? bordCarte : bords('nil'), mar:113, mh:113, x:cartes2[1]||para('')}]}];
+    return table([W],lignes);
+  }
+  var corps='', ver=verso();
+  for(var i=0;i<postes.length;i+=2){
+    var a=recto(postes[i],i), b=postes[i+1] ? recto(postes[i+1],i+1) : null;
+    corps+=feuille([a,b])+mini(true);
+    corps+=feuille([ver,b ? ver : ver])+(i+2<postes.length ? mini(true) : mini());
+  }
+  var doc='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '+
+    'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '+
+    'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>'+corps+
+    '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="340" w:right="340" w:bottom="300" w:left="340" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>'+
+    '</w:body></w:document>';
+  return zipStocke([
+    {nom:'[Content_Types].xml', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'+
+      '<Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/>'+
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'},
+    {nom:'_rels/.rels', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
+    {nom:'word/_rels/document.xml.rels', txt:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+rels.join('')+'</Relationships>'},
+    {nom:'word/document.xml', txt:doc}
+  ].concat(medias));
+}
+function produireFichesJal(etat){
+  var postes=postesFiches();
+  if(!postes.length) return Promise.reject(new Error('aucun jalonneur à imprimer'));
+  var cartes=[], qrPos={}, qrWa={}, i=0;
+  function attendre(){ return new Promise(function(r){ setTimeout(r,20); }); }
+  function suite(){
+    if(i>=postes.length) return Promise.resolve();
+    var p=postes[i];
+    if(etat) etat('Fiche '+(i+1)+' sur '+postes.length+' (poste '+p.n+')…');
+    return attendre().then(function(){ return fjImage(p,1500); })
+      .then(function(im){ cartes.push(im); return qrPNG(lienMapsJal(p.j),8); })
+      .then(function(q){ qrPos[p.n]=q; i++; return suite(); });
+  }
+  return suite().then(function(){
+    return ZJ.reduce(function(pr,z,iz){
+      var l=(z.wa||'').trim();
+      if(!l) return pr;
+      return pr.then(function(){ return qrPNG(l,8); }).then(function(q){ qrWa[iz]=q; });
+    },Promise.resolve());
+  }).then(function(){
+    if(etat) etat('Assemblage du document…');
+    return {blob:docxFichesJal(postes,cartes,qrPos,qrWa), n:postes.length};
+  });
+}
+function ouvrirFichesJal(){
+  var m=document.getElementById('modale-fj');
+  if(!m){
+    m=document.createElement('div');
+    m.className='modale'; m.id='modale-fj'; m.hidden=true;
+    function champ(id,lib,aide,larg){ return '<label class="mode" style="display:grid;grid-template-columns:190px '+(larg||'110px')+' 1fr;align-items:center;gap:10px;margin:0">'+lib+
+      '<input id="'+id+'" type="text" style="width:100%"><span style="opacity:.75">'+aide+'</span></label>'; }
+    function contact(cle,lib){ return '<div class="mode" style="display:grid;grid-template-columns:190px 1fr 150px;align-items:center;gap:10px;margin:0">'+lib+
+      '<input data-fj="'+cle+'" data-i="0" type="text" placeholder="Nom (à venir)"><input data-fj="'+cle+'" data-i="1" type="text" placeholder="Téléphone"></div>'; }
+    m.innerHTML='<div class="modale-in" style="width:min(720px,100%)"><h2>Fiches jalonneurs</h2>'+
+      '<p class="mode">Deux fiches par feuille A4, à imprimer en <b>recto verso (bord long)</b> puis à couper au milieu. Recto : le poste (carte très resserrée, emplacement, horaires, QR code de la position, QR code du groupe WhatsApp de la zone). Verso : les consignes communes et les contacts.</p>'+
+      '<label class="mode" style="display:grid;grid-template-columns:190px 1fr;align-items:center;gap:10px;margin:0">Jalonneurs<select id="fj-zone"></select></label>'+
+      champ('fj-prise','Prise de poste','ex. 18:15')+
+      champ('fj-depart','Heure de départ','ex. 19:00')+
+      champ('fj-tete','Allure du premier coureur','min:s par km')+
+      champ('fj-dernier','Allure du dernier coureur','min:s par km')+
+      champ('fj-regroupement','Point de regroupement','fin de mission','1fr')+
+      '<div class="menu-titre" style="margin:4px 0 0">Contacts (verso)</div>'+
+      contact('secu','Responsable sécurité')+contact('med','Antenne médicale')+contact('pc','PC course')+
+      '<div class="menu-titre" style="margin:4px 0 0">Groupes WhatsApp des zones</div>'+
+      '<p class="mode" style="margin:0">Colle le lien d’invitation de chaque groupe (WhatsApp › infos du groupe › Inviter via un lien › Copier le lien) : le QR code est fabriqué à partir du lien. Sans lien, un cadre « à venir » est imprimé.</p>'+
+      '<div id="fj-wa" style="display:flex;flex-direction:column;gap:6px"></div>'+
+      '<p class="mode" id="fj-etat"></p>'+
+      '<div class="modale-actions"><button id="fj-ok" class="primaire">Télécharger (.docx)</button><button id="fj-non">Fermer</button></div></div>';
+    document.body.appendChild(m);
+    var hor={depart:'fj-depart', tete:'fj-tete', dernier:'fj-dernier'};
+    Object.keys(hor).forEach(function(k2){
+      m.querySelector('#'+hor[k2]).addEventListener('input',function(){
+        RUES_HOR[k2]=this.value;
+        try{ localStorage.setItem('corrida-rues-horaires2',JSON.stringify(RUES_HOR)); }catch(e){}
+        zjListePlusTard();
+      });
+    });
+    m.querySelector('#fj-prise').addEventListener('input',function(){ FJ.prise=this.value; marquerModifie(); });
+    m.querySelector('#fj-regroupement').addEventListener('input',function(){ FJ.regroupement=this.value; marquerModifie(); });
+    Array.prototype.slice.call(m.querySelectorAll('[data-fj]')).forEach(function(inp){
+      inp.addEventListener('input',function(){ FJ[inp.dataset.fj][+inp.dataset.i]=inp.value; marquerModifie(); });
+    });
+    m.querySelector('#fj-zone').addEventListener('change',function(){ FJ_CHOIX.zone=this.value; majCompteFJ(m); });
+    m.querySelector('#fj-wa').addEventListener('input',function(ev){
+      var z=ZJ[+ev.target.dataset.z];
+      if(!z) return;
+      z.wa=ev.target.value.trim(); zjModifiee();
+    });
+    m.addEventListener('click',function(ev){ if(ev.target===m && !m.__occupe) m.hidden=true; });
+    m.querySelector('#fj-non').onclick=function(){ m.hidden=true; };
+    document.addEventListener('keydown',function(ev){ if(ev.key==='Escape' && !m.hidden && !m.__occupe) m.hidden=true; });
+    m.querySelector('#fj-ok').onclick=function(){
+      var et=m.querySelector('#fj-etat'), bt=this;
+      if(m.__occupe) return;
+      m.__occupe=true; bt.disabled=true;
+      produireFichesJal(function(t){ et.textContent=t; }).then(function(r){
+        telechargerBlob('Corrida 2027 - fiches jalonneurs - parcours '+(nomParcours()||'x')+'.docx',r.blob);
+        et.textContent='Document Word téléchargé : '+r.n+' fiche'+(r.n>1?'s':'')+' sur '+Math.ceil(r.n/2)+' feuille'+(r.n>2?'s':'')+' A4 recto verso, '+Math.round(r.blob.size/1024)+' Ko.';
+        dire('Fiches jalonneurs du parcours '+nomParcours()+' téléchargées.','ok');
+      }).catch(function(e){ console.error(e); et.textContent='Document impossible à produire : '+e.message+'.'; })
+        .then(function(){ m.__occupe=false; bt.disabled=false; });
+    };
+    m.__hor=hor;
+  }
+  Object.keys(m.__hor).forEach(function(k2){ m.querySelector('#'+m.__hor[k2]).value=RUES_HOR[k2]; });
+  m.querySelector('#fj-prise').value=FJ.prise;
+  m.querySelector('#fj-regroupement').value=FJ.regroupement;
+  Array.prototype.slice.call(m.querySelectorAll('[data-fj]')).forEach(function(inp){ inp.value=FJ[inp.dataset.fj][+inp.dataset.i]||''; });
+  var sel=m.querySelector('#fj-zone');
+  sel.innerHTML='<option value="tous">Tous les jalonneurs du parcours</option>'+ZJ.map(function(z,i){ return '<option value="'+i+'">'+esc(z.nom)+' seulement</option>'; }).join('')+
+    '<option value="-1">Hors zone seulement</option>';
+  if(FJ_CHOIX.zone!=='tous' && (+FJ_CHOIX.zone>=ZJ.length)) FJ_CHOIX.zone='tous';
+  sel.value=FJ_CHOIX.zone;
+  var wa=m.querySelector('#fj-wa');
+  wa.innerHTML=ZJ.length ? ZJ.map(function(z,i){
+    return '<label class="mode" style="display:grid;grid-template-columns:190px 1fr;align-items:center;gap:10px;margin:0"><span><i style="display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;background:'+z.couleur+'"></i>'+esc(z.nom)+'</span>'+
+      '<input type="text" data-z="'+i+'" placeholder="https://chat.whatsapp.com/…" value="'+esc(z.wa||'')+'"></label>';
+  }).join('') : '<p class="mode" style="margin:0;color:var(--creme-faible)">Aucune zone sur ce parcours.</p>';
+  m.querySelector('h2').textContent='Fiches jalonneurs · parcours '+nomParcours();
+  majCompteFJ(m);
+  m.hidden=false;
+}
+function majCompteFJ(m){
+  var n=postesFiches().length;
+  m.querySelector('#fj-etat').textContent=n ? n+' fiche'+(n>1?'s':'')+', soit '+Math.ceil(n/2)+' feuille'+(n>2?'s':'')+' A4 recto verso. Pense à « Enregistrer » pour garder les contacts et les liens WhatsApp.' : 'Aucun jalonneur dans cette sélection.';
+}
+/* bouton dans le menu Fichier et dans le panneau des zones */
+setTimeout(function(){
+  if(window.CONSULTATION) return;
+  var pf=document.querySelector('.bar .menu[data-m="fichier"] .menu-pop');
+  if(pf){
+    var b=document.createElement('button'); b.type='button'; b.id='b-fj';
+    b.textContent='Fiches jalonneurs (Word)';
+    b.title='Deux fiches par feuille A4 recto verso : poste, carte, QR codes, consignes et contacts';
+    b.onclick=function(){ ouvrirFichesJal(); };
+    var ref=document.getElementById('b-zj-word');
+    if(ref && ref.parentNode===pf) pf.insertBefore(b,ref.nextSibling); else pf.appendChild(b);
+  }
+  var l=document.querySelector('#liste-zj');
+  l=l && l.parentNode && l.parentNode.querySelector('.l-parcours');
+  if(l){
+    var b2=document.createElement('button'); b2.type='button'; b2.textContent='🪪 Fiches jalonneurs (Word)';
+    b2.title='Deux fiches par feuille A4 recto verso';
+    b2.onclick=function(){ ouvrirFichesJal(); };
+    l.appendChild(b2);
+  }
+},0);
 CARTE.zonesJalonnement=function(){ return ZJ; };
 zjRedessiner=function(){ SELZ=null; dessinerZJ(); zjListePlusTard(); };
 zjRedessiner();
