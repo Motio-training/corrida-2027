@@ -31035,7 +31035,7 @@ window.ESPACE3D.ouvreur46=OUV46;
 /* =================================================================
    47. Village départ-arrivée (14 oct. 2026) : panneaux fléchés
    (Salle Denfert, village, parking, départ), panneau d'information,
-   food truck, table puces et médailles, panneau SAS 4. Mêmes données
+   food truck, table de récupération des puces, panneau SAS 4. Mêmes données
    que la zone d'arrivée (vehicules [la,lo,ang,t]) ; repère : x =
    longueur, +z = face avant. La flèche pointe vers +x des deux côtés
    du panneau. Sous-titres des sas : les vagues du règlement 2027.
@@ -31082,15 +31082,32 @@ function texInfo47(){
     g.fillStyle='#f2b33d'; g.fillRect(0,0,W,62);
     g.fillStyle='#14213d'; g.font='800 40px Arial, Helvetica, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
     g.fillText('INFORMATIONS',W/2,33);
-    g.textAlign='left'; g.font='600 23px Arial, Helvetica, sans-serif';
-    ['Plan du parcours','Départ 19 h · vagues','Frontale obligatoire','Résultats'].forEach(function(t,i){
-      g.fillStyle='#f2b33d'; g.fillRect(22,94+i*60,11,11);
-      g.fillStyle='#e8eef8'; g.fillText(t,44,100+i*60);
+    g.textAlign='left'; g.font='600 20px Arial, Helvetica, sans-serif';
+    ['Plan du site','Départ 19 h · vagues'].forEach(function(t,i){
+      g.fillStyle='#f2b33d'; g.fillRect(20,101+i*62,10,10);
+      g.fillStyle='#e8eef8'; g.fillText(t,38,106+i*62);
     });
-    g.strokeStyle='#4ade80'; g.lineWidth=5; g.lineJoin='round'; g.beginPath();
-    [[338,112],[420,96],[478,150],[446,214],[476,290],[392,304],[356,246],[310,262],[316,176],[338,112]].forEach(function(p,i){ if(i) g.lineTo(p[0],p[1]); else g.moveTo(p[0],p[1]); });
-    g.stroke();
-    g.fillStyle='#f2b33d'; g.beginPath(); g.arc(338,112,9,0,Math.PI*2); g.fill();
+    /* plan du site : Salle Denfert, parking, village, boulevard et départ, arrivée */
+    function bloc(x,y,w,h,fond,txt,encre,taille){
+      g.fillStyle=fond; g.fillRect(x,y,w,h);
+      g.fillStyle=encre; g.font='800 '+taille+'px Arial, Helvetica, sans-serif'; g.textAlign='center';
+      g.fillText(txt,x+w/2,y+h/2+1);
+    }
+    g.textBaseline='middle';
+    bloc(272,76,122,24,'#6b3fa0','SALLE DENFERT','#ffffff',11);
+    g.strokeStyle='#c9b8ee'; g.lineWidth=2; g.setLineDash([4,4]);
+    g.beginPath(); g.moveTo(333,100); g.lineTo(333,108); g.lineTo(446,108); g.lineTo(446,118); g.stroke(); g.setLineDash([]);
+    bloc(262,118,130,54,'#1f5fbf','P','#ffffff',30);
+    bloc(394,118,104,54,'#e8772e','VILLAGE','#14213d',14);
+    g.fillStyle='#4b5563'; g.fillRect(262,180,236,24);
+    g.fillStyle='#4ade80'; g.fillRect(340,176,6,32);
+    g.fillStyle='#e8eef8'; g.font='700 12px Arial, Helvetica, sans-serif'; g.fillText('DÉPART',372,192);
+    bloc(302,212,196,56,'#6b7280','','#ffffff',12);
+    g.fillStyle='#ef4444'; g.fillRect(360,218,6,44);
+    g.fillStyle='#ffffff'; g.font='800 15px Arial, Helvetica, sans-serif'; g.fillText('ARRIVÉE',428,240);
+    g.fillStyle='#f2b33d'; g.fillRect(0,282,W,58);
+    g.fillStyle='#14213d'; g.font='800 36px Arial, Helvetica, sans-serif'; g.textAlign='center';
+    g.fillText('BONNE COURSE !',W/2,312);
   });
 }
 function construirePanneauInfo47(){
@@ -31130,7 +31147,7 @@ function construireTablePuces47(){
   for(var i=0;i<3;i++) zaBoite(t,0.3,0.08,0.22,ZAC.or(),-0.62+i*0.35,0.8,0.12);
   zaBoite(t,0.45,0.22,0.32,zaMat('bac47',{color:0x1f5fbf, roughness:0.6}),0.55,0.87,0.02);
   zaCyl(g,0.02,0.02,1.6,ZAC.alu(),-0.75,0.8,-0.32,6);
-  var m=zaMatTexte('puces47-mat',zaBandeau('puces47',['PUCES · MÉDAILLES'],{w:512,h:96,fond:'#f2b33d',coul:'#14213d'}),0.3);
+  var m=zaMatTexte('puces47-mat',zaBandeau('puces47',['RÉCUPÉRATION PUCES'],{w:512,h:96,fond:'#f2b33d',coul:'#14213d'}),0.3);
   zaPlan(g,0.9,0.17,m,-0.75,1.65,-0.3,0); zaPlan(g,0.9,0.17,m,-0.75,1.65,-0.34,Math.PI);
   zaChaise(g,-0.4,-0.75,0); zaChaise(g,0.4,-0.75,0);
   return g;
@@ -31146,6 +31163,89 @@ function construireTablePuces47(){
   p.bb=[x0,x1,z0,z1];
   PLACES.unshift(p);
 })();
+/* passages ouverts dans les murs OSM : l'allée de service qui mène de la
+   place Denfert à la Salle Denfert traverse le mur entre le jardin clos et
+   la salle Rabelais sans portail dans OSM, la 3D fermait l'accès. Centre =
+   nœud commun à l'allée et au mur, rayon en mètres. */
+var MURS_OUVERTS47=[{la:46.4162971, lo:-0.1993317, r:4.0}];
+function distSeg47(px,pz,ax,az,bx,bz){
+  var dx=bx-ax, dz=bz-az, l2=dx*dx+dz*dz, t=l2 ? ((px-ax)*dx+(pz-az)*dz)/l2 : 0;
+  t=t<0?0:(t>1?1:t);
+  return Math.hypot(px-(ax+dx*t),pz-(az+dz*t));
+}
+var _murLigne47=murLigne;
+murLigne=function(tas,pts,larg,h,c){
+  var O=MURS_OUVERTS47.map(function(o){ return {x:pX(o.lo), z:pZ(o.la), r:o.r}; }), n=pts.length/2, i, k, touche=false;
+  for(i=1;i<n && !touche;i++) for(k=0;k<O.length;k++){
+    if(distSeg47(O[k].x,O[k].z,pts[i*2-2],pts[i*2-1],pts[i*2],pts[i*2+1])<O[k].r){ touche=true; break; }
+  }
+  if(!touche) return _murLigne47(tas,pts,larg,h,c);
+  /* le mur est coupé en tronçons hors des passages ; on ne garde que les coins */
+  var q=densifier(pts,0.25), run=[];
+  function fin(){
+    if(run.length<4){ run=[]; return; }
+    var r=[run[0],run[1]];
+    for(var j=2;j<run.length-2;j+=2){
+      var cx=(run[j]-run[j-2])*(run[j+3]-run[j+1])-(run[j+1]-run[j-1])*(run[j+2]-run[j]);
+      if(Math.abs(cx)>1e-4) r.push(run[j],run[j+1]);
+    }
+    r.push(run[run.length-2],run[run.length-1]);
+    _murLigne47(tas,r,larg,h,c);
+    run=[];
+  }
+  for(i=0;i<q.x.length;i++){
+    var dedans=false;
+    for(k=0;k<O.length;k++) if(Math.hypot(q.x[i]-O[k].x,q.z[i]-O[k].z)<O[k].r){ dedans=true; break; }
+    if(dedans) fin(); else run.push(q.x[i],q.z[i]);
+  }
+  fin();
+};
+/* voitures garées dans les zones d'aménagement dont le nom contient
+   « parking » : rangées en épi droit le long du plus grand côté (une rangée
+   au bord, allée de 6 m, deux rangées dos à dos, allée…), quatre places sur
+   cinq occupées ; rien sur le parcours ni contre le matériel posé. Les zones
+   sans voitures les retirent comme les autres voitures garées. */
+var _placerVoit47=placerVoitures;
+placerVoitures=function(I,nm){
+  var slots=_placerVoit47(I,nm), Z=[], veh=[];
+  nm=slots.length;
+  try{ Z=(CARTE.zonesAmenagement ? CARTE.zonesAmenagement() : []).filter(function(z){ return /parking/i.test(z.nom||''); }); }catch(e){}
+  try{ veh=(CARTE.vehicules()||[]).map(function(v){ return [pX(v.lo),pZ(v.la)]; }); }catch(e){}
+  Z.forEach(function(z,zi){
+    var P=[], i;
+    z.pts.forEach(function(q){ P.push(pX(q[1]),pZ(q[0])); });
+    var n=P.length/2, best=0, ex=1, ez=0;
+    for(i=0;i<n;i++){
+      var j=(i+1)%n, dx=P[j*2]-P[i*2], dz=P[j*2+1]-P[i*2+1], l=Math.hypot(dx,dz);
+      if(l>best){ best=l; ex=dx/l; ez=dz/l; }
+    }
+    var nx=-ez, nz=ex, s0=1e9, s1=-1e9, t0=1e9, t1=-1e9;
+    for(i=0;i<n;i++){
+      var ps=P[i*2]*ex+P[i*2+1]*ez, pt=P[i*2]*nx+P[i*2+1]*nz;
+      s0=Math.min(s0,ps); s1=Math.max(s1,ps); t0=Math.min(t0,pt); t1=Math.max(t1,pt);
+    }
+    function dedans(x,z){ return dansPoly(P,x,z); }
+    var t=t0+2.6, sens=-1, ri=0;
+    while(t<t1-2.4){
+      for(var s=s0+1.3;s<s1-1.2;s+=2.5){
+        var x=ex*s+nx*t, zz=ez*s+nz*t;
+        if(!dedans(x+ex*1.0+nx*2.3,zz+ez*1.0+nz*2.3) || !dedans(x-ex*1.0+nx*2.3,zz-ez*1.0+nz*2.3) ||
+           !dedans(x+ex*1.0-nx*2.3,zz+ez*1.0-nz*2.3) || !dedans(x-ex*1.0-nx*2.3,zz-ez*1.0-nz*2.3)) continue;
+        if(alea(zi*131+ri*37+Math.round(s*2),ri*11+7)>0.8) continue;
+        if(bloquer(x,zz) || (TRACE.length && surLeParcours(x,zz).ecart<3.5)) continue;
+        /* pas sur les allées de circulation du parking (voies OSM), ni à cheval dessus */
+        if(I && (dansChaussee(I,x,zz,-1,0.9) || dansChaussee(I,x+nx*2.1,zz+nz*2.1,-1,0.3) || dansChaussee(I,x-nx*2.1,zz-nz*2.1,-1,0.3))) continue;
+        if(veh.some(function(v){ return Math.hypot(v[0]-x,v[1]-zz)<3.5; })) continue;
+        var a=Math.atan2(nx*sens,nz*sens)+(alea(Math.round(x*5),Math.round(zz*5))-0.5)*0.08;
+        var mi=Math.floor(alea(Math.round(x*3),Math.round(zz*3))*nm*0.9999);
+        slots[mi].push([x,zz,a,-1]);
+      }
+      if(sens<0){ t+=11; sens=1; } else { t+=5; sens=-1; }
+      ri++;
+    }
+  });
+  return slots;
+};
 VEH_DEF.sas_1.construire=function(){ return construirePanneauSas(1,'#c62828','VAGUE 1 · 19 H 00'); };
 VEH_DEF.sas_2.construire=function(){ return construirePanneauSas(2,'#1f5fbf','VAGUE 2 · 19 H 02'); };
 VEH_DEF.sas_3.construire=function(){ return construirePanneauSas(3,'#2f8f4a','VAGUE 3 · 19 H 04'); };
@@ -31156,5 +31256,5 @@ VEH_DEF.fl_parking={construire:function(){ return construireFleche47('parking','
 VEH_DEF.fl_depart={construire:function(){ return construireFleche47('depart','#2f8f4a','#ffffff','DÉPART','Sas 1 à 4'); }, nom:'Flèche Départ (sas)', icone:'🟢'};
 VEH_DEF.panneau_info={construire:construirePanneauInfo47, nom:'Panneau d’information', icone:'ℹ'};
 VEH_DEF.food_truck={construire:construireFoodTruck47, nom:'Food truck', icone:'🚚'};
-VEH_DEF.table_puces={construire:construireTablePuces47, nom:'Table puces et médailles', icone:'🥇'};
+VEH_DEF.table_puces={construire:construireTablePuces47, nom:'Table récupération puces', icone:'✂'};
 })();

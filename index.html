@@ -212191,7 +212191,7 @@ ZONE_TYPES.sono.encre='#FFFFFF';
 
 /* Village départ-arrivée : panneaux fléchés (la flèche pointe dans l'axe
    du panneau, ang), panneau d'information, food truck, quatrième sas,
-   table puces et médailles. Même rangement que les véhicules
+   table de récupération des puces. Même rangement que les véhicules
    ([la,lo,ang,t]) ; dessin, bilan et menu Ajouter en fin de script. */
 var FLECHES={
   fl_denfert:{nom:'Flèche Salle Denfert', L:2.6, W:1.1, coul:'#6B3FA0', court:'SALLE DENFERT'},
@@ -212204,7 +212204,7 @@ Object.keys(FLECHES).forEach(function(k){ VEH_TYPES[k]=FLECHES[k]; });
   ['panneau_info',{nom:'Panneau d’information', L:2.4, W:0.7, coul:'#14213D', txt:'INFO', encre:'#F2B33D'}],
   ['food_truck',{nom:'Food truck', L:6.2, W:2.4, coul:'#B83227', txt:'FOOD', encre:'#FFFFFF'}],
   ['sas_4',{nom:'Panneau SAS 4', L:2.3, W:0.6, coul:'#B7791F', txt:'SAS 4', encre:'#FFFFFF'}],
-  ['table_puces',{nom:'Table puces et médailles', L:1.8, W:0.8, coul:'#F2B33D'}]
+  ['table_puces',{nom:'Table récupération puces', L:1.8, W:0.8, coul:'#F2B33D'}]
 ].forEach(function(e){ ZONE_TYPES[e[0]]=e[1]; VEH_TYPES[e[0]]=e[1]; });
 
 var ZSV=[];
@@ -216564,7 +216564,7 @@ majEquip=(function(orig){
     var mots={fl_denfert:['flèche Salle Denfert','flèches Salle Denfert'], fl_village:['flèche village','flèches village'],
       fl_parking:['flèche parking','flèches parking'], fl_depart:['flèche départ','flèches départ'],
       panneau_info:['panneau d’information','panneaux d’information'], food_truck:['food truck','food trucks'],
-      sas_4:['panneau SAS 4','panneaux SAS 4'], table_puces:['table puces et médailles','tables puces et médailles']};
+      sas_4:['panneau SAS 4','panneaux SAS 4'], table_puces:['table récupération puces','tables récupération puces']};
     var z=Object.keys(mots).filter(function(k){ return c[k]; }).map(function(k){ return c[k]+' '+mots[k][c[k]>1?1:0]; });
     if(!z.length) return;
     /* le texte est le premier nœud : le bouton « Retirer les zones » peut suivre */
@@ -216655,6 +216655,8 @@ zjAjouter=function(la,lo){
   return z;
 };
 document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') ZAM_POSE=false; });
+/* la 3D garnit de voitures les zones dont le nom contient « parking » */
+CARTE.zonesAmenagement=function(){ return ZAM; };
 /* le bouton du panneau gardait l'ancienne fonction */
 (function(){ var b=blocZJ.querySelector('.l-parcours button'); if(b) b.onclick=function(){ lancerPoseZJ(); }; })();
 
@@ -216668,7 +216670,7 @@ setTimeout(function(){
   pa.appendChild(sp); pa.appendChild(ti);
   [['fl_denfert','➡ Flèche Salle Denfert'],['fl_village','➡ Flèche Village (dossards, infos)'],['fl_parking','➡ Flèche Parking'],
    ['fl_depart','➡ Flèche Départ (sas)'],['panneau_info','ℹ Panneau d’information'],['food_truck','🚚 Food truck'],
-   ['table_puces','🥇 Table puces et médailles'],['sas_4','🟧 Panneau SAS 4']].forEach(function(e){
+   ['table_puces','✂ Table récupération puces'],['sas_4','🟧 Panneau SAS 4']].forEach(function(e){
     var b=document.createElement('button'); b.type='button'; b.textContent=e[1];
     b.title='Puis clic sur la carte ; glisser pour déplacer, R pour tourner de 15°';
     b.onclick=function(){ lancerPoseVillage(e[0]); };
