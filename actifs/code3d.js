@@ -8770,7 +8770,9 @@ function sansTrace(fn){
 function equipSurMini(){
   if(!window.CARTE || !CARTE.equip || !joueur) return;
   var c=$e('e3-mini'), g=c.getContext('2d'), S=220, ech=S/(MINIR*2), E=CARTE.equip();
-  if(!E.barrieres.length && !E.rubalises.length) return;
+  /* les barrières ne sont plus tracées sur la minicarte (Nicolas, 14 oct.
+     2026 : les traits blancs l'encombraient) ; la rubalise reste */
+  if(!E.rubalises.length) return;
   function PX(x){ return S/2+(x-J.x)*ech; }
   function PZ(z){ return S/2+(z-J.z)*ech; }
   g.save(); g.beginPath(); g.arc(S/2,S/2,S/2-2,0,7); g.clip();
@@ -8782,13 +8784,7 @@ function equipSurMini(){
     N.forEach(function(n,i){ if(i) g.lineTo(PX(n[0]),PZ(n[1])); else g.moveTo(PX(n[0]),PZ(n[1])); });
     g.stroke();
   });
-  g.setLineDash([]); g.strokeStyle='#e8edf5'; g.lineWidth=2.4;
-  var demi=Math.max(1,3/ech);
-  E.barrieres.concat(EQ.ancrages||[]).forEach(function(b){
-    if(b._x===undefined) return;
-    var a=b.ang*PI/180, ux=Math.cos(a)*demi, uz=Math.sin(a)*demi;
-    g.beginPath(); g.moveTo(PX(b._x-ux),PZ(b._z-uz)); g.lineTo(PX(b._x+ux),PZ(b._z+uz)); g.stroke();
-  });
+  g.setLineDash([]);
   g.restore();
 }
 var _miniU=dessinerMini;
