@@ -212189,6 +212189,24 @@ majEquip=(function(orig){
 ZONE_TYPES.tente_chrono.encre='#FFFFFF';
 ZONE_TYPES.sono.encre='#FFFFFF';
 
+/* Village départ-arrivée : panneaux fléchés (la flèche pointe dans l'axe
+   du panneau, ang), panneau d'information, food truck, quatrième sas,
+   table puces et médailles. Même rangement que les véhicules
+   ([la,lo,ang,t]) ; dessin, bilan et menu Ajouter en fin de script. */
+var FLECHES={
+  fl_denfert:{nom:'Flèche Salle Denfert', L:2.6, W:1.1, coul:'#6B3FA0', court:'SALLE DENFERT'},
+  fl_village:{nom:'Flèche Village (dossards, infos)', L:2.6, W:1.1, coul:'#E8772E', court:'VILLAGE'},
+  fl_parking:{nom:'Flèche Parking', L:2.6, W:1.1, coul:'#1F5FBF', court:'PARKING'},
+  fl_depart:{nom:'Flèche Départ (sas)', L:2.6, W:1.1, coul:'#2F8F4A', court:'DÉPART'}
+};
+Object.keys(FLECHES).forEach(function(k){ VEH_TYPES[k]=FLECHES[k]; });
+[
+  ['panneau_info',{nom:'Panneau d’information', L:2.4, W:0.7, coul:'#14213D', txt:'INFO', encre:'#F2B33D'}],
+  ['food_truck',{nom:'Food truck', L:6.2, W:2.4, coul:'#B83227', txt:'FOOD', encre:'#FFFFFF'}],
+  ['sas_4',{nom:'Panneau SAS 4', L:2.3, W:0.6, coul:'#B7791F', txt:'SAS 4', encre:'#FFFFFF'}],
+  ['table_puces',{nom:'Table puces et médailles', L:1.8, W:0.8, coul:'#F2B33D'}]
+].forEach(function(e){ ZONE_TYPES[e[0]]=e[1]; VEH_TYPES[e[0]]=e[1]; });
+
 var ZSV=[];
 paquet=(function(orig){ return function(){ var p=orig(); p.zones_sans_voiture=ZSV.map(function(z){ return z.slice(); }); return p; }; })(paquet);
 chargerEtat=(function(orig){
@@ -213027,6 +213045,32 @@ restaurerEquip=(function(orig){
     ZJ=Array.isArray(o.z) ? o.z.map(zjDepuis).filter(Boolean) : [];
     orig(s);
     zjRedessiner();
+  };
+})(restaurerEquip);
+/* Zones d'aménagement (parking, village, Salle Denfert…), clé zones_amen
+   du paquet, même format que les zones de jalonnement. Dessinées et
+   modifiées comme elles, mais hors des documents de jalonnement
+   (récapitulatif, fiches, WhatsApp) : ZJ ne contient que les zones de
+   jalonnement. Carte et menu en fin de script. */
+var ZAM=[];
+function zamDepuis(o){ var z=zjDepuis(o); if(z) z.am=true; return z; }
+paquet=(function(orig){ return function(){ var p=orig(); p.zones_amen=ZAM.map(zjVers); return p; }; })(paquet);
+chargerEtat=(function(orig){
+  return function(data,refRef){
+    if(!data) return orig(data,refRef);
+    var avant=ZAM;
+    ZAM=Array.isArray(data.zones_amen) ? data.zones_amen.map(zamDepuis).filter(Boolean) : [];
+    var ok=orig(data,refRef);
+    if(!ok){ ZAM=avant; zjRedessiner(); }
+    return ok;
+  };
+})(chargerEtat);
+etatEquip=(function(orig){ return function(){ var o=JSON.parse(orig()); o.za=ZAM.map(zjVers); return JSON.stringify(o); }; })(etatEquip);
+restaurerEquip=(function(orig){
+  return function(s){
+    var o=JSON.parse(s);
+    ZAM=Array.isArray(o.za) ? o.za.map(zamDepuis).filter(Boolean) : [];
+    orig(s);
   };
 })(restaurerEquip);
 
@@ -216475,6 +216519,166 @@ setTimeout(function(){
   pa.appendChild(sp); pa.appendChild(ti); pa.appendChild(b);
 },60);
 CARTE.modeLive=function(on){ basculerMode(on); return UI.on; };
+})();
+
+/* ---------------------------------------------------------------
+   Village départ-arrivée (14 oct. 2026) : panneaux fléchés sur la
+   carte (flèche blanche dans le panneau de couleur, nom à côté),
+   bilan, menu « Ajouter › Village et fléchage », zones d'aménagement
+   (parking, village, Salle Denfert…) dessinées et modifiées comme les
+   zones de jalonnement. Types et données (FLECHES, ZAM) avant ed_app10.
+--------------------------------------------------------------- */
+(function(){
+ZONE_MATERIEL.push('panneau_info','food_truck','sas_4','table_puces','fl_denfert','fl_village','fl_parking','fl_depart');
+
+/* ---------- panneaux fléchés sur la carte ---------- */
+dessinerVehiculesCarte=(function(orig){
+  return function(){
+    orig();
+    if(!gEquip) return;
+    VEH.forEach(function(v){
+      var F=FLECHES[v.t];
+      if(!F) return;
+      var a=v.ang*Math.PI/180, ux=Math.cos(a), uz=Math.sin(a), L=F.L, W=F.W;
+      function pt(x,z){ var q=vPoint(v,ux*x-uz*z,uz*x+ux*z); return [X(q[1]),Y(q[0])]; }
+      var forme=[[-0.43*L,0.12*W],[0.06*L,0.12*W],[0.06*L,0.34*W],[0.44*L,0],[0.06*L,-0.34*W],[0.06*L,-0.12*W],[-0.43*L,-0.12*W]];
+      gEquip.appendChild(el('path',{d:forme.map(function(c,i){ var p=pt(c[0],c[1]); return (i?'L':'M')+p[0].toFixed(2)+' '+p[1].toFixed(2); }).join('')+'Z',
+        fill:'#FFFFFF', 'pointer-events':'none'}));
+      /* nom du panneau devant lui, jamais à l'envers */
+      var c=pt(0,W/2+0.8), m=Math.abs(X(v.lo+1/EQ_MLON)-X(v.lo)), rot=((v.ang%180)+180)%180;
+      if(rot>90) rot-=180;
+      var t=el('text',{x:c[0].toFixed(2), y:c[1].toFixed(2), 'font-size':(m*0.8).toFixed(2), 'text-anchor':'middle', 'dominant-baseline':'central',
+        fill:F.coul, stroke:'#0B1019', 'stroke-width':(m*0.16).toFixed(2), 'paint-order':'stroke', 'font-weight':800, 'pointer-events':'none',
+        transform:'rotate('+rot.toFixed(1)+' '+c[0].toFixed(2)+' '+c[1].toFixed(2)+')'});
+      t.textContent=F.court;
+      gEquip.appendChild(t);
+    });
+  };
+})(dessinerVehiculesCarte);
+
+/* ---------- bilan du matériel ---------- */
+majEquip=(function(orig){
+  return function(){
+    orig();
+    var c={}; VEH.forEach(function(v){ c[v.t]=(c[v.t]||0)+1; });
+    var mots={fl_denfert:['flèche Salle Denfert','flèches Salle Denfert'], fl_village:['flèche village','flèches village'],
+      fl_parking:['flèche parking','flèches parking'], fl_depart:['flèche départ','flèches départ'],
+      panneau_info:['panneau d’information','panneaux d’information'], food_truck:['food truck','food trucks'],
+      sas_4:['panneau SAS 4','panneaux SAS 4'], table_puces:['table puces et médailles','tables puces et médailles']};
+    var z=Object.keys(mots).filter(function(k){ return c[k]; }).map(function(k){ return c[k]+' '+mots[k][c[k]>1?1:0]; });
+    if(!z.length) return;
+    /* le texte est le premier nœud : le bouton « Retirer les zones » peut suivre */
+    var tn=pVeh.firstChild, ajout='Village et fléchage : '+z.join(', ')+'.';
+    if(tn && tn.nodeType===3 && tn.data.trim()) tn.data=tn.data.replace(/\.\s*$/,'')+' · '+ajout;
+    else pVeh.insertBefore(document.createTextNode(ajout),pVeh.firstChild);
+    pVeh.hidden=false;
+  };
+})(majEquip);
+
+/* ---------- pose sur la carte (avant le gestionnaire des policiers) ---------- */
+function minuscule47(s){ return s.charAt(0).toLowerCase()+s.slice(1); }
+var POSE_VILLAGE=['fl_denfert','fl_village','fl_parking','fl_depart','panneau_info','food_truck','table_puces','sas_4'];
+function lancerPoseVillage(t){
+  poseJalon=false; majPose();
+  ZAM_POSE=false;
+  POSE_CARTE={type:t, cat:''};
+  majPoseCarte();
+  dire('Clique sur la carte pour poser : '+minuscule47(VEH_TYPES[t].nom)+'. Échap pour annuler.','');
+}
+document.addEventListener('pointerdown',function(ev){
+  if(!POSE_CARTE || ev.button!==0 || POSE_VILLAGE.indexOf(POSE_CARTE.type)<0) return;
+  if(!(ev.target && ev.target.closest && ev.target.closest('#map'))) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  var t=POSE_CARTE.type, w=toWorld(ev);
+  POSE_CARTE=null; majPoseCarte();
+  CARTE.ajouterVehicule(t,versLat(w.y),versLon(w.x),0);
+  memoriserEquip();
+  dire(VEH_TYPES[t].nom+' posé. Glisse-le pour l’ajuster, R pour le tourner de 15°'+(FLECHES[t]?' (la flèche suit)':'')+', clic droit pour le retirer.','ok');
+},true);
+
+/* ---------- zones d'aménagement : avec les zones de jalonnement à l'écran ---------- */
+var _dessinerZJ47=dessinerZJ;
+dessinerZJ=function(){
+  var s=ZJ;
+  ZJ=ZJ.concat(ZAM);
+  try{ _dessinerZJ47(); } finally { ZJ=s; }
+  /* bord en tirets : elles se distinguent des zones de jalonnement */
+  Array.prototype.slice.call(gZJ.querySelectorAll('path')).forEach(function(p){ if(p.__zj && p.__zj.am) p.setAttribute('stroke-dasharray','9 5'); });
+};
+var _zjSupprimer47=zjSupprimer;
+zjSupprimer=function(z){
+  var i=ZAM.indexOf(z);
+  if(i<0) return _zjSupprimer47(z);
+  ZAM.splice(i,1);
+  if(SELZ===z) SELZ=null;
+  dessinerZJ(); zjModifiee();
+  dire(z.nom+' supprimée. Ctrl+Z pour annuler.','');
+};
+var _majOutilsZJ47=majOutilsZJ;
+majOutilsZJ=function(){
+  _majOutilsZJ47();
+  var f=outilsZJ.querySelector('[data-a="fiche"]');
+  if(f) f.hidden=!!(SELZ && SELZ.am);
+};
+var _zjStats47=zjStatsPlusTard;
+zjStatsPlusTard=function(){
+  if(!(SELZ && SELZ.am)) return _zjStats47();
+  setTimeout(function(){
+    var z=SELZ, s=outilsZJ.querySelector('.zj-stats');
+    if(!z || !z.am || !s) return;
+    var b=zjBilan(z), nb=b.poses+b.ancrages, t=['Zone d’aménagement'];
+    t.push(b.surface>=10000 ? (b.surface/10000).toFixed(2).replace('.',',')+' ha' : b.surface+' m²');
+    if(nb) t.push(nb+' barrière'+(nb>1?'s':''));
+    var m=Object.keys(b.veh).map(function(k){ return b.veh[k]+' × '+(VEH_TYPES[k] ? minuscule47(VEH_TYPES[k].nom) : k); });
+    if(m.length) t.push(m.join(', '));
+    s.textContent=t.join(' · ')+'.';
+  },60);
+};
+var ZAM_POSE=false;
+var _lancerPoseZJ47=lancerPoseZJ;
+lancerPoseZJ=function(){ ZAM_POSE=false; _lancerPoseZJ47(); };
+function lancerPoseZAM(){
+  _lancerPoseZJ47();
+  ZAM_POSE=true;
+  dire('Clique sur la carte au centre de la future zone d’aménagement (parking, village…). Échap pour annuler.','');
+}
+var _zjAjouter47=zjAjouter;
+zjAjouter=function(la,lo){
+  if(!ZAM_POSE) return _zjAjouter47(la,lo);
+  ZAM_POSE=false;
+  var z={nom:'Zone d’aménagement', couleur:'#F97316', pts:zjCarre(la,lo,40), chef:'', tel:'', notes:'', wa:'', mat:[], am:true};
+  ZAM.push(z);
+  if(!ZJ_VIS) zjVisible(true);
+  zjChoisir(z);
+  zjModifiee();
+  dire('Zone d’aménagement ajoutée (carré de 40 m) : renomme-la (Parking, Village…), choisis sa couleur et tire ses coins. Elle n’entre pas dans les documents de jalonnement.','ok');
+  return z;
+};
+document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') ZAM_POSE=false; });
+/* le bouton du panneau gardait l'ancienne fonction */
+(function(){ var b=blocZJ.querySelector('.l-parcours button'); if(b) b.onclick=function(){ lancerPoseZJ(); }; })();
+
+/* ---------- menu Ajouter ---------- */
+setTimeout(function(){
+  if(window.CONSULTATION) return;
+  var pa=document.querySelector('.bar .menu[data-m="ajout"] .menu-pop');
+  if(!pa) return;
+  var sp=document.createElement('div'); sp.className='menu-sep';
+  var ti=document.createElement('div'); ti.className='menu-titre'; ti.textContent='Village et fléchage';
+  pa.appendChild(sp); pa.appendChild(ti);
+  [['fl_denfert','➡ Flèche Salle Denfert'],['fl_village','➡ Flèche Village (dossards, infos)'],['fl_parking','➡ Flèche Parking'],
+   ['fl_depart','➡ Flèche Départ (sas)'],['panneau_info','ℹ Panneau d’information'],['food_truck','🚚 Food truck'],
+   ['table_puces','🥇 Table puces et médailles'],['sas_4','🟧 Panneau SAS 4']].forEach(function(e){
+    var b=document.createElement('button'); b.type='button'; b.textContent=e[1];
+    b.title='Puis clic sur la carte ; glisser pour déplacer, R pour tourner de 15°';
+    b.onclick=function(){ lancerPoseVillage(e[0]); };
+    pa.appendChild(b);
+  });
+  var bz=document.createElement('button'); bz.type='button'; bz.textContent='🟧 Zone d’aménagement (parking, village…)';
+  bz.title='Puis clic sur la carte : carré de 40 m à ajuster. Hors des documents de jalonnement.';
+  bz.onclick=lancerPoseZAM;
+  pa.appendChild(bz);
+},70);
 })();
 })();
 </script>

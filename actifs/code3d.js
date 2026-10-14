@@ -31032,4 +31032,129 @@ majOuvreur=function(dt){
   }catch(e){ if(!OUV46.err){ OUV46.err=true; console.warn('ouvreur :',e); } }
 };
 window.ESPACE3D.ouvreur46=OUV46;
+/* =================================================================
+   47. Village départ-arrivée (14 oct. 2026) : panneaux fléchés
+   (Salle Denfert, village, parking, départ), panneau d'information,
+   food truck, table puces et médailles, panneau SAS 4. Mêmes données
+   que la zone d'arrivée (vehicules [la,lo,ang,t]) ; repère : x =
+   longueur, +z = face avant. La flèche pointe vers +x des deux côtés
+   du panneau. Sous-titres des sas : les vagues du règlement 2027.
+================================================================= */
+function texFleche47(cle,fond,encre,titre,sous,gauche){
+  return zaTexture('fl47:'+cle+(gauche?':g':':d'),768,256,function(g,W,H){
+    g.fillStyle=fond; g.fillRect(0,0,W,H);
+    g.strokeStyle=encre; g.lineWidth=7; g.strokeRect(12,12,W-24,H-24);
+    var aw=220, cy=H/2, xL=W-34-aw, xM=xL+aw*0.48, xR=W-34;
+    g.save();
+    if(gauche){ g.translate(W,0); g.scale(-1,1); }
+    g.fillStyle=encre;
+    g.beginPath();
+    g.moveTo(xL,cy-24); g.lineTo(xM,cy-24); g.lineTo(xM,cy-82); g.lineTo(xR,cy);
+    g.lineTo(xM,cy+82); g.lineTo(xM,cy+24); g.lineTo(xL,cy+24); g.closePath(); g.fill();
+    g.restore();
+    var x0=gauche ? aw+56 : 40, x1=gauche ? W-40 : W-aw-56, cx=(x0+x1)/2, lw=x1-x0, t1=86, t2=38;
+    g.fillStyle=encre; g.textAlign='center'; g.textBaseline='middle';
+    g.font='800 '+t1+'px Arial, Helvetica, sans-serif';
+    while(g.measureText(titre).width>lw && t1>24){ t1-=4; g.font='800 '+t1+'px Arial, Helvetica, sans-serif'; }
+    g.fillText(titre,cx,sous ? H*0.4 : H/2);
+    if(sous){
+      g.font='600 '+t2+'px Arial, Helvetica, sans-serif';
+      while(g.measureText(sous).width>lw && t2>14){ t2-=2; g.font='600 '+t2+'px Arial, Helvetica, sans-serif'; }
+      g.fillText(sous,cx,H*0.74);
+    }
+  });
+}
+function construireFleche47(cle,fond,encre,titre,sous){
+  var g=new THREE.Group(), w=2.2, h=0.74, y=1.75;
+  [-0.85,0.85].forEach(function(x){
+    zaCyl(g,0.035,0.035,y+h/2,ZAC.alu(),x,(y+h/2)/2,-0.03,8);
+    zaBoite(g,0.34,0.07,0.34,ZAC.noir(),x,0.035,-0.03);
+  });
+  zaBoite(g,w+0.04,h+0.04,0.035,ZAC.noir(),0,y,0);
+  /* face avant : flèche vers +x ; face arrière dessinée vers la gauche, donc aussi vers +x vue de derrière */
+  zaPlan(g,w,h,zaMatTexte('fl47m:'+cle+':d',texFleche47(cle,fond,encre,titre,sous,false),0.45),0,y,0.02,0);
+  zaPlan(g,w,h,zaMatTexte('fl47m:'+cle+':g',texFleche47(cle,fond,encre,titre,sous,true),0.45),0,y,-0.02,Math.PI);
+  return g;
+}
+function texInfo47(){
+  return zaTexture('info47',512,340,function(g,W,H){
+    g.fillStyle='#14213d'; g.fillRect(0,0,W,H);
+    g.fillStyle='#f2b33d'; g.fillRect(0,0,W,62);
+    g.fillStyle='#14213d'; g.font='800 40px Arial, Helvetica, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+    g.fillText('INFORMATIONS',W/2,33);
+    g.textAlign='left'; g.font='600 23px Arial, Helvetica, sans-serif';
+    ['Plan du parcours','Départ 19 h · vagues','Frontale obligatoire','Résultats'].forEach(function(t,i){
+      g.fillStyle='#f2b33d'; g.fillRect(22,94+i*60,11,11);
+      g.fillStyle='#e8eef8'; g.fillText(t,44,100+i*60);
+    });
+    g.strokeStyle='#4ade80'; g.lineWidth=5; g.lineJoin='round'; g.beginPath();
+    [[338,112],[420,96],[478,150],[446,214],[476,290],[392,304],[356,246],[310,262],[316,176],[338,112]].forEach(function(p,i){ if(i) g.lineTo(p[0],p[1]); else g.moveTo(p[0],p[1]); });
+    g.stroke();
+    g.fillStyle='#f2b33d'; g.beginPath(); g.arc(338,112,9,0,Math.PI*2); g.fill();
+  });
+}
+function construirePanneauInfo47(){
+  var g=new THREE.Group(), w=2.1, h=1.4, y=1.55;
+  [-0.95,0.95].forEach(function(x){
+    zaCyl(g,0.04,0.04,y+h/2+0.05,ZAC.alu(),x,(y+h/2+0.05)/2,-0.04,8);
+    zaBoite(g,0.38,0.08,0.38,ZAC.noir(),x,0.04,-0.04);
+  });
+  zaBoite(g,w+0.06,h+0.06,0.05,ZAC.noir(),0,y,0);
+  var m=zaMatTexte('info47-mat',texInfo47(),0.35);
+  zaPlan(g,w,h,m,0,y,0.03,0); zaPlan(g,w,h,m,0,y,-0.03,Math.PI);
+  return g;
+}
+function construireFoodTruck47(){
+  var g=new THREE.Group(), rouge=zaMat('ft47-rouge',{color:0xb83227, roughness:0.5, metalness:0.15}),
+      creme=zaMat('ft47-creme',{color:0xf3e6c8, roughness:0.6}), inox=zaMat('ft47-inox',{color:0xd9dde2, metalness:0.7, roughness:0.3});
+  /* caisse à l'arrière (x de -3 à 1,2), cabine à l'avant (+x), passe-plat côté +z */
+  zaBoite(g,4.2,2.3,2.25,rouge,-0.9,1.75,0);
+  zaBoite(g,4.22,0.32,2.27,creme,-0.9,1.12,0);
+  zaBoite(g,1.75,1.5,2.15,rouge,2.08,1.35,0);
+  var pb=zaBoite(g,0.06,0.72,1.95,ZAC.vitre(),2.93,1.72,0); pb.rotation.z=0.25;
+  [-1.08,1.08].forEach(function(z){ zaPlan(g,0.85,0.55,ZAC.vitre(),2.2,1.65,z,z>0 ? 0 : Math.PI); });
+  zaBoite(g,6.0,0.32,2.2,zaMat('bas-caisse',{color:0x3a3f47, roughness:0.7}),0,0.55,0);
+  [[-2.2,1],[-2.2,-1],[2.15,1],[2.15,-1]].forEach(function(p){ var r=zaCyl(g,0.38,0.38,0.26,ZAC.gomme(),p[0],0.38,p[1]*0.95,16); r.rotation.x=Math.PI/2; });
+  zaPlan(g,2.9,1.0,zaMat('ft47-int',{color:0x2a1d14, roughness:0.9}),-1.0,2.05,1.135,0);
+  zaBoite(g,3.0,0.06,0.45,inox,-1.0,1.52,1.3);
+  var auvent=zaBoite(g,3.1,0.05,1.1,rouge,-1.0,2.72,1.62); auvent.rotation.x=-0.3;
+  zaBoite(g,2.6,0.05,0.06,zaMat('ft47-led',{color:0xfff3d6, emissive:0xffe2a8, emissiveIntensity:2.0}),-1.0,2.56,1.4);
+  var nom=zaMatTexte('ft47-nom-mat',zaBandeau('ft47-nom',['FOOD TRUCK'],{w:1024,h:180,fond:'#f3e6c8',coul:'#b83227'}),0.25);
+  zaPlan(g,3.8,0.67,nom,-0.9,2.25,-1.135,Math.PI);
+  var menu=zaMatTexte('ft47-menu-mat',zaBandeau('ft47-menu',['MENU','Restauration · Boissons'],{w:512,h:256,fond:'#1d2026',coul:'#f3e6c8',tailles:[80,34]}),0.3);
+  zaPlan(g,0.9,0.45,menu,0.55,2.2,1.14,0);
+  return g;
+}
+function construireTablePuces47(){
+  var g=new THREE.Group(), t=zaTable(g,1.8,0,0,0,true);
+  for(var i=0;i<3;i++) zaBoite(t,0.3,0.08,0.22,ZAC.or(),-0.62+i*0.35,0.8,0.12);
+  zaBoite(t,0.45,0.22,0.32,zaMat('bac47',{color:0x1f5fbf, roughness:0.6}),0.55,0.87,0.02);
+  zaCyl(g,0.02,0.02,1.6,ZAC.alu(),-0.75,0.8,-0.32,6);
+  var m=zaMatTexte('puces47-mat',zaBandeau('puces47',['PUCES · MÉDAILLES'],{w:512,h:96,fond:'#f2b33d',coul:'#14213d'}),0.3);
+  zaPlan(g,0.9,0.17,m,-0.75,1.65,-0.3,0); zaPlan(g,0.9,0.17,m,-0.75,1.65,-0.34,Math.PI);
+  zaChaise(g,-0.4,-0.75,0); zaChaise(g,0.4,-0.75,0);
+  return g;
+}
+/* parvis en enrobé de la Salle Denfert (photo IGN), où se posent les food trucks.
+   En tête de PLACES : la dernière entrée reste la place d'armes du Chevron. */
+(function(){
+  var p=[], x0=1e9, x1=-1e9, z0=1e9, z1=-1e9;
+  [[46.416876,-0.200192],[46.417029,-0.199918],[46.416768,-0.199697],[46.416633,-0.199775],[46.416750,-0.200048]].forEach(function(q){
+    var x=pX(q[1]), z=pZ(q[0]);
+    p.push(x,z); x0=Math.min(x0,x); x1=Math.max(x1,x); z0=Math.min(z0,z); z1=Math.max(z1,z);
+  });
+  p.bb=[x0,x1,z0,z1];
+  PLACES.unshift(p);
+})();
+VEH_DEF.sas_1.construire=function(){ return construirePanneauSas(1,'#c62828','VAGUE 1 · 19 H 00'); };
+VEH_DEF.sas_2.construire=function(){ return construirePanneauSas(2,'#1f5fbf','VAGUE 2 · 19 H 02'); };
+VEH_DEF.sas_3.construire=function(){ return construirePanneauSas(3,'#2f8f4a','VAGUE 3 · 19 H 04'); };
+VEH_DEF.sas_4={construire:function(){ return construirePanneauSas(4,'#b7791f','VAGUE 4 · 19 H 06'); }, nom:'Panneau SAS 4', icone:'🟧'};
+VEH_DEF.fl_denfert={construire:function(){ return construireFleche47('denfert','#6b3fa0','#ffffff','SALLE DENFERT','Récompenses · Restauration · WC'); }, nom:'Flèche Salle Denfert', icone:'🏆'};
+VEH_DEF.fl_village={construire:function(){ return construireFleche47('village','#e8772e','#14213d','VILLAGE','Retrait des dossards · Infos'); }, nom:'Flèche Village (dossards, infos)', icone:'🎪'};
+VEH_DEF.fl_parking={construire:function(){ return construireFleche47('parking','#1f5fbf','#ffffff','PARKING','Voitures des participants'); }, nom:'Flèche Parking', icone:'🅿'};
+VEH_DEF.fl_depart={construire:function(){ return construireFleche47('depart','#2f8f4a','#ffffff','DÉPART','Sas 1 à 4'); }, nom:'Flèche Départ (sas)', icone:'🟢'};
+VEH_DEF.panneau_info={construire:construirePanneauInfo47, nom:'Panneau d’information', icone:'ℹ'};
+VEH_DEF.food_truck={construire:construireFoodTruck47, nom:'Food truck', icone:'🚚'};
+VEH_DEF.table_puces={construire:construireTablePuces47, nom:'Table puces et médailles', icone:'🥇'};
 })();
