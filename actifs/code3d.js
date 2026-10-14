@@ -29209,12 +29209,12 @@ function appliquer40(g,av,taille){
       } else if(n==='pantalon'){
         m.visible=(tenue!=='course');
         if(!m.visible) return;
-        if(!ud.mh40) M=m.material=(tenue==='treillis' || tenue==='militaire') ? camo41() : tissu40(av.b,[0.010,0.035,0.8,0.7]);
+        if(!ud.mh40) M=m.material=(tenue==='treillis' || tenue==='militaire') ? camo41('p') : tissu40(av.b,[0.010,0.035,0.8,0.7]);
         if(tenue!=='treillis' && tenue!=='militaire') M.color.set(av.b);
       } else if(n==='veste'){
         m.visible=(tenue==='treillis' || tenue==='militaire');
         if(!m.visible) return;
-        if(!ud.mh40) M=m.material=camo41();
+        if(!ud.mh40) M=m.material=camo41('v');
       } else if(n==='gilet'){
         m.visible=(tenue==='treillis');
         if(!m.visible) return;
@@ -29527,19 +29527,31 @@ function texCamo41(){
    de la surface, dans l'espace du corps au repos : il ne glisse pas quand
    le jalonneur bouge, et les traînées restent horizontales */
 var MAT_CAMO41=null;
-function camo41(){
-  if(MAT_CAMO41) return MAT_CAMO41;
-  var C=texCamo41(), M=new THREE.MeshStandardMaterial({map:C.tex, roughness:0.88, metalness:0});
+/* Le motif est en répétition miroir : sans décalage, l'axe du miroir tombait
+   au milieu du corps (motif symétrique « tache d'encre » ; Nicolas, 14 oct.
+   2026 : on aurait dit une combinaison). L'image elle-même est symétrique en
+   son milieu : avec la répétition miroir, un axe tous les 40 cm. On les place
+   aux bords du buste (veste) et entre les jambes (pantalon). Différent pour le flanc
+   gauche et le flanc droit (la projection de côté leur donnait la même
+   image), et pour la veste et le pantalon (le pantalon un peu plus sombre). */
+var CAMO_PIECES41={v:{off:[0.2,0.11,0.2], teinte:1.0}, p:{off:[0.0,0.53,0.2], teinte:0.86}};
+function camo41(piece){
+  piece=(piece==='p') ? 'p' : 'v';
+  MAT_CAMO41=MAT_CAMO41||{};
+  if(MAT_CAMO41[piece]) return MAT_CAMO41[piece];
+  var C=texCamo41(), Q=CAMO_PIECES41[piece], M=new THREE.MeshStandardMaterial({map:C.tex, roughness:0.88, metalness:0, color:new THREE.Color(Q.teinte,Q.teinte,Q.teinte)});
   M.onBeforeCompile=function(sh){
     sh.uniforms.uEch={value:new THREE.Vector2(C.ech,C.echV)};
+    sh.uniforms.uOff41={value:new THREE.Vector3(Q.off[0],Q.off[1],Q.off[2])};
     sh.vertexShader='varying vec3 vPo41; varying vec3 vNo41;\n'+sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vPo41=position; vNo41=normal;');
-    sh.fragmentShader='uniform vec2 uEch; varying vec3 vPo41; varying vec3 vNo41;\n'+sh.fragmentShader.replace('#include <map_fragment>',
-      'vec3 an41=abs(normalize(vNo41)); an41=pow(an41,vec3(4.0)); an41/=dot(an41,vec3(1.0));\n'+
-      'vec4 cx41=texture2D(map,vec2(vPo41.z,vPo41.y)*uEch); vec4 cy41=texture2D(map,vec2(vPo41.x,vPo41.z)*uEch); vec4 cz41=texture2D(map,vec2(vPo41.x,vPo41.y)*uEch);\n'+
+    sh.fragmentShader='uniform vec2 uEch; uniform vec3 uOff41; varying vec3 vPo41; varying vec3 vNo41;\n'+sh.fragmentShader.replace('#include <map_fragment>',
+      'vec3 an41=abs(normalize(vNo41)); an41=pow(an41,vec3(4.0)); an41/=dot(an41,vec3(1.0)); vec3 po41=vPo41+uOff41;\n'+
+      'vec2 sx41=vec2(vNo41.x>0.0?0.43:0.0, 0.0); vec2 sz41=vec2(0.0, vNo41.z>0.0?0.0:0.17);\n'+
+      'vec4 cx41=texture2D(map,(vec2(po41.z,po41.y)+sx41)*uEch); vec4 cy41=texture2D(map,vec2(po41.x,po41.z)*uEch); vec4 cz41=texture2D(map,(vec2(po41.x,po41.y)+sz41)*uEch);\n'+
       'diffuseColor*=cx41*an41.x+cy41*an41.y+cz41*an41.z;');
   };
-  M.customProgramCacheKey=function(){ return 'camo41'; };
-  return (MAT_CAMO41=M);
+  M.customProgramCacheKey=function(){ return 'camo41'+piece; };
+  return (MAT_CAMO41[piece]=M);
 }
 var MAT_GILET41={};
 function gilet41(s){
