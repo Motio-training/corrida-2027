@@ -216822,7 +216822,7 @@ function planCalque(c,kk,m,C,etat,cadre){
   C.zones.forEach(function(z){
     var d=z.pts.map(function(p,i){ return (i?'L':'M')+X(p[1]).toFixed(3)+' '+Y(p[0]).toFixed(3); }).join('')+'Z';
     g.appendChild(el('path',{d:d, fill:z.couleur, 'fill-opacity':0.13, stroke:z.couleur, 'stroke-width':(3/kk).toFixed(4),
-      'stroke-dasharray':(14/kk).toFixed(4)+' '+(7/kk).toFixed(4), 'stroke-linejoin':'round'}));
+      'stroke-dasharray':(16/kk).toFixed(4)+' '+(9/kk).toFixed(4), 'stroke-linejoin':'round'}));
   });
   /* rubalise : rouge et blanc */
   C.rub.forEach(function(r){
@@ -216846,7 +216846,7 @@ function planCalque(c,kk,m,C,etat,cadre){
   C.zones.forEach(function(z){
     if(/finisher/i.test(z.nom)) return;
     var h=z.pts.reduce(function(a,p){ return Y(p[0])<Y(a[0]) ? p : a; });
-    var txt=z.nom.toUpperCase(), fs=15/kk, lg=(txt.length*fs*0.6+18/kk), ht=26/kk, x=X(h[1]), y=Y(h[0])-ht*0.65, mg=8/kk;
+    var txt=z.nom.toUpperCase(), fs=25/kk, lg=(txt.length*fs*0.6+26/kk), ht=40/kk, x=X(h[1]), y=Y(h[0])-ht*0.65, mg=10/kk;
     x=Math.max(cadre[0]+lg/2+mg,Math.min(cadre[2]-lg/2-mg,x)); y=Math.max(cadre[1]+ht/2+mg,Math.min(cadre[3]-ht/2-mg,y));
     g.appendChild(el('rect',{x:(x-lg/2).toFixed(3), y:(y-ht/2).toFixed(3), width:lg.toFixed(3), height:ht.toFixed(3), rx:(5/kk).toFixed(3),
       fill:z.couleur, stroke:'#FFFFFF', 'stroke-width':(2.5/kk).toFixed(4)}));
@@ -216857,94 +216857,9 @@ function planCalque(c,kk,m,C,etat,cadre){
   W.appendChild(g);
   etat.kk=kk; etat.m=m;
 }
-/* légende, mode d'emploi, échelle et nord : colonne de droite, en unités de page */
-function planLegende(C,etat,x0,y0,lg){
-  var s=[], y=y0, enc='#1A2433', gris='#5A6579';
-  function txt(x,yy,t,fs,o){ o=o||{};
-    s.push('<text x="'+x.toFixed(1)+'" y="'+yy.toFixed(1)+'" font-family="Arial, Helvetica, sans-serif" font-size="'+fs+'" font-weight="'+(o.gras?700:400)+'" fill="'+(o.coul||enc)+'"'+
-      (o.fin?' text-anchor="end"':'')+(o.mil?' text-anchor="middle"':'')+'>'+planEsc(t)+'</text>'); }
-  function titre(t){ y+=18; txt(x0,y+24,t.toUpperCase(),23,{gras:true, coul:'#16264A'}); s.push('<line x1="'+x0+'" y1="'+(y+36)+'" x2="'+(x0+lg)+'" y2="'+(y+36)+'" stroke="#D8D2C6" stroke-width="2"/>'); y+=50; }
-  function ligne(symb,nom,qte,sous){
-    var h=sous?58:44;
-    if(symb) s.push(symb(x0+40,y+h/2-4));
-    txt(x0+92,y+(sous?22:26),nom,19,{});
-    if(sous) txt(x0+92,y+46,sous,15,{coul:gris});
-    if(qte!=='' && qte!==undefined) txt(x0+lg,y+(sous?22:26),String(qte),21,{gras:true, fin:true});
-    y+=h;
-  }
-  /* symbole d'un type, mis à l'échelle de la case de légende */
-  function symbType(t){
-    return function(cx,cy){
-      var T=VEH_TYPES[t]||{L:2,W:1}, D=PLAN_DEF[t];
-      var ext={bulle:D.txt ? D.txt.length*1.3+2.4 : 4, tente:T.L, table:Math.max(T.L*1.25,2.2), info:2.9, fleche:6.6}[D.f];
-      var sc=Math.min(70/ext, 34/({bulle:3.2, tente:T.W, table:Math.max(T.W*1.5,1.1), info:2.9, fleche:4}[D.f]));
-      return '<g transform="translate('+cx.toFixed(1)+' '+cy.toFixed(1)+') scale('+sc.toFixed(3)+')">'+
-        new XMLSerializer().serializeToString(planSymbole(t,T.L,T.W,0)).replace(/ xmlns="[^"]*"/g,'')+'</g>';
-    };
-  }
-  var compte={}; C.veh.forEach(function(v){ compte[v.t]=(compte[v.t]||0)+1; });
-  titre('Parcours');
-  ligne(function(cx,cy){ return '<line x1="'+(cx-32)+'" y1="'+cy+'" x2="'+(cx+32)+'" y2="'+cy+'" stroke="#1D4ED8" stroke-width="7" stroke-linecap="round"/>'+
-    '<path d="M'+(cx-4)+' '+(cy-8)+'L'+(cx+6)+' '+cy+'L'+(cx-4)+' '+(cy+8)+'" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>'; },
-    'Tracé des coureurs et sens de course','');
-  ['arche_depart','arche'].forEach(function(t){ if(compte[t]) ligne(symbType(t),PLAN_DEF[t].nom,compte[t]); });
-  var nb=C.bar.length+C.anc.length;
-  if(nb || C.rubM){
-    titre('Barrières et rubalise');
-    if(nb) ligne(function(cx,cy){ var o=''; for(var i=-2;i<=1;i++) o+='<line x1="'+(cx+i*16+1.5)+'" y1="'+cy+'" x2="'+(cx+i*16+14.5)+'" y2="'+cy+'" stroke="'+PLAN_BARRIERE+'" stroke-width="6"/>'; return o; },
-      'Barrière municipale (un trait = une barrière de 2 m)',nb,
-      C.anc.length ? 'Dont '+C.anc.length+' pour tenir la rubalise' : 'Rangées alignées, barrières jointives');
-    if(C.rubM) ligne(function(cx,cy){ return '<line x1="'+(cx-32)+'" y1="'+cy+'" x2="'+(cx+32)+'" y2="'+cy+'" stroke="#FFFFFF" stroke-width="6"/>'+
-      '<line x1="'+(cx-32)+'" y1="'+cy+'" x2="'+(cx+32)+'" y2="'+cy+'" stroke="'+PLAN_RUBALISE+'" stroke-width="6" stroke-dasharray="9 6"/>'; },
-      'Rubalise',C.rubM+' m','Nouée aux barrières d’ancrage');
-  }
-  var mat=Object.keys(PLAN_DEF).filter(function(t){ return compte[t] && ['tente','table','info'].indexOf(PLAN_DEF[t].f)>=0; });
-  if(mat.length){
-    titre('Matériel');
-    mat.forEach(function(t){
-      var T=VEH_TYPES[t]||{}, D=PLAN_DEF[t];
-      var sous=/^tente_/.test(t) ? 'Barnum '+String(T.L).replace('.',',')+' × '+String(T.W).replace('.',',')+' m, liseré jaune = côté ouvert' : '';
-      ligne(symbType(t),D.nom,compte[t],sous);
-    });
-  }
-  var fl=['fl_denfert','fl_village','fl_parking','fl_depart'].filter(function(t){ return compte[t]; });
-  if(fl.length){
-    titre('Fléchage');
-    fl.forEach(function(t){ ligne(symbType(t),PLAN_DEF[t].nom,compte[t],'Panneau sur pied, la flèche montre la direction'); });
-  }
-  if(C.zones.length){
-    titre('Zones');
-    C.zones.forEach(function(z){
-      ligne(function(cx,cy){ return '<rect x="'+(cx-30)+'" y="'+(cy-15)+'" width="60" height="30" rx="4" fill="'+z.couleur+'" fill-opacity="0.2" stroke="'+z.couleur+'" stroke-width="3" stroke-dasharray="9 5"/>'; },
-        z.nom,'');
-    });
-  }
-  titre('Comment lire ce plan');
-  ['Plan à l’échelle, le nord en haut.',
-   'Chaque trait gris foncé est une barrière, posée à cet endroit.',
-   'Tentes et tables sont dessinées à leur taille.',
-   'Les flèches colorées sont des panneaux sur pied.',
-   'Le trait bleu est le parcours, les chevrons donnent le sens.'].forEach(function(l){
-    s.push('<circle cx="'+(x0+8)+'" cy="'+(y+14)+'" r="4" fill="#16264A"/>');
-    txt(x0+24,y+20,l,17,{});
-    y+=30;
-  });
-  y+=30;
-  var mpp=etat.m/etat.kk, pas=[5,10,20,25,50,100,200,250,500], cible=lg*0.55*mpp, metres=pas[0];
-  pas.forEach(function(p){ if(Math.abs(p-cible)<Math.abs(metres-cible)) metres=p; });
-  var lpx=metres/mpp;
-  s.push('<line x1="'+x0+'" y1="'+(y+30)+'" x2="'+(x0+lpx).toFixed(1)+'" y2="'+(y+30)+'" stroke="'+enc+'" stroke-width="5"/>');
-  [x0,x0+lpx].forEach(function(x){ s.push('<line x1="'+x.toFixed(1)+'" y1="'+(y+20)+'" x2="'+x.toFixed(1)+'" y2="'+(y+40)+'" stroke="'+enc+'" stroke-width="4"/>'); });
-  txt(x0+lpx/2,y+12,metres+' m',19,{gras:true, mil:true});
-  var xn=x0+lg-30;
-  s.push('<path d="M'+xn+' '+(y-6)+'L'+(xn+15)+' '+(y+40)+'L'+xn+' '+(y+30)+'L'+(xn-15)+' '+(y+40)+'Z" fill="'+enc+'"/>');
-  txt(xn,y-14,'N',22,{gras:true, mil:true});
-  y+=64;
-  return {svg:s.join('\n'), h:y-y0};
-}
 /* rendu du cadre : fond épuré, bâtiments à plat, calque d'implantation */
 function planRendu(C,cadre,etat){
-  var base=zjRetoucheFond(true,cadre,1.2);
+  var base=zjRetoucheFond(true,cadre,1.75);
   var ch={fRues:true, fBati:true, fVeg:true, fEau:true, fEmprise:false, fRail:true, fNoms:false, plan:false, sat:false,
     trace:true, halo:false, fleches:true, km:false, da:false, autres:false, jal:false, jalNum:false,
     bar:false, rub:false, mat:false, veh:false, pol:false, zones:false, pois:false, piste:false,
@@ -216965,30 +216880,205 @@ function planNoms(C,cadre){
   });
   return n.slice(0,4);
 }
-function planImplantation(largeurPx,cadre){
-  cadre=cadre||planCadreAuto();
-  var C=planContenu(cadre), TH=150, LG=640, G=44, M=30, etat={};
-  var r=planRendu(C,cadre,etat), L=r.L, H=r.H;
-  var leg=planLegende(C,etat,M+L+G,TH+10,LG);
-  var Wp=M+L+G+LG+40, Hp=TH+Math.max(H,leg.h+20)+30;
-  var noms=planNoms(C,cadre), date=new Date().toLocaleDateString('fr-FR');
+/* ---------- page A4 : unités en dixièmes de millimètre, rendu à 300 dpi ----------
+   La page est en paysage (légende en colonne à droite) ou en portrait
+   (légende sur trois colonnes en bas), selon ce qui donne la plus grande
+   échelle à la zone choisie ; la zone est élargie autour de son centre pour
+   remplir tout le cadre de la carte. Marges de 4 mm. */
+var A4={L:2970, l:2100, marge:40, entete:120, ecart:24, dpi:300};
+/* taille de police qui tient dans la largeur donnée (estimation, Arial) */
+function planPolice(t,fs,maxW,mini){ var w=String(t).length*0.54*fs; return w>maxW ? Math.max(mini||16,maxW/(String(t).length*0.54)) : fs; }
+/* éléments de la légende, chacun avec sa hauteur (unités de légende) */
+function planLegendeItems(C){
+  var I=[], compte={};
+  C.veh.forEach(function(v){ compte[v.t]=(compte[v.t]||0)+1; });
+  function titre(t){ I.push({k:'t', t:t, h:76}); }
+  function ligne(symb,nom,qte,sous){ I.push({k:'l', symb:symb, nom:nom, qte:qte, sous:sous, h:sous?84:58}); }
+  function puce(t){ I.push({k:'p', t:t, h:38}); }
+  /* symbole d'un type, mis à l'échelle de la case de légende (100 × 46) */
+  function symbType(t){
+    return function(cx,cy){
+      var T=VEH_TYPES[t]||{L:2,W:1}, D=PLAN_DEF[t];
+      var ext={bulle:D.txt ? D.txt.length*1.3+2.4 : 4, tente:T.L, table:Math.max(T.L*1.25,2.2), info:2.9, fleche:6.6}[D.f];
+      var sc=Math.min(100/ext, 46/({bulle:3.2, tente:T.W, table:Math.max(T.W*1.5,1.1), info:2.9, fleche:4}[D.f]));
+      return '<g transform="translate('+cx.toFixed(1)+' '+cy.toFixed(1)+') scale('+sc.toFixed(3)+')">'+
+        new XMLSerializer().serializeToString(planSymbole(t,T.L,T.W,0)).replace(/ xmlns="[^"]*"/g,'')+'</g>';
+    };
+  }
+  titre('Parcours');
+  ligne(function(cx,cy){ return '<line x1="'+(cx-44)+'" y1="'+cy+'" x2="'+(cx+44)+'" y2="'+cy+'" stroke="#1D4ED8" stroke-width="10" stroke-linecap="round"/>'+
+    '<path d="M'+(cx-6)+' '+(cy-11)+'L'+(cx+8)+' '+cy+'L'+(cx-6)+' '+(cy+11)+'" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>'; },
+    'Tracé des coureurs et sens de course','');
+  ['arche_depart','arche'].forEach(function(t){ if(compte[t]) ligne(symbType(t),PLAN_DEF[t].nom,compte[t]); });
+  var nb=C.bar.length+C.anc.length;
+  if(nb || C.rubM){
+    titre('Barrières et rubalise');
+    if(nb) ligne(function(cx,cy){ var o=''; for(var i=-2;i<=1;i++) o+='<line x1="'+(cx+i*22+2)+'" y1="'+cy+'" x2="'+(cx+i*22+20)+'" y2="'+cy+'" stroke="'+PLAN_BARRIERE+'" stroke-width="8"/>'; return o; },
+      'Barrière municipale',nb,C.anc.length ? 'Un trait = une barrière de 2 m, dont '+C.anc.length+' pour la rubalise' : 'Un trait = une barrière de 2 m');
+    if(C.rubM) ligne(function(cx,cy){ return '<line x1="'+(cx-44)+'" y1="'+cy+'" x2="'+(cx+44)+'" y2="'+cy+'" stroke="#FFFFFF" stroke-width="8"/>'+
+      '<line x1="'+(cx-44)+'" y1="'+cy+'" x2="'+(cx+44)+'" y2="'+cy+'" stroke="'+PLAN_RUBALISE+'" stroke-width="8" stroke-dasharray="12 8"/>'; },
+      'Rubalise',C.rubM+' m','Nouée aux barrières d’ancrage');
+  }
+  var mat=Object.keys(PLAN_DEF).filter(function(t){ return compte[t] && ['tente','table','info'].indexOf(PLAN_DEF[t].f)>=0; });
+  if(mat.length){
+    titre('Matériel');
+    mat.forEach(function(t){
+      var T=VEH_TYPES[t]||{};
+      ligne(symbType(t),PLAN_DEF[t].nom,compte[t],/^tente_/.test(t) ? 'Barnum '+String(T.L).replace('.',',')+' × '+String(T.W).replace('.',',')+' m' : '');
+    });
+  }
+  var fl=['fl_denfert','fl_village','fl_parking','fl_depart'].filter(function(t){ return compte[t]; });
+  if(fl.length){
+    titre('Fléchage');
+    fl.forEach(function(t){ ligne(symbType(t),PLAN_DEF[t].nom,compte[t]); });
+  }
+  if(C.zones.length){
+    titre('Zones');
+    C.zones.forEach(function(z){
+      ligne(function(cx,cy){ return '<rect x="'+(cx-40)+'" y="'+(cy-19)+'" width="80" height="38" rx="5" fill="'+z.couleur+'" fill-opacity="0.2" stroke="'+z.couleur+'" stroke-width="4" stroke-dasharray="12 7"/>'; },
+        z.nom,'');
+    });
+  }
+  titre('Comment lire ce plan');
+  ['Plan à l’échelle, nord en haut.','Un trait gris foncé = une barrière.','Tentes et tables à leur taille réelle.',
+   'Liseré jaune = côté ouvert de la tente.','Flèche colorée = panneau sur pied.','Trait bleu = parcours, chevrons = sens.'].forEach(puce);
+  I.push({k:'e', h:124});
+  return I;
+}
+/* répartition en n colonnes de hauteur Hc : un titre reste avec la ligne qui le suit */
+function planFlux(I,n,Hc){
+  var col=0, y=0, pos=[];
+  for(var i=0;i<I.length;i++){
+    var h=I[i].h, h2=(I[i].k==='t' && I[i+1]) ? h+I[i+1].h : h;
+    if(y>0 && y+h2>Hc){ col++; y=0; }
+    if(col>=n || h2>Hc) return null;
+    pos.push({c:col, y:y});
+    y+=h;
+  }
+  return pos;
+}
+function planHauteurColonnes(I,n){
+  var tot=I.reduce(function(a,x){ return a+x.h; },0), bas=I.reduce(function(a,x){ return Math.max(a,x.h); },0)+90, haut=tot+1;
+  while(haut-bas>4){ var mi=(bas+haut)/2; if(planFlux(I,n,mi)) haut=mi; else bas=mi; }
+  return Math.ceil(haut);
+}
+/* dessin de la légende dans sa boîte de page {x,y,w,h,n,gap} ; mpu : mètres par unité de page */
+function planLegendeSVG(I,box,mpu){
+  var n=box.n||1, s, cw, pos;
+  if(n===1){
+    var tot=I.reduce(function(a,x){ return a+x.h; },0);
+    s=Math.min(1.2, box.h/tot); cw=box.w/s; pos=planFlux(I,1,1e9);
+  } else {
+    var cwp=(box.w-(n-1)*box.gap)/n, hc=planHauteurColonnes(I,n);
+    s=Math.min(1, box.h/hc); cw=cwp/s; pos=planFlux(I,n,box.h/s) || planFlux(I,n,hc);
+  }
+  var gap=(box.gap||0)/s, out=[], enc='#1A2433', gris='#5A6579';
+  function txt(x,y,t,fs,o){ o=o||{};
+    out.push('<text x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" font-family="Arial, Helvetica, sans-serif" font-size="'+fs.toFixed(1)+'" font-weight="'+(o.gras?700:400)+'" fill="'+(o.coul||enc)+'"'+
+      (o.fin?' text-anchor="end"':'')+(o.mil?' text-anchor="middle"':'')+'>'+planEsc(t)+'</text>'); }
+  I.forEach(function(it,i){
+    var x0=pos[i].c*(cw+gap), y=pos[i].y;
+    if(it.k==='t'){
+      txt(x0,y+52,it.t.toUpperCase(),planPolice(it.t,31,cw,22),{gras:true, coul:'#16264A'});
+      out.push('<line x1="'+x0.toFixed(1)+'" y1="'+(y+64)+'" x2="'+(x0+cw).toFixed(1)+'" y2="'+(y+64)+'" stroke="#D8D2C6" stroke-width="2.5"/>');
+    } else if(it.k==='l'){
+      if(it.symb) out.push(it.symb(x0+52,y+it.h/2-2));
+      var q=(it.qte!=='' && it.qte!==undefined) ? String(it.qte) : '', qw=q ? q.length*0.58*28+18 : 0, yn=y+(it.sous?34:38);
+      txt(x0+122,yn,it.nom,planPolice(it.nom,26,cw-122-qw,17),{});
+      if(it.sous) txt(x0+122,y+64,it.sous,planPolice(it.sous,20,cw-122,15),{coul:gris});
+      if(q) txt(x0+cw,yn,q,28,{gras:true, fin:true});
+    } else if(it.k==='p'){
+      out.push('<circle cx="'+(x0+9)+'" cy="'+(y+19)+'" r="5" fill="#16264A"/>');
+      txt(x0+26,y+27,it.t,planPolice(it.t,22,cw-26,16),{});
+    } else if(it.k==='e'){
+      var mpl=mpu*s, pas=[5,10,20,25,50,100,200,250,500], cible=cw*0.5*mpl, m=pas[0];
+      pas.forEach(function(p){ if(Math.abs(p-cible)<Math.abs(m-cible)) m=p; });
+      var lpx=m/mpl, yb=y+70;
+      out.push('<line x1="'+x0.toFixed(1)+'" y1="'+yb+'" x2="'+(x0+lpx).toFixed(1)+'" y2="'+yb+'" stroke="'+enc+'" stroke-width="7"/>');
+      [x0,x0+lpx].forEach(function(x){ out.push('<line x1="'+x.toFixed(1)+'" y1="'+(yb-14)+'" x2="'+x.toFixed(1)+'" y2="'+(yb+14)+'" stroke="'+enc+'" stroke-width="5"/>'); });
+      txt(x0+lpx/2,yb-24,m+' m',26,{gras:true, mil:true});
+      var xn=x0+cw-34;
+      out.push('<path d="M'+xn+' '+(y+30)+'L'+(xn+20)+' '+(y+92)+'L'+xn+' '+(y+78)+'L'+(xn-20)+' '+(y+92)+'Z" fill="'+enc+'"/>');
+      txt(xn,y+24,'N',30,{gras:true, mil:true});
+    }
+  });
+  return '<g transform="translate('+box.x.toFixed(1)+' '+box.y.toFixed(1)+') scale('+s.toFixed(4)+')">'+out.join('\n')+'</g>';
+}
+/* les deux mises en page possibles ; Hc : hauteur de la légende en portrait */
+function planPages(I){
+  var m=A4.marge, top=m+A4.entete+A4.ecart, cw=690, gp=40;
+  var pay={o:'paysage', W:A4.L, H:A4.l, mx:m, my:top, mw:A4.L-2*m-gp-cw, mh:A4.l-top-m};
+  pay.leg={x:A4.L-m-cw, y:top, w:cw, h:pay.mh, n:1};
+  var n=3, gc=36, wq=A4.l-2*m, hc=planHauteurColonnes(I,n)*Math.min(1,(wq-(n-1)*gc)/n/690);
+  var por={o:'portrait', W:A4.l, H:A4.L, mx:m, my:top, mw:wq, mh:A4.L-top-m-A4.ecart-hc};
+  por.leg={x:m, y:A4.L-m-hc, w:wq, h:hc, n:n, gap:gc};
+  return [pay,por];
+}
+function planElargir(sel,ratio){
+  var cx=(sel[0]+sel[2])/2, cy=(sel[1]+sel[3])/2, w=sel[2]-sel[0], h=sel[3]-sel[1];
+  if(w/h<ratio) w=h*ratio; else h=w/ratio;
+  return [cx-w/2, cy-h/2, cx+w/2, cy+h/2];
+}
+/* mise en page : orientation qui donne la plus grande échelle, puis zone élargie au cadre de la carte
+   (deux passes : le contenu de la zone élargie peut allonger la légende du portrait) */
+function planMiseEnPage(sel){
+  var sw=sel[2]-sel[0], sh=sel[3]-sel[1];
+  var P=planPages(planLegendeItems(planContenu(sel)));
+  function ech(p){ return Math.min(p.mw/sw, p.mh/sh); }
+  var choix=(ech(P[1])>ech(P[0])*1.04) ? 1 : 0, page=P[choix], cadre=planElargir(sel,page.mw/page.mh);
+  for(var k=0;k<2;k++){
+    page=planPages(planLegendeItems(planContenu(cadre)))[choix];
+    cadre=planElargir(sel,page.mw/page.mh);
+  }
+  return {page:page, cadre:cadre};
+}
+/* résolution inscrite dans le PNG (bloc pHYs) : il s'imprime directement en A4 */
+function planPngDpi(blob,dpi){
+  return blob.arrayBuffer().then(function(ab){
+    var src=new Uint8Array(ab), dv=new DataView(ab), ppm=Math.round(dpi/0.0254), o=8, avant=-1, apres=-1;
+    while(o+8<=src.length){
+      var len=dv.getUint32(o), type=String.fromCharCode(src[o+4],src[o+5],src[o+6],src[o+7]);
+      if(type==='pHYs'){ avant=o; apres=o+12+len; break; }
+      if(type==='IDAT' || type==='IEND') break;
+      o+=12+len;
+    }
+    if(avant<0){ avant=33; apres=33; }
+    var ch=new Uint8Array(21), cv=new DataView(ch.buffer);
+    cv.setUint32(0,9); ch.set([112,72,89,115],4); cv.setUint32(8,ppm); cv.setUint32(12,ppm); ch[16]=1;
+    cv.setUint32(17,crc32(ch.subarray(4,17)));
+    var out=new Uint8Array(src.length-(apres-avant)+21);
+    out.set(src.subarray(0,avant),0); out.set(ch,avant); out.set(src.subarray(apres),avant+21);
+    return new Blob([out],{type:'image/png'});
+  });
+}
+function planImplantation(sel){
+  sel=sel||planCadreAuto();
+  var MP=planMiseEnPage(sel), pg=MP.page, cadre=MP.cadre, C=planContenu(cadre), etat={}, r, ref=IMG_REF;
+  IMG_REF=Math.round(pg.mw);
+  try{ r=planRendu(C,cadre,etat); } finally { IMG_REF=ref; }
+  var mpu=etat.m/etat.kk;                         /* mètres par unité de page (0,1 mm) */
+  var echelle=Math.round(mpu*10000/10)*10;
+  var noms=planNoms(C,cadre), date=new Date().toLocaleDateString('fr-FR'), m=A4.marge;
   function interne(t,x,y,w,h){
     t=t.replace(/^<\?xml[^>]*>\s*/,'');
     var i=t.indexOf('>'), tag=t.slice(0,i).replace(/\s(width|height|x|y)="[^"]*"/g,'');
     return tag+' x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'"'+t.slice(i);
   }
+  var lw=pg.W-2*m, sous=(noms.length ? noms.join(' · ')+' · ' : '')+'Saint-Maixent-l’École · parcours '+nomParcours()+' · plan du '+date+' · échelle 1:'+echelle.toLocaleString('fr-FR')+' en A4';
   var s=[];
-  s.push('<rect x="0" y="0" width="'+Wp+'" height="'+Hp+'" fill="#FFFFFF"/>');
-  s.push('<rect x="0" y="0" width="'+Wp+'" height="'+(TH-14)+'" fill="#16264A"/>');
-  s.push('<rect x="0" y="'+(TH-14)+'" width="'+Wp+'" height="6" fill="#F2B33D"/>');
-  s.push('<text x="34" y="62" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="700" fill="#FFFFFF">CORRIDA 2027 ENSOA · PLAN D’IMPLANTATION</text>');
-  s.push('<text x="34" y="106" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#E8EEF8">'+
-    planEsc((noms.length ? noms.join(' · ')+' · ' : '')+'Saint-Maixent-l’École · parcours '+nomParcours()+' · plan du '+date)+'</text>');
-  s.push(interne(r.txt,M,TH,L,H));
-  s.push('<rect x="'+M+'" y="'+TH+'" width="'+L+'" height="'+H+'" fill="none" stroke="#1A2433" stroke-width="2"/>');
-  s.push(leg.svg);
-  var page='<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="'+Wp+'" height="'+Hp+'" viewBox="0 0 '+Wp+' '+Hp+'">'+s.join('\n')+'</svg>';
-  return imagePNG(page,Wp,Hp,largeurPx||5000).then(function(img){ return {blob:img.blob, l:img.l, h:img.h, svg:page, noms:noms}; });
+  s.push('<rect x="0" y="0" width="'+pg.W+'" height="'+pg.H+'" fill="#FFFFFF"/>');
+  s.push('<rect x="'+m+'" y="'+m+'" width="'+lw+'" height="'+A4.entete+'" fill="#16264A"/>');
+  s.push('<rect x="'+m+'" y="'+(m+A4.entete-8)+'" width="'+lw+'" height="8" fill="#F2B33D"/>');
+  s.push('<text x="'+(m+26)+'" y="'+(m+56)+'" font-family="Arial, Helvetica, sans-serif" font-size="'+planPolice('CORRIDA 2027 ENSOA · PLAN D’IMPLANTATION',44,lw-52,30).toFixed(1)+'" font-weight="700" fill="#FFFFFF">CORRIDA 2027 ENSOA · PLAN D’IMPLANTATION</text>');
+  s.push('<text x="'+(m+26)+'" y="'+(m+94)+'" font-family="Arial, Helvetica, sans-serif" font-size="'+planPolice(sous,24,lw-52,15).toFixed(1)+'" fill="#E8EEF8">'+planEsc(sous)+'</text>');
+  s.push(interne(r.txt,pg.mx,pg.my,pg.mw,pg.mh));
+  s.push('<rect x="'+pg.mx+'" y="'+pg.my+'" width="'+pg.mw+'" height="'+pg.mh+'" fill="none" stroke="#1A2433" stroke-width="3"/>');
+  s.push(planLegendeSVG(planLegendeItems(C),pg.leg,mpu));
+  var page='<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="'+pg.W+'" height="'+pg.H+'" viewBox="0 0 '+pg.W+' '+pg.H+'">'+s.join('\n')+'</svg>';
+  var px=Math.round(pg.W/254*A4.dpi);
+  return imagePNG(page,pg.W,pg.H,px).then(function(img){
+    return planPngDpi(img.blob,A4.dpi).then(function(b){ return {blob:b, l:img.l, h:img.h, svg:page, noms:noms, orientation:pg.o, echelle:echelle}; });
+  });
 }
 CARTE.planImplantation=planImplantation;
 
@@ -217047,10 +217137,10 @@ document.addEventListener('pointerup',function(ev){
   dire('Plan d’implantation en préparation ('+Math.round(q.w*mpu)+' × '+Math.round(q.h*mpu)+' m)…','');
   setTimeout(function(){
     try{
-      planImplantation(5000,cadre).then(function(r){
+      planImplantation(cadre).then(function(r){
         var nom=(r.noms.length ? r.noms.join(', ') : 'zone choisie').replace(/[\\/:*?"<>|]/g,'').slice(0,80);
         telechargerBlob('Corrida 2027 - plan d’implantation - '+nom+' - parcours '+nomParcours()+'.png',r.blob);
-        dire('Plan d’implantation téléchargé ('+r.l+' × '+r.h+' px). Fichier › Plan d’implantation pour une autre zone.','ok');
+        dire('Plan d’implantation téléchargé : A4 '+r.orientation+', 300 dpi ('+r.l+' × '+r.h+' px), échelle 1:'+r.echelle.toLocaleString('fr-FR')+'. Fichier › Plan d’implantation pour une autre zone.','ok');
       },function(e){ dire('Plan d’implantation impossible : '+(e && e.message || e),'err'); });
     }catch(e){ dire('Plan d’implantation impossible : '+(e && e.message || e),'err'); }
   },30);
