@@ -212195,7 +212195,7 @@ ZONE_TYPES.sono.encre='#FFFFFF';
    ([la,lo,ang,t]) ; dessin, bilan et menu Ajouter en fin de script. */
 var FLECHES={
   fl_denfert:{nom:'Flèche Salle Denfert', L:2.6, W:1.1, coul:'#6B3FA0', court:'SALLE DENFERT'},
-  fl_village:{nom:'Flèche Village (dossards, infos)', L:2.6, W:1.1, coul:'#E8772E', court:'VILLAGE'},
+  fl_village:{nom:'Flèche Retrait dossards', L:2.6, W:1.1, coul:'#E8772E', court:'DOSSARDS'},
   fl_parking:{nom:'Flèche Parking', L:2.6, W:1.1, coul:'#1F5FBF', court:'PARKING'},
   fl_depart:{nom:'Flèche Départ (sas)', L:2.6, W:1.1, coul:'#2F8F4A', court:'DÉPART'}
 };
@@ -216561,7 +216561,7 @@ majEquip=(function(orig){
   return function(){
     orig();
     var c={}; VEH.forEach(function(v){ c[v.t]=(c[v.t]||0)+1; });
-    var mots={fl_denfert:['flèche Salle Denfert','flèches Salle Denfert'], fl_village:['flèche village','flèches village'],
+    var mots={fl_denfert:['flèche Salle Denfert','flèches Salle Denfert'], fl_village:['flèche retrait dossards','flèches retrait dossards'],
       fl_parking:['flèche parking','flèches parking'], fl_depart:['flèche départ','flèches départ'],
       panneau_info:['panneau d’information','panneaux d’information'], food_truck:['food truck','food trucks'],
       sas_4:['panneau SAS 4','panneaux SAS 4'], table_puces:['table récupération puces','tables récupération puces']};
@@ -216668,7 +216668,7 @@ setTimeout(function(){
   var sp=document.createElement('div'); sp.className='menu-sep';
   var ti=document.createElement('div'); ti.className='menu-titre'; ti.textContent='Village et fléchage';
   pa.appendChild(sp); pa.appendChild(ti);
-  [['fl_denfert','➡ Flèche Salle Denfert'],['fl_village','➡ Flèche Village (dossards, infos)'],['fl_parking','➡ Flèche Parking'],
+  [['fl_denfert','➡ Flèche Salle Denfert'],['fl_village','➡ Flèche Retrait dossards'],['fl_parking','➡ Flèche Parking'],
    ['fl_depart','➡ Flèche Départ (sas)'],['panneau_info','ℹ Panneau d’information'],['food_truck','🚚 Food truck'],
    ['table_puces','✂ Table récupération puces'],['sas_4','🟧 Panneau SAS 4']].forEach(function(e){
     var b=document.createElement('button'); b.type='button'; b.textContent=e[1];
@@ -216684,125 +216684,109 @@ setTimeout(function(){
 })();
 
 /* ---------------------------------------------------------------
-   Plan d'implantation de la zone départ-arrivée (Fichier › Plan
-   d'implantation) : une image à remettre aux équipes de montage, qui
-   se comprend sans consigne. Fond clair épuré (rues à leur largeur et
-   nommées, bâtiments), parcours et sens de course, zones
-   d'aménagement, chaque barrière à sa place avec le nombre de
-   barrières de sa rangée, le matériel à sa taille avec son nom, les
-   panneaux et les flèches en pictogrammes ; à droite la légende avec
-   les quantités. Ni véhicules militaires, ni policiers, ni jalonneurs,
-   ni zones sans voitures. Cadre : tout ce qui est à moins de 260 m du
-   départ ou de l'arrivée.
+   Plan d'implantation (Fichier › Plan d'implantation) : on tire un
+   rectangle sur la carte (clic sur un coin, glisser jusqu'au coin
+   opposé, relâcher) et le plan de cette zone est téléchargé en image.
+   Pour les équipes de montage, il se comprend sans consigne : fond
+   clair épuré (bâtiments à plat, rues à leur largeur et nommées),
+   parcours et sens de course, zones d'aménagement, chaque barrière à
+   sa place, la rubalise, le matériel à sa taille avec son nom, les
+   panneaux et les flèches en pictogrammes, l'emplacement des arches en
+   bulle ; à droite la légende avec les quantités, le mode d'emploi,
+   l'échelle et le nord. Ni véhicules, policiers ou jalonneurs, ni
+   sono, mâts d'éclairage, panneaux de sas ou ambulances, ni zones sans
+   voitures.
 --------------------------------------------------------------- */
 (function(){
 var PLAN_DEF={
-  arche_depart:{nom:'Arche de départ', f:'arche', txt:'DÉPART', coul:'#16264A', encre:'#4ADE80'},
-  arche:{nom:'Arche d’arrivée', f:'arche', txt:'ARRIVÉE', coul:'#16264A', encre:'#F2B33D'},
+  arche_depart:{nom:'Emplacement de l’arche de départ', f:'bulle', txt:'DÉPART', coul:'#16264A', encre:'#4ADE80'},
+  arche:{nom:'Emplacement de l’arche d’arrivée', f:'bulle', txt:'ARRIVÉE', coul:'#16264A', encre:'#F2B33D'},
   tente_accueil:{nom:'Tente accueil et retrait des dossards', f:'tente', txt:'DOSSARDS', coul:'#1B2D52', encre:'#FFFFFF'},
   tente_consigne:{nom:'Tente consigne', f:'tente', txt:'CONSIGNE', coul:'#F2B33D', encre:'#14213D'},
   tente_chrono:{nom:'Tente chronométrage', f:'tente', txt:'CHRONO', coul:'#2B4A8A', encre:'#FFFFFF'},
   tente_medicale:{nom:'Poste de secours', f:'tente', txt:'SECOURS', coul:'#FFFFFF', encre:'#C62828', bord:'#C62828'},
   tente_ravito:{nom:'Tente ravitaillement', f:'tente', txt:'RAVITO', coul:'#E8772E', encre:'#14213D'},
-  sono:{nom:'Scène et sono', f:'tente', txt:'SONO', coul:'#6B4FA0', encre:'#FFFFFF'},
   wc:{nom:'Toilettes (bloc de 4 cabines)', f:'tente', txt:'WC', coul:'#2F6FD6', encre:'#FFFFFF'},
   food_truck:{nom:'Food truck', f:'tente', txt:'FOOD TRUCK', coul:'#B83227', encre:'#FFFFFF'},
   table_puces:{nom:'Table récupération des puces', f:'table', coul:'#F2B33D'},
   table_ravito:{nom:'Table de ravitaillement', f:'table', coul:'#FBF7EC'},
   panneau_info:{nom:'Panneau d’information', f:'info'},
-  sas_1:{nom:'Panneau SAS 1 (vague 1, 19 h 00)', f:'sas', txt:'S1', coul:'#C62828'},
-  sas_2:{nom:'Panneau SAS 2 (vague 2, 19 h 02)', f:'sas', txt:'S2', coul:'#1F5FBF'},
-  sas_3:{nom:'Panneau SAS 3 (vague 3, 19 h 04)', f:'sas', txt:'S3', coul:'#2F8F4A'},
-  sas_4:{nom:'Panneau SAS 4 (vague 4, 19 h 06)', f:'sas', txt:'S4', coul:'#B7791F'},
-  eclairage:{nom:'Mât d’éclairage', f:'mat'},
-  ambulance:{nom:'Ambulance (emplacement réservé)', f:'vehicule', txt:'AMBULANCE', coul:'#FFFFFF', encre:'#1F5FBF', bord:'#1F5FBF'},
   fl_denfert:{nom:'Flèche « Salle Denfert »', f:'fleche', coul:'#6B3FA0'},
-  fl_village:{nom:'Flèche « Village »', f:'fleche', coul:'#E8772E'},
+  fl_village:{nom:'Flèche « Retrait dossards »', f:'fleche', coul:'#E8772E'},
   fl_parking:{nom:'Flèche « Parking »', f:'fleche', coul:'#1F5FBF'},
   fl_depart:{nom:'Flèche « Départ »', f:'fleche', coul:'#2F8F4A'}
 };
-var PLAN_RAYON=260, PLAN_BARRIERE='#2B2F36', PLAN_OUVERT='#F2B33D';
+var PLAN_BARRIERE='#2B2F36', PLAN_OUVERT='#F2B33D', PLAN_RUBALISE='#D8342B', PLAN_MIN=15;
 function planEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 /* pictogramme d'un élément, en mètres autour de son centre : x le long du
    panneau ou de la tente, y vers sa face avant (le côté ouvert) ; les textes
    se retournent quand l'élément est tourné tête en bas */
-function planSymbole(t,L,W,ang,legende){
+function planSymbole(t,L,W,ang){
   var D=PLAN_DEF[t], g=el('g',{}), a=((ang%360)+360)%360, envers=(a>90 && a<270);
-  function texte(s,x,y,taille,coul,gras){
+  function texte(s,x,y,taille,coul){
     var e=el('text',{x:x.toFixed(3), y:y.toFixed(3), 'text-anchor':'middle', 'dominant-baseline':'central', 'font-family':'Arial, Helvetica, sans-serif',
-      'font-size':taille.toFixed(3), 'font-weight':gras===false?400:700, fill:coul});
+      'font-size':taille.toFixed(3), 'font-weight':700, fill:coul});
     if(envers) e.setAttribute('transform','rotate(180 '+x.toFixed(3)+' '+y.toFixed(3)+')');
     e.textContent=s; g.appendChild(e);
   }
   function tailleTexte(s,lg,ht){ return Math.max(0.35,Math.min(ht*0.62, lg*0.9/(0.64*Math.max(1,s.length)))); }
-  if(D.f==='tente' || D.f==='vehicule'){
+  if(D.f==='tente'){
     g.appendChild(el('rect',{x:(-L/2).toFixed(3), y:(-W/2).toFixed(3), width:L.toFixed(3), height:W.toFixed(3), fill:D.coul,
       stroke:D.bord||'#0B1019', 'stroke-width':0.18}));
-    if(D.f==='tente') g.appendChild(el('line',{x1:(-L/2+0.15).toFixed(3), y1:(W/2-0.2).toFixed(3), x2:(L/2-0.15).toFixed(3), y2:(W/2-0.2).toFixed(3),
+    g.appendChild(el('line',{x1:(-L/2+0.15).toFixed(3), y1:(W/2-0.2).toFixed(3), x2:(L/2-0.15).toFixed(3), y2:(W/2-0.2).toFixed(3),
       stroke:PLAN_OUVERT, 'stroke-width':0.4}));
-    else g.appendChild(el('rect',{x:(L/2-1.1).toFixed(3), y:(-W/2).toFixed(3), width:1.1, height:W.toFixed(3), fill:D.bord, 'fill-opacity':0.25}));
-    texte(D.txt,D.f==='vehicule'?-0.5:0,D.f==='tente'?-0.15:0,tailleTexte(D.txt,D.f==='vehicule'?L-1.2:L,W),D.encre);
-  } else if(D.f==='arche'){
-    g.appendChild(el('rect',{x:(-L/2).toFixed(3), y:-0.5, width:L.toFixed(3), height:1.0, rx:0.3, fill:D.coul, stroke:'#FFFFFF', 'stroke-width':0.15}));
-    [-L/2+0.5,L/2-0.5].forEach(function(x){ g.appendChild(el('circle',{cx:x.toFixed(3), cy:0, r:0.62, fill:D.coul, stroke:'#FFFFFF', 'stroke-width':0.15})); });
-    if(legende) return g;
-    var lp=D.txt.length*1.05+1.4, cx=L/2+0.9+lp/2;
-    g.appendChild(el('rect',{x:(cx-lp/2).toFixed(3), y:-1.15, width:lp.toFixed(3), height:2.3, rx:0.5, fill:D.coul, stroke:'#FFFFFF', 'stroke-width':0.18}));
-    texte(D.txt,cx,0,1.55,D.encre);
+    texte(D.txt,0,-0.15,tailleTexte(D.txt,L,W),D.encre);
+  } else if(D.f==='bulle'){
+    var lp=D.txt.length*1.3+2.2;
+    g.appendChild(el('rect',{x:(-lp/2).toFixed(3), y:-1.5, width:lp.toFixed(3), height:3.0, rx:0.8, fill:D.coul, stroke:'#FFFFFF', 'stroke-width':0.25}));
+    texte(D.txt,0,0.05,2.1,D.encre);
   } else if(D.f==='table'){
     var lt=Math.max(L*1.25,2.2), wt=Math.max(W*1.5,1.1);
     g.appendChild(el('rect',{x:(-lt/2).toFixed(3), y:(-wt/2).toFixed(3), width:lt.toFixed(3), height:wt.toFixed(3), fill:D.coul, stroke:'#0B1019', 'stroke-width':0.14}));
-  } else if(D.f==='mat'){
-    for(var i=0;i<8;i++){
-      var r=i*Math.PI/4;
-      g.appendChild(el('line',{x1:(Math.cos(r)*1.2).toFixed(3), y1:(Math.sin(r)*1.2).toFixed(3), x2:(Math.cos(r)*1.85).toFixed(3), y2:(Math.sin(r)*1.85).toFixed(3),
-        stroke:'#B88A00', 'stroke-width':0.26, 'stroke-linecap':'round'}));
-    }
-    g.appendChild(el('circle',{cx:0, cy:0, r:0.95, fill:'#F2C230', stroke:'#0B1019', 'stroke-width':0.16}));
   } else if(D.f==='info'){
     g.appendChild(el('rect',{x:-1.35, y:-1.35, width:2.7, height:2.7, rx:0.45, fill:'#14213D', stroke:'#FFFFFF', 'stroke-width':0.22}));
     texte('i',0,0.05,2.0,'#FFFFFF');
-  } else if(D.f==='sas'){
-    g.appendChild(el('rect',{x:-1.8, y:-1.15, width:3.6, height:2.3, rx:0.35, fill:D.coul, stroke:'#FFFFFF', 'stroke-width':0.22}));
-    texte(D.txt,0,0.05,1.45,'#FFFFFF');
   } else if(D.f==='fleche'){
     g.appendChild(el('path',{d:'M-3 -0.75L0.5 -0.75L0.5 -1.9L3.2 0L0.5 1.9L0.5 0.75L-3 0.75Z', fill:D.coul, stroke:'#FFFFFF', 'stroke-width':0.38,
       'stroke-linejoin':'round', 'paint-order':'stroke'}));
   }
   return g;
 }
-/* ce qui est sur le plan : matériel de zone et barrières près du départ et de l'arrivée */
-function planContenu(){
-  var mpu=metresParUnite(), R=PLAN_RAYON/mpu, ext=[];
+/* ce qui est dans le cadre [x0,y0,x1,y1] (unités de carte) */
+function planContenu(cadre){
+  var mpu=metresParUnite();
+  function dedans(la,lo){ var x=X(lo), y=Y(la); return x>=cadre[0] && x<=cadre[2] && y>=cadre[1] && y<=cadre[3]; }
+  var anc=[], rub=[], rubM=0;
+  try{ anc=ancragesRubalise().filter(function(b){ return dedans(b.la,b.lo); }); }catch(e){}
+  (RUB||[]).forEach(function(r){
+    var m=0;
+    for(var i=1;i<r.pts.length;i++){
+      var a=r.pts[i-1], c=r.pts[i];
+      if(dedans((a[0]+c[0])/2,(a[1]+c[1])/2)) m+=metresEntre(a,c);
+    }
+    if(m>0){ rub.push(r); rubM+=m; }
+  });
+  function zoneDans(z){
+    if(z.pts.some(function(p){ return dedans(p[0],p[1]); })) return true;
+    var P=zjPoly(z);
+    return [[cadre[0],cadre[1]],[cadre[2],cadre[1]],[cadre[2],cadre[3]],[cadre[0],cadre[3]],[(cadre[0]+cadre[2])/2,(cadre[1]+cadre[3])/2]]
+      .some(function(q){ return zjDedans(P,q[0],q[1]); });
+  }
+  return {veh:VEH.filter(function(v){ return PLAN_DEF[v.t] && dedans(v.la,v.lo); }),
+    bar:BAR.filter(function(b){ return dedans(b.la,b.lo); }), anc:anc, rub:rub, rubM:Math.round(rubM),
+    zones:ZAM.filter(zoneDans), mpu:mpu};
+}
+/* cadre automatique (sans sélection) : départ, arrivée et tout le matériel à moins de 260 m */
+function planCadreAuto(){
+  var mpu=metresParUnite(), R=260/mpu, ext=[], x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
   if(POLY.length>1){ ext.push([px[POLY[0]],py[POLY[0]]]); ext.push([px[POLY[POLY.length-1]],py[POLY[POLY.length-1]]]); }
-  function pres(la,lo){ var x=X(lo), y=Y(la); return ext.some(function(e){ return Math.hypot(x-e[0],y-e[1])<R; }); }
-  var veh=VEH.filter(function(v){ return PLAN_DEF[v.t] && pres(v.la,v.lo); });
-  var bar=BAR.filter(function(b){ return pres(b.la,b.lo); });
-  var zones=ZAM.filter(function(z){ return z.pts.some(function(p){ return pres(p[0],p[1]); }); });
-  return {veh:veh, bar:bar, zones:zones, ext:ext, mpu:mpu};
-}
-function planCadre(C){
-  var x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
-  function pr(x,y){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
-  C.ext.forEach(function(e){ pr(e[0],e[1]); });
-  C.veh.forEach(function(v){ pr(X(v.lo),Y(v.la)); });
-  C.bar.forEach(function(b){ pr(X(b.lo),Y(b.la)); });
-  C.zones.forEach(function(z){ z.pts.forEach(function(p){ pr(X(p[1]),Y(p[0])); }); });
-  var mg=(C.marge||16)/C.mpu;
+  function pr(x,y){ if(!ext.some(function(e){ return Math.hypot(x-e[0],y-e[1])<R; })) return; if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
+  ext.forEach(function(e){ pr(e[0],e[1]); });
+  VEH.forEach(function(v){ if(PLAN_DEF[v.t]) pr(X(v.lo),Y(v.la)); });
+  BAR.forEach(function(b){ pr(X(b.lo),Y(b.la)); });
+  var mg=16/mpu;
   return [x0-mg, y0-mg, x1+mg, y1+mg];
-}
-/* plan principal (à moins de 135 m du départ ou de l'arrivée) et encadré pour
-   ce qui est plus loin (la Salle Denfert) : sinon le plan garde un grand vide */
-var PLAN_PROCHE=135;
-function planDecoupe(C){
-  var R=PLAN_PROCHE/C.mpu;
-  function pres(la,lo){ var x=X(lo), y=Y(la); return C.ext.some(function(e){ return Math.hypot(x-e[0],y-e[1])<R; }); }
-  var P={veh:[], bar:[], zones:[], ext:C.ext, mpu:C.mpu}, E={veh:[], bar:[], zones:[], ext:[], mpu:C.mpu, marge:10};
-  C.veh.forEach(function(v){ (pres(v.la,v.lo) ? P : E).veh.push(v); });
-  C.bar.forEach(function(b){ (pres(b.la,b.lo) ? P : E).bar.push(b); });
-  C.zones.forEach(function(z){ (z.pts.some(function(p){ return pres(p[0],p[1]); }) ? P : E).zones.push(z); });
-  return {plan:P, encart:(E.veh.length || E.zones.length) ? E : null};
 }
 /* bâtiments à plat, d'après les mêmes emprises que la carte (le relief dessiné
    à l'écran décale les toits, ce qui brouille un plan d'implantation) */
@@ -216840,45 +216824,30 @@ function planCalque(c,kk,m,C,etat,cadre){
     g.appendChild(el('path',{d:d, fill:z.couleur, 'fill-opacity':0.13, stroke:z.couleur, 'stroke-width':(3/kk).toFixed(4),
       'stroke-dasharray':(14/kk).toFixed(4)+' '+(7/kk).toFixed(4), 'stroke-linejoin':'round'}));
   });
-  /* barrières : un trait par barrière de 2 m */
-  C.bar.forEach(function(b){
+  /* rubalise : rouge et blanc */
+  C.rub.forEach(function(r){
+    var d=r.pts.map(function(p,i){ return (i?'L':'M')+X(p[1]).toFixed(3)+' '+Y(p[0]).toFixed(3); }).join('');
+    g.appendChild(el('path',{d:d, fill:'none', stroke:'#FFFFFF', 'stroke-width':(0.55*u).toFixed(4), 'stroke-linejoin':'round'}));
+    g.appendChild(el('path',{d:d, fill:'none', stroke:PLAN_RUBALISE, 'stroke-width':(0.55*u).toFixed(4), 'stroke-dasharray':(1.2*u).toFixed(4)+' '+(0.8*u).toFixed(4),
+      'stroke-linejoin':'round'}));
+  });
+  /* barrières (posées et d'ancrage de la rubalise) : un trait par barrière de 2 m */
+  C.bar.concat(C.anc).forEach(function(b){
     g.appendChild(place(el('line',{x1:-0.93, y1:0, x2:0.93, y2:0, stroke:PLAN_BARRIERE, 'stroke-width':0.5}),b.la,b.lo,b.ang));
   });
-  /* matériel, panneaux, flèches */
+  /* matériel, panneaux, flèches ; les bulles des arches restent droites */
   var ordre=Object.keys(PLAN_DEF);
   C.veh.slice().sort(function(a,b){ return ordre.indexOf(a.t)-ordre.indexOf(b.t); }).forEach(function(v){
-    var T=VEH_TYPES[v.t]||{L:2,W:1};
-    g.appendChild(place(planSymbole(v.t,T.L,T.W,v.ang),v.la,v.lo,v.ang));
+    var T=VEH_TYPES[v.t]||{L:2,W:1}, droit=(PLAN_DEF[v.t].f==='bulle');
+    g.appendChild(place(planSymbole(v.t,T.L,T.W,droit?0:v.ang),v.la,v.lo,droit?0:v.ang));
   });
-  /* nombre de barrières de chaque rangée, à côté de la barrière du milieu */
-  var rangs={}, pastilles=[];
-  C.bar.forEach(function(b){ if(b.g) (rangs[b.g]=rangs[b.g]||[]).push(b); });
-  Object.keys(rangs).forEach(function(k){
-    var l=rangs[k];
-    if(l.length<3) return;
-    var cx=0, cy=0;
-    l.forEach(function(b){ cx+=X(b.lo); cy+=Y(b.la); });
-    cx/=l.length; cy/=l.length;
-    var mil=l.reduce(function(a,b){ return Math.hypot(X(b.lo)-cx,Y(b.la)-cy)<Math.hypot(X(a.lo)-cx,Y(a.la)-cy) ? b : a; });
-    var a=mil.ang*Math.PI/180, txt='×'+l.length, lg=(txt.length*0.95+1.0)*u, ht=2.1*u, x, y;
-    /* de part et d'autre de la rangée, un peu plus loin si une autre étiquette est déjà là */
-    [2.6,-2.6,5.2,-5.2,7.8,-7.8].some(function(o){
-      x=X(mil.lo)-Math.sin(a)*o*u; y=Y(mil.la)+Math.cos(a)*o*u;
-      return !pastilles.some(function(p){ return Math.abs(p[0]-x)<(p[2]+lg)/2+0.3*u && Math.abs(p[1]-y)<(p[3]+ht)/2+0.3*u; });
-    });
-    pastilles.push([x,y,lg,ht]);
-    g.appendChild(el('rect',{x:(x-lg/2).toFixed(3), y:(y-ht/2).toFixed(3), width:lg.toFixed(3), height:ht.toFixed(3), rx:(0.5*u).toFixed(3),
-      fill:'#FFFFFF', stroke:PLAN_BARRIERE, 'stroke-width':(0.16*u).toFixed(4)}));
-    var t=el('text',{x:x.toFixed(3), y:y.toFixed(3), 'text-anchor':'middle', 'dominant-baseline':'central', 'font-family':'Arial, Helvetica, sans-serif',
-      'font-weight':700, 'font-size':(1.45*u).toFixed(4), fill:PLAN_BARRIERE});
-    t.textContent=txt; g.appendChild(t);
-  });
-  /* nom des zones, en étiquette au coin le plus haut */
+  /* nom des zones, en étiquette au coin le plus haut, dans le cadre ;
+     la zone des finishers se passe d'étiquette (la légende la nomme) */
   C.zones.forEach(function(z){
+    if(/finisher/i.test(z.nom)) return;
     var h=z.pts.reduce(function(a,p){ return Y(p[0])<Y(a[0]) ? p : a; });
-    var txt=z.nom.toUpperCase(), fs=15/kk, lg=(txt.length*fs*0.6+18/kk), ht=26/kk, x=X(h[1]), y=Y(h[0])-ht*0.65;
-    /* l'étiquette reste dans le cadre */
-    if(cadre){ var mg=8/kk; x=Math.max(cadre[0]+lg/2+mg,Math.min(cadre[2]-lg/2-mg,x)); y=Math.max(cadre[1]+ht/2+mg,Math.min(cadre[3]-ht/2-mg,y)); }
+    var txt=z.nom.toUpperCase(), fs=15/kk, lg=(txt.length*fs*0.6+18/kk), ht=26/kk, x=X(h[1]), y=Y(h[0])-ht*0.65, mg=8/kk;
+    x=Math.max(cadre[0]+lg/2+mg,Math.min(cadre[2]-lg/2-mg,x)); y=Math.max(cadre[1]+ht/2+mg,Math.min(cadre[3]-ht/2-mg,y));
     g.appendChild(el('rect',{x:(x-lg/2).toFixed(3), y:(y-ht/2).toFixed(3), width:lg.toFixed(3), height:ht.toFixed(3), rx:(5/kk).toFixed(3),
       fill:z.couleur, stroke:'#FFFFFF', 'stroke-width':(2.5/kk).toFixed(4)}));
     var t=el('text',{x:x.toFixed(3), y:y.toFixed(3), 'text-anchor':'middle', 'dominant-baseline':'central', 'font-family':'Arial, Helvetica, sans-serif',
@@ -216888,12 +216857,12 @@ function planCalque(c,kk,m,C,etat,cadre){
   W.appendChild(g);
   etat.kk=kk; etat.m=m;
 }
-/* légende : en unités de page, à droite du plan */
+/* légende, mode d'emploi, échelle et nord : colonne de droite, en unités de page */
 function planLegende(C,etat,x0,y0,lg){
   var s=[], y=y0, enc='#1A2433', gris='#5A6579';
   function txt(x,yy,t,fs,o){ o=o||{};
     s.push('<text x="'+x.toFixed(1)+'" y="'+yy.toFixed(1)+'" font-family="Arial, Helvetica, sans-serif" font-size="'+fs+'" font-weight="'+(o.gras?700:400)+'" fill="'+(o.coul||enc)+'"'+
-      (o.fin?' text-anchor="end"':'')+'>'+planEsc(t)+'</text>'); }
+      (o.fin?' text-anchor="end"':'')+(o.mil?' text-anchor="middle"':'')+'>'+planEsc(t)+'</text>'); }
   function titre(t){ y+=18; txt(x0,y+24,t.toUpperCase(),23,{gras:true, coul:'#16264A'}); s.push('<line x1="'+x0+'" y1="'+(y+36)+'" x2="'+(x0+lg)+'" y2="'+(y+36)+'" stroke="#D8D2C6" stroke-width="2"/>'); y+=50; }
   function ligne(symb,nom,qte,sous){
     var h=sous?58:44;
@@ -216907,45 +216876,42 @@ function planLegende(C,etat,x0,y0,lg){
   function symbType(t){
     return function(cx,cy){
       var T=VEH_TYPES[t]||{L:2,W:1}, D=PLAN_DEF[t];
-      var ext={arche:T.L+1.4, tente:T.L, vehicule:T.L, table:Math.max(T.L*1.25,2.2), mat:3.8, info:2.9, sas:3.8, fleche:6.6}[D.f];
-      var sc=Math.min(66/ext, 34/({arche:1.4, tente:T.W, vehicule:T.W, table:Math.max(T.W*1.5,1.1), mat:3.8, info:2.9, sas:2.5, fleche:4}[D.f]));
-      var gg=planSymbole(t,T.L,T.W,0,true);
-      return '<g transform="translate('+cx.toFixed(1)+' '+cy.toFixed(1)+') scale('+sc.toFixed(3)+')">'+new XMLSerializer().serializeToString(gg).replace(/ xmlns="[^"]*"/g,'')+'</g>';
+      var ext={bulle:D.txt ? D.txt.length*1.3+2.4 : 4, tente:T.L, table:Math.max(T.L*1.25,2.2), info:2.9, fleche:6.6}[D.f];
+      var sc=Math.min(70/ext, 34/({bulle:3.2, tente:T.W, table:Math.max(T.W*1.5,1.1), info:2.9, fleche:4}[D.f]));
+      return '<g transform="translate('+cx.toFixed(1)+' '+cy.toFixed(1)+') scale('+sc.toFixed(3)+')">'+
+        new XMLSerializer().serializeToString(planSymbole(t,T.L,T.W,0)).replace(/ xmlns="[^"]*"/g,'')+'</g>';
     };
   }
   var compte={}; C.veh.forEach(function(v){ compte[v.t]=(compte[v.t]||0)+1; });
-  /* parcours */
   titre('Parcours');
   ligne(function(cx,cy){ return '<line x1="'+(cx-32)+'" y1="'+cy+'" x2="'+(cx+32)+'" y2="'+cy+'" stroke="#1D4ED8" stroke-width="7" stroke-linecap="round"/>'+
     '<path d="M'+(cx-4)+' '+(cy-8)+'L'+(cx+6)+' '+cy+'L'+(cx-4)+' '+(cy+8)+'" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>'; },
     'Tracé des coureurs et sens de course','');
   ['arche_depart','arche'].forEach(function(t){ if(compte[t]) ligne(symbType(t),PLAN_DEF[t].nom,compte[t]); });
-  /* barrières */
-  titre('Barrières municipales');
-  ligne(function(cx,cy){ var o=''; for(var i=-2;i<=1;i++) o+='<line x1="'+(cx+i*16+1.5)+'" y1="'+cy+'" x2="'+(cx+i*16+14.5)+'" y2="'+cy+'" stroke="'+PLAN_BARRIERE+'" stroke-width="6"/>'; return o; },
-    'Un trait = une barrière de 2 m',C.bar.length,'Total à poser : '+C.bar.length+' barrières');
-  ligne(function(cx,cy){ return '<rect x="'+(cx-22)+'" y="'+(cy-13)+'" width="44" height="26" rx="6" fill="#FFFFFF" stroke="'+PLAN_BARRIERE+'" stroke-width="2"/>'+
-    '<text x="'+cx+'" y="'+(cy+6)+'" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="'+PLAN_BARRIERE+'">×12</text>'; },
-    'Nombre de barrières de la rangée','','Rangées alignées, barrières jointives');
-  /* matériel */
-  var mat=Object.keys(PLAN_DEF).filter(function(t){ return compte[t] && ['tente','vehicule','table','info','sas','mat'].indexOf(PLAN_DEF[t].f)>=0; });
+  var nb=C.bar.length+C.anc.length;
+  if(nb || C.rubM){
+    titre('Barrières et rubalise');
+    if(nb) ligne(function(cx,cy){ var o=''; for(var i=-2;i<=1;i++) o+='<line x1="'+(cx+i*16+1.5)+'" y1="'+cy+'" x2="'+(cx+i*16+14.5)+'" y2="'+cy+'" stroke="'+PLAN_BARRIERE+'" stroke-width="6"/>'; return o; },
+      'Barrière municipale (un trait = une barrière de 2 m)',nb,
+      C.anc.length ? 'Dont '+C.anc.length+' pour tenir la rubalise' : 'Rangées alignées, barrières jointives');
+    if(C.rubM) ligne(function(cx,cy){ return '<line x1="'+(cx-32)+'" y1="'+cy+'" x2="'+(cx+32)+'" y2="'+cy+'" stroke="#FFFFFF" stroke-width="6"/>'+
+      '<line x1="'+(cx-32)+'" y1="'+cy+'" x2="'+(cx+32)+'" y2="'+cy+'" stroke="'+PLAN_RUBALISE+'" stroke-width="6" stroke-dasharray="9 6"/>'; },
+      'Rubalise',C.rubM+' m','Nouée aux barrières d’ancrage');
+  }
+  var mat=Object.keys(PLAN_DEF).filter(function(t){ return compte[t] && ['tente','table','info'].indexOf(PLAN_DEF[t].f)>=0; });
   if(mat.length){
     titre('Matériel');
     mat.forEach(function(t){
-      var T=VEH_TYPES[t]||{}, D=PLAN_DEF[t], dim=(D.f==='tente' && T.L) ? (String(T.L).replace('.',',')+' × '+String(T.W).replace('.',',')+' m') : '';
-      var sous='';
-      if(t==='sono') sous='Estrade '+dim+', liseré jaune = face au public';
-      else if(/^tente_/.test(t)) sous='Barnum '+dim+', liseré jaune = côté ouvert';
+      var T=VEH_TYPES[t]||{}, D=PLAN_DEF[t];
+      var sous=/^tente_/.test(t) ? 'Barnum '+String(T.L).replace('.',',')+' × '+String(T.W).replace('.',',')+' m, liseré jaune = côté ouvert' : '';
       ligne(symbType(t),D.nom,compte[t],sous);
     });
   }
-  /* fléchage */
   var fl=['fl_denfert','fl_village','fl_parking','fl_depart'].filter(function(t){ return compte[t]; });
   if(fl.length){
     titre('Fléchage');
     fl.forEach(function(t){ ligne(symbType(t),PLAN_DEF[t].nom,compte[t],'Panneau sur pied, la flèche montre la direction'); });
   }
-  /* zones */
   if(C.zones.length){
     titre('Zones');
     C.zones.forEach(function(z){
@@ -216953,83 +216919,59 @@ function planLegende(C,etat,x0,y0,lg){
         z.nom,'');
     });
   }
-  return {svg:s.join('\n'), h:y-y0};
-}
-/* mode d'emploi, échelle et nord : sous le plan, à côté de l'encadré */
-function planNotes(etat,x0,y0,lg){
-  var s=[], y=y0, enc='#1A2433';
-  function txt(x,yy,t,fs,o){ o=o||{};
-    s.push('<text x="'+x.toFixed(1)+'" y="'+yy.toFixed(1)+'" font-family="Arial, Helvetica, sans-serif" font-size="'+fs+'" font-weight="'+(o.gras?700:400)+'" fill="'+(o.coul||enc)+'"'+
-      (o.fin?' text-anchor="end"':'')+'>'+planEsc(t)+'</text>'); }
-  function titre(t){ y+=18; txt(x0,y+24,t.toUpperCase(),23,{gras:true, coul:'#16264A'}); s.push('<line x1="'+x0+'" y1="'+(y+36)+'" x2="'+(x0+lg)+'" y2="'+(y+36)+'" stroke="#D8D2C6" stroke-width="2"/>'); y+=50; }
   titre('Comment lire ce plan');
   ['Plan à l’échelle, le nord en haut.',
    'Chaque trait gris foncé est une barrière, posée à cet endroit.',
-   'Tentes, estrade et véhicules sont dessinés à leur taille.',
+   'Tentes et tables sont dessinées à leur taille.',
    'Les flèches colorées sont des panneaux sur pied.',
    'Le trait bleu est le parcours, les chevrons donnent le sens.'].forEach(function(l){
     s.push('<circle cx="'+(x0+8)+'" cy="'+(y+14)+'" r="4" fill="#16264A"/>');
     txt(x0+24,y+20,l,17,{});
     y+=30;
   });
-  /* échelle et nord */
-  y+=26;
-  var mpp=etat.m/etat.kk, pas=[10,20,25,50,100], cible=lg*0.55*mpp, metres=pas[0];
+  y+=30;
+  var mpp=etat.m/etat.kk, pas=[5,10,20,25,50,100,200,250,500], cible=lg*0.55*mpp, metres=pas[0];
   pas.forEach(function(p){ if(Math.abs(p-cible)<Math.abs(metres-cible)) metres=p; });
   var lpx=metres/mpp;
   s.push('<line x1="'+x0+'" y1="'+(y+30)+'" x2="'+(x0+lpx).toFixed(1)+'" y2="'+(y+30)+'" stroke="'+enc+'" stroke-width="5"/>');
   [x0,x0+lpx].forEach(function(x){ s.push('<line x1="'+x.toFixed(1)+'" y1="'+(y+20)+'" x2="'+x.toFixed(1)+'" y2="'+(y+40)+'" stroke="'+enc+'" stroke-width="4"/>'); });
-  txt(x0+lpx/2,y+12,metres+' m',19,{gras:true});
-  s[s.length-1]=s[s.length-1].replace('<text ','<text text-anchor="middle" ');
+  txt(x0+lpx/2,y+12,metres+' m',19,{gras:true, mil:true});
   var xn=x0+lg-30;
   s.push('<path d="M'+xn+' '+(y-6)+'L'+(xn+15)+' '+(y+40)+'L'+xn+' '+(y+30)+'L'+(xn-15)+' '+(y+40)+'Z" fill="'+enc+'"/>');
-  txt(xn,y-14,'N',22,{gras:true});
-  s[s.length-1]=s[s.length-1].replace('<text ','<text text-anchor="middle" ');
+  txt(xn,y-14,'N',22,{gras:true, mil:true});
   y+=64;
   return {svg:s.join('\n'), h:y-y0};
 }
-/* rendu d'un cadre : fond épuré, bâtiments à plat, calque d'implantation.
-   ech : réduction de la page à l'affichage (encadré) ; tailles en page multipliées d'autant */
-function planRendu(C,cadre,etat,ech){
-  var base=zjRetoucheFond(true,cadre,1.2*ech);
+/* rendu du cadre : fond épuré, bâtiments à plat, calque d'implantation */
+function planRendu(C,cadre,etat){
+  var base=zjRetoucheFond(true,cadre,1.2);
   var ch={fRues:true, fBati:true, fVeg:true, fEau:true, fEmprise:false, fRail:true, fNoms:false, plan:false, sat:false,
     trace:true, halo:false, fleches:true, km:false, da:false, autres:false, jal:false, jalNum:false,
     bar:false, rub:false, mat:false, veh:false, pol:false, zones:false, pois:false, piste:false,
-    cTitre:false, cChiffres:false, cEchelle:false, cNord:false, clair:true, dessin:true, couleur:'#1D4ED8', cadre:cadre, taille:ech,
-    retouche:function(c,kk,m){
-      planBatimentsPlats(c,cadre,kk/ech);
-      base(c,kk,m);
-      if(ech!==1) ['c-trace','c-fleche'].forEach(function(id){
-        var g=c.querySelector('#'+id);
-        if(g) Array.prototype.slice.call(g.querySelectorAll('[stroke-width]')).forEach(function(p){ p.setAttribute('stroke-width',(+p.getAttribute('stroke-width')*ech).toFixed(3)); });
-      });
-      planCalque(c,kk/ech,m,C,etat,cadre);
-      etat.cadre=cadre;
-    }};
+    cTitre:false, cChiffres:false, cEchelle:false, cNord:false, clair:true, dessin:true, couleur:'#1D4ED8', cadre:cadre, taille:1,
+    retouche:function(c,kk,m){ planBatimentsPlats(c,cadre,kk); base(c,kk,m); planCalque(c,kk,m,C,etat,cadre); }};
   var vis=ZJ_VIS, sel=SELZ, r;
   ZJ_VIS=false; SELZ=null;
   try{ r=imageParcoursSVG(ch); }
   finally{ ZJ_VIS=vis; SELZ=sel; dessinerZJ(); }
   return r;
 }
-function planImplantation(largeurPx){
-  var C=planContenu();
-  if(!C.veh.length && !C.bar.length) throw new Error('aucun matériel ni barrière près du départ ou de l’arrivée');
-  var D=planDecoupe(C), TH=150, LG=640, G=44, M=30;
-  var etat={}, r=planRendu(D.plan,planCadre(D.plan),etat,1), L=r.L, H=r.H;
-  var yb=TH+H+30;
-  /* encadré sous le plan, à la même échelle exacte : ce qui est à plus de 135 m (la Salle Denfert) */
-  var enc=null;
-  if(D.encart){
-    var ce=planCadre(D.encart), We=Math.min(Math.round((ce[2]-ce[0])*etat.kk),Math.round(L*0.62));
-    var ee={}, re=planRendu(D.encart,ce,ee,IMG_REF/We);
-    enc={r:re, cadre:ce, w:We, h:Math.round(We*re.H/re.L)};
-  }
+/* noms pour le titre et le fichier : zones d'aménagement de la sélection, sinon points de la ville */
+function planNoms(C,cadre){
+  var n=C.zones.map(function(z){ return z.nom.split(':')[0].replace(/\(.*?\)/g,'').trim(); });
+  if(!n.length && typeof POIS!=='undefined') POIS.forEach(function(p){
+    var x=X(p.lo), y=Y(p.la);
+    if(x>=cadre[0] && x<=cadre[2] && y>=cadre[1] && y<=cadre[3]) n.push(p.t);
+  });
+  return n.slice(0,4);
+}
+function planImplantation(largeurPx,cadre){
+  cadre=cadre||planCadreAuto();
+  var C=planContenu(cadre), TH=150, LG=640, G=44, M=30, etat={};
+  var r=planRendu(C,cadre,etat), L=r.L, H=r.H;
   var leg=planLegende(C,etat,M+L+G,TH+10,LG);
-  var xn=M+(enc ? enc.w+60 : 0), notes=planNotes(etat,xn,yb-10,Math.min(LG,M+L-xn-20));
-  var Wp=M+L+G+LG+40, Hp=Math.max(yb+(enc ? enc.h+60 : 0), yb+notes.h, TH+10+leg.h+20)+30;
-  var dep=(typeof RUES_HOR!=='undefined' && RUES_HOR.depart) ? RUES_HOR.depart.replace(':',' h ') : '19 h 00';
-  var date=new Date().toLocaleDateString('fr-FR');
+  var Wp=M+L+G+LG+40, Hp=TH+Math.max(H,leg.h+20)+30;
+  var noms=planNoms(C,cadre), date=new Date().toLocaleDateString('fr-FR');
   function interne(t,x,y,w,h){
     t=t.replace(/^<\?xml[^>]*>\s*/,'');
     var i=t.indexOf('>'), tag=t.slice(0,i).replace(/\s(width|height|x|y)="[^"]*"/g,'');
@@ -217041,52 +216983,95 @@ function planImplantation(largeurPx){
   s.push('<rect x="0" y="'+(TH-14)+'" width="'+Wp+'" height="6" fill="#F2B33D"/>');
   s.push('<text x="34" y="62" font-family="Arial, Helvetica, sans-serif" font-size="44" font-weight="700" fill="#FFFFFF">CORRIDA 2027 ENSOA · PLAN D’IMPLANTATION</text>');
   s.push('<text x="34" y="106" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#E8EEF8">'+
-    planEsc('Zone départ et arrivée · Place Denfert-Rochereau · Saint-Maixent-l’École · parcours '+nomParcours()+' · départ '+dep+' · plan du '+date)+'</text>');
+    planEsc((noms.length ? noms.join(' · ')+' · ' : '')+'Saint-Maixent-l’École · parcours '+nomParcours()+' · plan du '+date)+'</text>');
   s.push(interne(r.txt,M,TH,L,H));
   s.push('<rect x="'+M+'" y="'+TH+'" width="'+L+'" height="'+H+'" fill="none" stroke="#1A2433" stroke-width="2"/>');
   s.push(leg.svg);
-  s.push(notes.svg);
-  if(enc){
-    var zn=D.encart.zones.length ? D.encart.zones[0].nom.split(':')[0].trim() : 'Plus loin';
-    var cx=(enc.cadre[0]+enc.cadre[2])/2, cy=(enc.cadre[1]+enc.cadre[3])/2, ex=D.plan.ext[0]||[cx,cy];
-    var dist=Math.round(Math.hypot(cx-ex[0],cy-ex[1])*C.mpu/10)*10;
-    s.push('<text x="'+M+'" y="'+(yb+24)+'" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="700" fill="#6B3FA0">'+planEsc('ENCADRÉ · '+zn.toUpperCase())+'</text>');
-    s.push('<text x="'+M+'" y="'+(yb+48)+'" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#5A6579">'+planEsc('À environ '+dist+' m au nord du départ, par l’allée · même échelle que le plan')+'</text>');
-    s.push(interne(enc.r.txt,M,yb+60,enc.w,enc.h));
-    s.push('<rect x="'+M+'" y="'+(yb+60)+'" width="'+enc.w+'" height="'+enc.h+'" fill="none" stroke="#6B3FA0" stroke-width="4"/>');
-    /* renvoi sur le plan : étiquette au bord, du côté de l'encadré réel */
-    var cad=etat.cadre, kk=etat.kk, mx=(cad[0]+cad[2])/2, my=(cad[1]+cad[3])/2, dx=cx-mx, dy=cy-my;
-    var tmax=Math.min(dx ? Math.abs((cad[2]-cad[0])/2/dx) : 1e9, dy ? Math.abs((cad[3]-cad[1])/2/dy) : 1e9)*0.94;
-    var bx=M+(mx+dx*tmax-cad[0])*kk, by=TH+(my+dy*tmax-cad[1])*kk;
-    var lab='Vers '+zn+' ('+dist+' m) : voir l’encadré sous le plan', lw=lab.length*11.2+70;
-    bx=Math.max(M+lw/2+12,Math.min(M+L-lw/2-12,bx)); by=Math.max(TH+30,Math.min(TH+H-30,by));
-    var a=Math.atan2(dy,dx)*180/Math.PI;
-    s.push('<g><rect x="'+(bx-lw/2).toFixed(1)+'" y="'+(by-22).toFixed(1)+'" width="'+lw.toFixed(1)+'" height="44" rx="10" fill="#6B3FA0" stroke="#FFFFFF" stroke-width="3"/>'+
-      '<g transform="translate('+(bx-lw/2+30).toFixed(1)+' '+by.toFixed(1)+') rotate('+a.toFixed(1)+')"><path d="M-13 -5L3 -5L3 -12L15 0L3 12L3 5L-13 5Z" fill="#FFFFFF"/></g>'+
-      '<text x="'+(bx-lw/2+56).toFixed(1)+'" y="'+(by+7).toFixed(1)+'" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#FFFFFF">'+planEsc(lab)+'</text></g>');
-  }
   var page='<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="'+Wp+'" height="'+Hp+'" viewBox="0 0 '+Wp+' '+Hp+'">'+s.join('\n')+'</svg>';
-  return imagePNG(page,Wp,Hp,largeurPx||5000).then(function(img){ return {blob:img.blob, l:img.l, h:img.h, svg:page}; });
+  return imagePNG(page,Wp,Hp,largeurPx||5000).then(function(img){ return {blob:img.blob, l:img.l, h:img.h, svg:page, noms:noms}; });
 }
 CARTE.planImplantation=planImplantation;
+
+/* ---------- choix de la zone : rectangle tiré sur la carte ---------- */
+var SELP=null, SELP_CLIC=false, gSelP=el('g',{id:'c-selplan'});
+dyn.appendChild(gSelP);
+(function(){
+  var st=document.createElement('style');
+  st.textContent='body.plan-sel #map, body.plan-sel #map *{cursor:crosshair !important}';
+  document.head.appendChild(st);
+})();
+function lancerSelectionPlan(){
+  if(document.body.classList.contains('en-3d') && window.ESPACE3D && ESPACE3D.fermer) ESPACE3D.fermer();
+  fermerMenusCarte();
+  poseJalon=false; majPose();
+  POSE_CARTE=null; majPoseCarte();
+  SELP={};
+  document.body.classList.add('plan-sel');
+  dire('Plan d’implantation : clique sur un coin de la zone, garde le bouton appuyé et glisse jusqu’au coin opposé, puis relâche. Échap pour annuler.','');
+}
+function finSelectionPlan(){
+  SELP=null;
+  while(gSelP.firstChild) gSelP.removeChild(gSelP.firstChild);
+  document.body.classList.remove('plan-sel');
+}
+function rectSelP(a,b){
+  var x=Math.min(a[0],b[0]), y=Math.min(a[1],b[1]);
+  return {x:x, y:y, w:Math.abs(b[0]-a[0]), h:Math.abs(b[1]-a[1])};
+}
+document.addEventListener('pointerdown',function(ev){
+  if(!SELP || ev.button!==0 || !(ev.target && ev.target.closest && ev.target.closest('#map'))) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  var w=toWorld(ev);
+  SELP.a=[w.x,w.y]; SELP.id=ev.pointerId;
+  SELP.r=el('rect',{x:w.x, y:w.y, width:0, height:0, fill:'#6B3FA0', 'fill-opacity':0.1, stroke:'#6B3FA0', 'stroke-width':2.5,
+    'stroke-dasharray':'9 5', 'vector-effect':'non-scaling-stroke', 'pointer-events':'none'});
+  gSelP.appendChild(SELP.r);
+},true);
+document.addEventListener('pointermove',function(ev){
+  if(!SELP || !SELP.a || ev.pointerId!==SELP.id) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  var w=toWorld(ev), q=rectSelP(SELP.a,[w.x,w.y]);
+  SELP.r.setAttribute('x',q.x); SELP.r.setAttribute('y',q.y); SELP.r.setAttribute('width',q.w); SELP.r.setAttribute('height',q.h);
+},true);
+document.addEventListener('pointerup',function(ev){
+  if(!SELP || !SELP.a || ev.pointerId!==SELP.id) return;
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  SELP_CLIC=true;
+  var w=toWorld(ev), q=rectSelP(SELP.a,[w.x,w.y]), mpu=metresParUnite();
+  finSelectionPlan();
+  if(q.w*mpu<PLAN_MIN || q.h*mpu<PLAN_MIN){
+    dire('Zone trop petite (moins de '+PLAN_MIN+' m de côté) : relance Fichier › Plan d’implantation et tire un rectangle plus grand.','err');
+    return;
+  }
+  var cadre=[q.x, q.y, q.x+q.w, q.y+q.h];
+  dire('Plan d’implantation en préparation ('+Math.round(q.w*mpu)+' × '+Math.round(q.h*mpu)+' m)…','');
+  setTimeout(function(){
+    try{
+      planImplantation(5000,cadre).then(function(r){
+        var nom=(r.noms.length ? r.noms.join(', ') : 'zone choisie').replace(/[\\/:*?"<>|]/g,'').slice(0,80);
+        telechargerBlob('Corrida 2027 - plan d’implantation - '+nom+' - parcours '+nomParcours()+'.png',r.blob);
+        dire('Plan d’implantation téléchargé ('+r.l+' × '+r.h+' px). Fichier › Plan d’implantation pour une autre zone.','ok');
+      },function(e){ dire('Plan d’implantation impossible : '+(e && e.message || e),'err'); });
+    }catch(e){ dire('Plan d’implantation impossible : '+(e && e.message || e),'err'); }
+  },30);
+},true);
+/* le clic qui suit le relâchement ne doit rien faire sur la carte */
+document.addEventListener('click',function(ev){
+  if(!SELP_CLIC) return;
+  SELP_CLIC=false;
+  if(ev.target && ev.target.closest && ev.target.closest('#map')){ ev.preventDefault(); ev.stopImmediatePropagation(); }
+},true);
+document.addEventListener('keydown',function(ev){
+  if(ev.key==='Escape' && SELP){ finSelectionPlan(); dire('Plan d’implantation annulé.',''); }
+});
 
 setTimeout(function(){
   if(window.CONSULTATION) return;
   var pf=document.querySelector('.bar .menu[data-m="fichier"] .menu-pop');
   if(!pf) return;
-  var b=document.createElement('button'); b.type='button'; b.textContent='🗺 Plan d’implantation départ-arrivée (image)';
-  b.title='Image à remettre aux équipes de montage : barrières, tentes, panneaux, fléchage et zones, avec la légende et les quantités';
-  b.onclick=function(){
-    dire('Plan d’implantation en préparation…','');
-    setTimeout(function(){
-      try{
-        planImplantation(5000).then(function(r){
-          telechargerBlob('Corrida 2027 - plan d’implantation départ-arrivée - parcours '+nomParcours()+'.png',r.blob);
-          dire('Plan d’implantation téléchargé ('+r.l+' × '+r.h+' px).','ok');
-        },function(e){ dire('Plan d’implantation impossible : '+(e && e.message || e),'err'); });
-      }catch(e){ dire('Plan d’implantation impossible : '+(e && e.message || e),'err'); }
-    },30);
-  };
+  var b=document.createElement('button'); b.type='button'; b.textContent='🗺 Plan d’implantation (choisir la zone)';
+  b.title='Puis tire un rectangle sur la carte : le plan de cette zone (barrières, tentes, panneaux, fléchage, zones, légende et quantités) est téléchargé en image';
+  b.onclick=function(ev){ if(ev) ev.stopPropagation(); setTimeout(lancerSelectionPlan,0); };
   pf.appendChild(b);
 },80);
 })();
