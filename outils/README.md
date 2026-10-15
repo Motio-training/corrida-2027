@@ -1029,6 +1029,29 @@ Tout se fait dans la page, en ligne, depuis les services de l'IGN
   `d-toits48`, `d-lidar48` (carreaux traités). Hors couverture LiDAR, les
   arbres viennent de la photo et les haies de la BD TOPO.
 
+- **façades d'après les photos de rue** (Panoramax, et Mapillary quand
+  `MAPILLARY_CLE` porte un jeton client ; licence CC BY-SA 4.0, citée en bas
+  de la vue 3D). Rien de la photo ne passe dans la 3D : on n'en garde que la
+  couleur du mur, sa matière (enduit, enduit ocre, pierre de taille,
+  moellons) et les teintes de volets. Photos de jour seulement (soleil à plus
+  de 7°, ni brouillard ni nuit), une par endroit et par direction, choisies
+  pour voir le plus de bâtiments possible (180 au plus). Pour chaque colonne
+  de l'image, le rayon parti de l'objectif touche le premier mur de la BD
+  TOPO à moins de 40 m ; la bande de mur visée va de 1,7 m (au-dessus des
+  voitures ; 3,2 m s'il y a des étages, au-dessus des vitrines) à la
+  gouttière mesurée au laser, sans ce que le laser voit devant (buissons,
+  murets, abris). Petite correction d'inclinaison de l'appareil (4° au plus),
+  colonnes gardées une à une si le mur y est reconnaissable. Couleur = la
+  teinte dominante (pas la moyenne avec fenêtres et volets) ; matière = écart
+  de luminosité à 7 cm entre pixels de mur (relevé sur Melle : enduits 0,02 à
+  0,07, pierre de taille claire 0,075 à 0,11, moellons au-delà). Les
+  bâtiments jamais vus prennent la façade d'un voisin vu de même sorte (taille,
+  matériau des murs de la BD TOPO) à moins de 250 m. Blocs `d-facades48`
+  (`cx cz matière couleur v|p`) et `d-volets48`. Côté moteur, la couleur des
+  sommets est la teinte mesurée divisée par celle du fond photo de la
+  famille, corrigée de l'éclairage de la scène (un mur au soleil s'affiche
+  ×1,20 / 1,21 / 1,29 en r, v, b ; à l'ombre ×0,28 / 0,30 / 0,37).
+
 Dans `actifs/code3d.js`, la section 48 ne garde pour ces projets que les étapes
 génériques, selon le curseur « Détail de la ville » du menu Afficher (100 % =
 tout le détail automatique). Les constructions faites à la main pour

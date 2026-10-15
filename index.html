@@ -218410,6 +218410,7 @@ body.projet-genere #raster{filter:invert(1) hue-rotate(180deg) saturate(.55) bri
 .pj-carte-btns button{width:34px;height:34px;padding:0!important;font-size:18px!important;display:grid;place-items:center;
   background:rgba(20,28,43,.92)!important}
 .pj-carte-btns .pj-couche{width:auto;font-size:12px!important;padding:0 9px!important}
+#pj-credits3d{position:absolute;left:8px;bottom:5px;z-index:6;font-size:10.5px;color:rgba(255,255,255,.8);text-shadow:0 1px 2px rgba(0,0,0,.7);pointer-events:none;max-width:55%}
 .pj-attrib{position:absolute;z-index:2;right:6px;bottom:4px;font-size:10.5px;color:#203040;background:rgba(255,255,255,.7);padding:1px 6px;border-radius:3px;pointer-events:none}
 .pj-zone-aide{margin:0;font-size:12.5px;color:var(--creme-dim)}
 .pj-pied{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--trait);flex-wrap:wrap}
@@ -219077,7 +219078,7 @@ function genererTroisD(P,progres){
         var h=+p.hauteur||0, lv=+p.nombre_d_etages||0;
         var rise=(p.altitude_maximale_toit!=null && p.altitude_minimale_toit!=null) ? Math.max(0,p.altitude_maximale_toit-p.altitude_minimale_toit) : 0;
         var rect=Math.max(1,Math.min(100,Math.round(100*e.a/(b.ow*b.ol))));
-        BATS48.push({q:e.q, b:b, cx:b.cx, cz:b.cz, a:e.a, rect:rect, rang:i});
+        BATS48.push({q:e.q, b:b, cx:b.cx, cz:b.cz, a:e.a, rect:rect, rang:i, k:k, h:h, murs:chiffreIgn(p.materiaux_des_murs)});
         B['d-bats'].push([k, rect, d10(b.ang), d10(b.cx), d10(b.cz), d10(b.ow), d10(b.ol),
           Math.round(e.a), lv, d10(h), pts10(e.q)].join('\t'));
         if(h>0) B['d-ign'].push([i, d10(h), d10(Math.min(rise,12)), chiffreIgn(p.materiaux_de_la_toiture),
@@ -219185,6 +219186,12 @@ function genererTroisD(P,progres){
     return lidar48(z,{la0:la0, lo0:lo0, MLAT:MLAT, MLON:MLON},BATS48,VOIES48,progres)
       .then(function(r){ LID=r; }).catch(function(e){ console.warn('LiDAR :',e); LID=null; });
   });
+  /* photos de rue : couleur et matière des façades */
+  var PHO=null;
+  etapes.push(function(){
+    return photos48(z,{la0:la0, lo0:lo0, MLAT:MLAT, MLON:MLON},BATS48,LID?LID.arbres:[],LID?LID.murs:[],LID?LID.hauts:null,progres,P.trace)
+      .then(function(r){ PHO=r; }).catch(function(e){ console.warn('photos de rue :',e); PHO=null; });
+  });
   /* relief */
   var ELE5=null;
   etapes.push(function(){
@@ -219215,13 +219222,16 @@ function genererTroisD(P,progres){
       B['d-lidar48']=LID.faites;
       B['d-sol48']=LID.sols;
     }
+    if(PHO){ B['d-facades48']=PHO.facades; B['d-volets48']=PHO.volets; }
     var blocs={};
     for(var k in B) blocs[k]=B[k].join('\n');
     blocs['d-ele5']=e5.join('\n'); blocs['d-ele']=ea.join('\n');
     return {v:1, source:'IGN BD TOPO et RGE ALTI', date:new Date().toISOString(),
       origine:{la:la0, lo:lo0, gla0:z.s, gla1:z.n, glo0:z.o, glo1:z.e, grows:nr, gcols:nc},
       stats:{batiments:stats.bats||0, voies:stats.voies||0, allege:stats.batsAlleges||0, pas:Math.round(pas),
-        arbres:LID?LID.arbres.length:0, murs:LID?LID.murs.length:0, toits:LID?Object.keys(LID.toits).length:0, lidar:LID?LID.faites.length:0}, blocs:blocs};
+        arbres:LID?LID.arbres.length:0, murs:LID?LID.murs.length:0, toits:LID?Object.keys(LID.toits).length:0, lidar:LID?LID.faites.length:0,
+        photos:PHO?PHO.stats.lues:0, facadesVues:PHO?PHO.stats.vus:0, facadesVoisins:PHO?PHO.stats.voisins:0,
+        sources:PHO?[PHO.stats.panoramax?'Panoramax':'',PHO.stats.mapillary?'Mapillary':''].filter(Boolean).join(', '):''}, blocs:blocs};
   });
 }
 
@@ -219435,6 +219445,8 @@ function lidar48(z,repere,bats,voies,progres){
   if(tuiles.length>40) tuiles=grille(1.0);         /* grande ville : un relevé tous les mètres */
   if(tuiles.length>60) tuiles=tuiles.slice(0,60);
   var arbres=[], murs=[], toits={}, faites=[], sols=[], vides=0, num=0;
+  /* ce qui dépasse du sol hors des bâtiments, au pas de 2 m (dm, max) : ce qui cache le bas des façades aux photos de rue */
+  var hauts={pas:2, X0:(z.o-lo0)*MLON, Z0:(la0-z.n)*MLAT, cotes:{}};
   function traiter(t,H,P){
     var T=t.T, R=t.R, N=T*T, i, k;
     if(!H){ vides++; return; }
@@ -219450,6 +219462,14 @@ function lidar48(z,repere,bats,voies,progres){
     ici.forEach(function(b){ g.beginPath(); b.q.forEach(function(p,j){ if(j) g.lineTo(px(p[0]),pz(p[1])); else g.moveTo(px(p[0]),pz(p[1])); }); g.closePath(); g.fill(); g.stroke(); });
     var Bm=g.getImageData(0,0,T,T).data, Bat=new Uint8Array(N);
     for(i=0;i<N;i++) Bat[i]=Bm[i*4+3]>40?1:0;
+    var n2=Math.round(T*R/2), H2=new Uint8Array(n2*n2);
+    for(var j2=0;j2<T;j2++) for(var i2=0;i2<T;i2++){
+      var k2=j2*T+i2; if(Bat[k2]) continue;
+      var hv=Math.min(255,Math.round(H[k2]*10)); if(hv<6) continue;
+      var c2=Math.floor(j2*R/2)*n2+Math.floor(i2*R/2); if(hv>H2[c2]) H2[c2]=hv;
+    }
+    hauts.cotes[Math.round((t.x0-hauts.X0)/(R*T))+','+Math.round((t.z0-hauts.Z0)/(R*T))]={x0:t.x0, z0:t.z0, n:n2, h:H2};
+    hauts.cote=R*T;
     g.clearRect(0,0,T,T);
     voies.forEach(function(v){
       if(v.k!=='r') return;
@@ -219462,7 +219482,7 @@ function lidar48(z,repere,bats,voies,progres){
     var Rm=g.getImageData(0,0,T,T).data;
     /* toits : les bâtiments dont le centre est dans ce carreau */
     ici.forEach(function(b){
-      if(b.cx<t.x0 || b.cx>=t.x1 || b.cz<t.z0 || b.cz>=t.z1 || b.rect<60 || b.a<25) return;
+      if(b.cx<t.x0 || b.cx>=t.x1 || b.cz<t.z0 || b.cz>=t.z1 || b.a<12) return;
       var xs=b.q.map(function(p){ return p[0]; }), zs=b.q.map(function(p){ return p[1]; });
       var i0=Math.max(0,Math.floor(px(Math.min.apply(null,xs)))), i1=Math.min(T-1,Math.ceil(px(Math.max.apply(null,xs))));
       var j0=Math.max(0,Math.floor(pz(Math.min.apply(null,zs)))), j1=Math.min(T-1,Math.ceil(pz(Math.max.apply(null,zs))));
@@ -219473,6 +219493,25 @@ function lidar48(z,repere,bats,voies,progres){
         var h=H[jj*T+ii]; if(h<1.5) continue;
         pts.push([x,zz,h,jj*T+ii]); if(h>hmax) hmax=h;
       }
+      /* hauteur mesurée de la gouttière et du faîte (photos de rue : où est le mur sur l'image) */
+      if(pts.length>=6){
+        /* la gouttière : la hauteur relevée le long du pourtour, à moins d'un mètre du bord */
+        var bord=[], nq=b.q.length;
+        pts.forEach(function(p){
+          var dm=1e9;
+          for(var k2=0;k2<nq;k2++){
+            var A=b.q[k2], B=b.q[(k2+1)%nq], ex=B[0]-A[0], ez=B[1]-A[1], L2=ex*ex+ez*ez;
+            var u=L2>0 ? Math.max(0,Math.min(1,((p[0]-A[0])*ex+(p[1]-A[1])*ez)/L2)) : 0;
+            var dd=Math.hypot(p[0]-A[0]-u*ex, p[1]-A[1]-u*ez); if(dd<dm) dm=dd;
+          }
+          if(dm<1.0) bord.push(p[2]);
+        });
+        var hs=pts.map(function(p){ return p[2]; }).sort(function(x,y){ return x-y; });
+        bord.sort(function(x,y){ return x-y; });
+        b.gout=bord.length>=4 ? bord[Math.floor(bord.length*0.5)] : hs[Math.floor(hs.length*0.3)];
+        b.faite=hs[Math.floor(hs.length*0.95)];
+      }
+      if(b.rect<60 || b.a<25) return;
       var f=formeToit48(b,pts); if(!f) f={forme:0, axe:b.b.ang};
       if(P){
         var r=0,v=0,bl=0,n=0;
@@ -219595,8 +219634,497 @@ function lidar48(z,repere,bats,voies,progres){
   return suite().then(function(){
     /* un massif d'arbustes n'est pas une haie : 6 m au moins pour une haie, 3 m pour un mur */
     var M=joindre48(murs).filter(function(m){ return m.lg>=(m.k==='h'?6:3); });
-    return {arbres:arbres, toits:toits, faites:faites, sols:sols, vides:vides,
+    return {arbres:arbres, toits:toits, faites:faites, sols:sols, vides:vides, hauts:hauts,
       murs:M.map(function(m){ return [m.k, Math.round(m.h*10), Math.round(m.w*10), m.p.map(function(p){ return Math.round(p[0]*10)+','+Math.round(p[1]*10); }).join(' ')].join('\t'); })};
+  });
+}
+/* ---------------- façades d'après les photos de rue ----------------
+   Photos libres prises dans la rue : Panoramax et Mapillary (licence
+   CC BY-SA 4.0 ; Mapillary demande un jeton client, MAPILLARY_CLE). Rien de
+   la photo ne passe dans la 3D : on n'en garde que des mesures, la couleur
+   du mur, sa matière (enduit, enduit ocre, pierre de taille, moellons) et la
+   teinte des volets. Les façades restent dessinées par le moteur.
+   Pour chaque photo retenue : position, cap et champ de la prise de vue →
+   pour chaque colonne de l'image, le rayon qui part de l'objectif et le
+   premier mur de la BD TOPO qu'il rencontre (moins de 40 m, pas trop
+   rasant, pas derrière un arbre relevé au laser) → les pixels du mur entre
+   1,7 m (au-dessus des voitures) et le bas du toit. On écarte le ciel, la
+   verdure, le noir des fenêtres ; les couleurs vives sont les volets.
+   Les bâtiments vus reçoivent leur mesure ; les autres prennent celle d'un
+   voisin vu de même sorte (taille, matériau IGN), à moins de 250 m.
+   Sorties : d-facades48 « cx cz matière couleur origine » (dm, e|o|t|m,
+   hex, v vu | p voisin), d-volets48 « couleur voix ». */
+var MAPILLARY_CLE=window.MAPILLARY_CLE||'';
+var PHOTOS48_MAX=180, PORTEE48=40, SOLEIL48_MIN=window.SOLEIL48_MIN||7;
+
+/* hauteur et direction du soleil (degrés ; azimut depuis le nord, sens horaire) */
+function soleil48(la,lo,t){
+  var rad=Math.PI/180, n=t/864e5+2440587.5-2451545.0;
+  var L=(280.46+0.9856474*n)%360, g=((357.528+0.9856003*n)%360)*rad;
+  var lam=(L+1.915*Math.sin(g)+0.020*Math.sin(2*g))*rad, eps=(23.439-4e-7*n)*rad;
+  var dec=Math.asin(Math.sin(eps)*Math.sin(lam)), ra=Math.atan2(Math.cos(eps)*Math.sin(lam),Math.cos(lam));
+  var gmst=((18.697374558+24.06570982441908*n)%24+24)%24;
+  var H=(gmst*15+lo)*rad-ra, f=la*rad;
+  var el=Math.asin(Math.sin(f)*Math.sin(dec)+Math.cos(f)*Math.cos(dec)*Math.cos(H));
+  var A=Math.atan2(Math.sin(H), Math.cos(H)*Math.sin(f)-Math.tan(dec)*Math.cos(f));
+  return {el:el/rad, az:((A/rad+180)%360+360)%360};
+}
+
+/* ---------- recherche des photos ---------- */
+function photosPanoramax48(z){
+  var L=[], n=0;
+  function page(u){
+    return fetch(u).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+      if(!d) return;
+      (d.features||[]).forEach(function(f){
+        var p=f.properties||{}, a=f.assets||{}, io=p['pers:interior_orientation']||{}, g=f.geometry && f.geometry.coordinates;
+        var az=p['view:azimuth'], url=(a.sd||a.hd||{}).href;
+        if(!g || az==null || !url) return;
+        var fov=+io.field_of_view||0, pano=fov>=359 || /ProjectionType"\s*:\s*"equirect/i.test(JSON.stringify(p.exif||{}));
+        L.push({src:'Panoramax', id:f.id, lo:+g[0], la:+g[1], az:+az, pano:pano, fov:pano?360:(fov||65), fovSur:!!fov,
+          url:url, quand:Date.parse(p.datetime||'')||0, prec:+p['quality:horizontal_accuracy']||0});
+      });
+      var nx=(d.links||[]).filter(function(l){ return l.rel==='next'; })[0];
+      if(nx && ++n<40) return page(nx.href);
+    });
+  }
+  return page('https://api.panoramax.xyz/api/search?bbox='+[z.o,z.s,z.e,z.n].join(',')+'&limit=1000')
+    .then(function(){ return L; }).catch(function(e){ console.warn('Panoramax :',e); return L; });
+}
+function photosMapillary48(z,progres){
+  if(!MAPILLARY_CLE) return Promise.resolve([]);
+  var pas=0.01; while(Math.ceil((z.e-z.o)/pas)*Math.ceil((z.n-z.s)/pas)>300) pas*=1.5;
+  var cases=[], L=[], faits=0, echecs=0;
+  for(var lo=z.o; lo<z.e; lo+=pas) for(var la=z.s; la<z.n; la+=pas) cases.push([lo,la,Math.min(lo+pas,z.e),Math.min(la+pas,z.n)]);
+  var champs='id,computed_geometry,geometry,computed_compass_angle,compass_angle,computed_rotation,camera_type,camera_parameters,width,height,captured_at,thumb_2048_url';
+  function une(c){
+    return fetch('https://graph.mapillary.com/images?access_token='+encodeURIComponent(MAPILLARY_CLE)+'&fields='+champs+
+      '&bbox='+c.map(function(v){ return v.toFixed(6); }).join(',')+'&limit=2000')
+    .then(function(r){ if(!r.ok) throw new Error('Mapillary '+r.status); return r.json(); }).then(function(d){
+      (d.data||[]).forEach(function(m){
+        var g=(m.computed_geometry||m.geometry||{}).coordinates, az=m.computed_compass_angle!=null ? m.computed_compass_angle : m.compass_angle;
+        var t=m.camera_type||'', pano=/spherical|equirect/.test(t);
+        if(!g || az==null || !m.thumb_2048_url || /fisheye/.test(t)) return;
+        var fc=m.camera_parameters && +m.camera_parameters[0];
+        var ph={src:'Mapillary', id:m.id, lo:+g[0], la:+g[1], az:+az, pano:pano,
+          fov:pano?360:(fc>0.2 && fc<3 ? 2*Math.atan(0.5/fc)*180/Math.PI : 65), fovSur:pano || fc>0.2, focal:(!pano && fc>0.2 && fc<3) ? fc : 0,
+          url:m.thumb_2048_url, quand:+m.captured_at||0, prec:0};
+        /* l'orientation reconstituée par Mapillary donne aussi l'inclinaison : on la garde si son cap est cohérent */
+        if(m.computed_rotation && m.computed_rotation.length===3){
+          var Rm=rodrigues48(m.computed_rotation), Rt=[Rm[0],Rm[3],Rm[6],Rm[1],Rm[4],Rm[7],Rm[2],Rm[5],Rm[8]];
+          [Rm,Rt].forEach(function(R){
+            var c=Math.atan2(R[6],R[7])*180/Math.PI, ec=Math.abs(((c-az)%360+540)%360-180);
+            if(!ph.R && ec<15 && Math.abs(R[8])<0.5) ph.R=R;
+          });
+        }
+        L.push(ph);
+      });
+    }).catch(function(e){ echecs++; if(echecs<4) console.warn('Mapillary :',e); })
+    .then(function(){ faits++; if(progres && faits%5===0) progres('Photos de rue : recherche Mapillary '+faits+' / '+cases.length); });
+  }
+  var k=0;
+  function file(){ if(k>=cases.length) return Promise.resolve(); return une(cases[k++]).then(file); }
+  return Promise.all([file(),file(),file(),file()]).then(function(){ return L; });
+}
+
+/* ---------- murs de la BD TOPO, rangés par cases de 16 m ---------- */
+function grilleMurs48(bats){
+  var G={}, C=16;
+  bats.forEach(function(b,bi){
+    var q=b.q, n=q.length;
+    for(var i=0;i<n;i++){
+      var A=q[i], B=q[(i+1)%n], dx=B[0]-A[0], dz=B[1]-A[1], L=Math.hypot(dx,dz);
+      if(L<1.2) continue;
+      var s={ax:A[0], az:A[1], dx:dx, dz:dz, L:L, nx:dz/L, nz:-dx/L, b:bi};
+      var i0=Math.floor(Math.min(A[0],B[0])/C), i1=Math.floor(Math.max(A[0],B[0])/C);
+      var j0=Math.floor(Math.min(A[1],B[1])/C), j1=Math.floor(Math.max(A[1],B[1])/C);
+      for(var ii=i0;ii<=i1;ii++) for(var jj=j0;jj<=j1;jj++) (G[ii+','+jj]=G[ii+','+jj]||[]).push(s);
+    }
+  });
+  return {G:G, C:C};
+}
+function autour48(R,x,z,r){
+  var C=R.C, L=[], vu=new Set();
+  for(var i=Math.floor((x-r)/C);i<=Math.floor((x+r)/C);i++) for(var j=Math.floor((z-r)/C);j<=Math.floor((z+r)/C);j++){
+    var c=R.G[i+','+j]; if(!c) continue;
+    for(var k=0;k<c.length;k++) if(!vu.has(c[k])){ vu.add(c[k]); L.push(c[k]); }
+  }
+  return L;
+}
+/* premier mur touché par le rayon (px,pz)+t(dx,dz) */
+function rayon48(S,px,pz,dx,dz,tmax){
+  var best=null, bt=tmax, bu=0;
+  for(var i=0;i<S.length;i++){
+    var s=S[i], den=dx*s.dz-dz*s.dx; if(Math.abs(den)<1e-9) continue;
+    var wx=s.ax-px, wz=s.az-pz, t=(wx*s.dz-wz*s.dx)/den;
+    if(t<=0.3 || t>=bt) continue;
+    var u=(wx*dz-wz*dx)/den;
+    if(u<0 || u>1) continue;
+    bt=t; best=s; bu=u;
+  }
+  return best ? {s:best, t:bt, u:bu} : null;
+}
+/* une couronne d'arbre relevée au laser entre l'objectif et le mur */
+function cache48(T,px,pz,dx,dz,t){
+  for(var i=0;i<T.length;i++){
+    var a=T[i]; if(a[2]<3) continue;
+    var wx=a[0]-px, wz=a[1]-pz, le=wx*dx+wz*dz;
+    if(le<0.5 || le>t-0.8) continue;
+    if(Math.abs(wx*dz-wz*dx)<a[3]*0.75) return true;
+  }
+  return false;
+}
+
+/* hauteur jusqu'où un mur ou une haie relevés au laser cachent la façade touchée à la distance t */
+function masque48(Mu,px,pz,dx,dz,t,camH){
+  var y=0;
+  for(var i=0;i<Mu.length;i++){
+    var s=Mu[i], den=dx*s.dz-dz*s.dx; if(Math.abs(den)<1e-9) continue;
+    var wx=s.ax-px, wz=s.az-pz, tw=(wx*s.dz-wz*s.dx)/den;
+    if(tw<=0.5 || tw>=t-0.5) continue;
+    var u=(wx*dz-wz*dx)/den; if(u<0 || u>1) continue;
+    var yo=camH+(s.h-camH)*t/tw; if(yo>y) y=yo;
+  }
+  return y;
+}
+/* même chose avec tout ce que le laser a vu entre l'objectif et le mur : buissons, murets, abris, voitures */
+function haut48(HS,x,z){
+  if(!HS || !HS.cote) return 0;
+  var i=Math.floor((x-HS.X0)/HS.cote), j=Math.floor((z-HS.Z0)/HS.cote), c=HS.cotes[i+','+j];
+  if(!c) return 0;
+  var u=Math.floor((x-c.x0)/HS.pas), v=Math.floor((z-c.z0)/HS.pas);
+  if(u<0 || v<0 || u>=c.n || v>=c.n) return 0;
+  return c.h[v*c.n+u]/10;
+}
+function relief48(HS,px,pz,dx,dz,t,camH){
+  if(!HS) return 0;
+  var y=0;
+  for(var s=1.5; s<t-0.8; s+=1){
+    var ho=haut48(HS,px+dx*s,pz+dz*s); if(ho<0.6) continue;
+    var yo=camH+(ho-camH)*t/s; if(yo>y) y=yo;
+  }
+  return y;
+}
+/* ---------- lecture d'une photo ---------- */
+function image48(url,maxD){
+  return fetch(url,{mode:'cors'}).then(function(r){ if(!r.ok) throw new Error('photo '+r.status); return r.blob(); })
+  .then(function(b){ return createImageBitmap(b); }).then(function(im){
+    var k=Math.min(1,maxD/Math.max(im.width,im.height)), W=Math.round(im.width*k), H=Math.round(im.height*k);
+    var c=document.createElement('canvas'); c.width=W; c.height=H;
+    var g=c.getContext('2d'); g.drawImage(im,0,0,W,H); if(im.close) im.close();
+    return {W:W, H:H, d:g.getImageData(0,0,W,H).data, c:c};
+  });
+}
+/* repère de prise de vue : monde (est, nord, haut) → caméra (droite, bas, avant), par lignes */
+function rotationCap48(az,tangage){
+  var rad=Math.PI/180, a=az*rad, p=tangage*rad;
+  var F=[Math.sin(a)*Math.cos(p), Math.cos(a)*Math.cos(p), Math.sin(p)], D=[Math.cos(a), -Math.sin(a), 0];
+  var B=[F[1]*D[2]-F[2]*D[1], F[2]*D[0]-F[0]*D[2], F[0]*D[1]-F[1]*D[0]];
+  return D.concat(B,F);
+}
+/* rotation calculée par Mapillary (vecteur angle-axe) */
+function rodrigues48(v){
+  var th=Math.hypot(v[0],v[1],v[2]); if(th<1e-9) return [1,0,0,0,1,0,0,0,1];
+  var x=v[0]/th, y=v[1]/th, z=v[2]/th, c=Math.cos(th), s=Math.sin(th), C=1-c;
+  return [c+x*x*C, x*y*C-z*s, x*z*C+y*s,  y*x*C+z*s, c+y*y*C, y*z*C-x*s,  z*x*C-y*s, z*y*C+x*s, c+z*z*C];
+}
+function projection48(ph,W,H,R){
+  var f=ph.pano ? H/Math.PI : (ph.focal ? ph.focal*Math.max(W,H) : (Math.max(W,H)/2)/Math.tan(ph.fov*Math.PI/360));
+  var P=function(e,n,u){
+    var bx=R[0]*e+R[1]*n+R[2]*u, by=R[3]*e+R[4]*n+R[5]*u, bz=R[6]*e+R[7]*n+R[8]*u;
+    if(ph.pano){ var lon=Math.atan2(bx,bz), lat=Math.atan2(-by,Math.hypot(bx,bz)); return [(lon/(2*Math.PI)+0.5)*W, (0.5-lat/Math.PI)*H]; }
+    if(bz<0.2) return null;
+    return [W/2+f*bx/bz, H/2+f*by/bz];
+  };
+  P.f=f;      /* pixels par radian, au centre */
+  return P;
+}
+/* nature d'un pixel : 0 mur, 1 ciel, 2 feuillage, 3 sombre (fenêtre), 4 couleur vive (volet), 5 tuile, 6 brûlé */
+function classe48(r,g,b){
+  var l=0.299*r+0.587*g+0.114*b, mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+  if(l>246) return 6;
+  if(b>r+18 && b>=g && l>115) return 1;
+  if(2*g-r-b>22 && g>r) return 2;
+  if(l<48) return 3;
+  /* teinte dans la famille orangé-jaune (0 rouge, 60 jaune) : ocres et pierre dorée restent des murs */
+  var te=(mx===r && g>=b && mx>mn) ? 60*(g-b)/(mx-mn) : -1;
+  if(r>g+45 && r>b+60 && te<25) return 5;
+  if(mx-mn>70 && l<215 && !(te>=22 && l>=120)) return 4;
+  return 0;
+}
+var NOTE_MUR48=[1,-2,-1,0,0,-1,-1], NOTE_DESSUS48=[-1,1,0.5,0,0,1,0.5];
+function nouvelleMesure48(){
+  return {n:0, bacs:new Map(), rug:new Float32Array(40), nrug:0,
+    sl:0, sl2:0, srb:0, srb2:0, cols:0, sombre:0, vert:0, vif:[], photos:{}};
+}
+function lirePhoto48(ph,im,cam,S,T,Mu,HS,bats,acc,trace){
+  var W=im.W, H=im.H, d=im.d, rad=Math.PI/180;
+  /* photo dans le brouillard, la nuit ou à contre-jour : rien à en tirer */
+  var sl=0, sl2=0, ns=0;
+  for(var k=0;k<W*H;k+=13){ var o=k*4, l=0.299*d[o]+0.587*d[o+1]+0.114*d[o+2]; sl+=l; sl2+=l*l; ns++; }
+  var ml=sl/ns, sdl=Math.sqrt(Math.max(0,sl2/ns-ml*ml));
+  if(ml<55 || sdl<26) return -1;
+  var R=ph.R || rotationCap48(ph.az,0), P=projection48(ph,W,H,R);
+  var camH=ph.pano ? 2.2 : 1.6, vus=0;
+  var sol=ph.quand ? soleil48(ph.la,ph.lo,ph.quand) : null;
+  var sx0=sol ? Math.sin(sol.az*rad) : 0, sz0=sol ? -Math.cos(sol.az*rad) : 0;
+  function px(x,y){ x=Math.round(x); y=Math.round(y); if(x<0||y<0||x>=W||y>=H) return -1; return (y*W+x)*4; }
+  /* les rayons : un tous les 3 pixels sur la largeur de l'image */
+  /* grand angle : les bords de l'image sont déformés, on n'en garde que le centre */
+  var cap=Math.atan2(R[6],R[7])/rad, demi=ph.pano ? 180 : Math.atan((W/2)/P.f)/rad*(ph.fov>=80 ? 0.7 : 0.95), pas=3/P.f/rad, C=[];
+  for(var a=-demi; a<=demi; a+=pas){
+    var az=(cap+a)*rad, dx=Math.sin(az), dz=-Math.cos(az);
+    var h=rayon48(S,cam.x,cam.z,dx,dz,PORTEE48); if(!h || h.t<2.5) continue;
+    var s=h.s, c=-(dx*s.nx+dz*s.nz);
+    if(c<0.3) continue;                                  /* rasant, ou vu de l'intérieur (position fausse) */
+    var ul=h.u*s.L; if(ul<0.8 || s.L-ul<0.8) continue;   /* loin des angles : le cap n'est pas exact */
+    if(cache48(T,cam.x,cam.z,dx,dz,h.t)) continue;
+    var b=bats[s.b], hb=b.gout>2 ? b.gout : (b.h>2 ? b.h : (b.k==='g' ? 2.6 : 6));
+    var e=dx*h.t, n=-dz*h.t;
+    var p1=P(e,n,1-camH), pt=P(e,n,hb-camH), pa=P(e,n,hb+1.5-camH);
+    var mq=Math.max(masque48(Mu,cam.x,cam.z,dx,dz,h.t,camH), relief48(HS,cam.x,cam.z,dx,dz,h.t,camH)), Y0=Math.max(hb>=5 ? 3.2 : 1.7, mq+0.2), Y1=Math.min(hb-0.4,9), q0=P(e,n,Y0-camH), q1=P(e,n,Y1-camH);
+    if(!p1 || !pt || !pa || !q0 || !q1 || p1[0]<0 || p1[0]>=W) continue;
+    C.push({s:s, t:h.t, c:c, p1:p1, pt:pt, pa:pa, q0:q0, q1:q1, court:Y1<Y0+0.4, Y0:Y0, Y1:Y1, hb:hb, mq:mq, gout:b.gout, hi:b.h});
+  }
+  if(trace) ph.C=C;
+  if(C.length<6) return 0;
+  /* inclinaison de l'appareil : on décale la bande jusqu'à ce que le mur soit dedans et le ciel ou le toit au-dessus */
+  var M=(ph.R ? 1.5 : (ph.pano ? 3 : 4))*rad*P.f, po=Math.max(2,0.5*rad*P.f), best=0, bs=-1e9;
+  var Cs=C.filter(function(x,i){ return i%Math.max(1,Math.floor(C.length/120))===0; });
+  /* note d'une colonne : le mur dans la bande, autre chose au-dessus */
+  function noteCol(x,dec){
+    var m=0, nm=0, u=0, nu=0, j, f, o;
+    for(j=0;j<12;j++){ f=(j+0.5)/12; o=px(x.pt[0]+(x.p1[0]-x.pt[0])*f, x.pt[1]+(x.p1[1]-x.pt[1])*f+dec); if(o<0) continue; m+=NOTE_MUR48[classe48(d[o],d[o+1],d[o+2])]; nm++; }
+    for(j=0;j<5;j++){ f=(j+0.5)/5; o=px(x.pa[0]+(x.pt[0]-x.pa[0])*f, x.pa[1]+(x.pt[1]-x.pa[1])*f+dec); if(o<0) continue; u+=NOTE_DESSUS48[classe48(d[o],d[o+1],d[o+2])]; nu++; }
+    return nm>=4 ? m/nm+(nu ? 0.7*u/nu : 0) : -9;
+  }
+  for(var dec=-M; dec<=M; dec+=po){
+    var sc=0;
+    Cs.forEach(function(x){ var v=noteCol(x,dec); if(v>-9) sc+=v; });
+    sc-=Math.abs(dec)/M*0.25*Cs.length;               /* à peu près égal : la visée sans décalage */
+    if(sc>bs){ bs=sc; best=dec; }
+  }
+  /* colonne par colonne : on ne garde que celles où le mur se voit (pas derrière un arbre, une voiture) */
+  var bons=0;
+  C.forEach(function(x){ x.note=noteCol(x,best); if(x.note>=0.5) bons++; });
+  ph.note=+(bs/Cs.length).toFixed(2); ph.decalage=+(best/P.f/rad).toFixed(1); ph.bons=bons;
+  var g2=trace ? trace.getContext('2d') : null;
+  if(g2){ g2.fillStyle='#ff0'; g2.font='bold 40px sans-serif'; g2.fillText('note '+ph.note+'  décalage '+ph.decalage+'°  bonnes '+bons+'/'+C.length,20,50);
+    C.forEach(function(x){ g2.fillStyle='rgba(255,255,0,0.9)'; g2.fillRect(x.q1[0]-1,x.q1[1]+best,2,2); g2.fillRect(x.q0[0]-1,x.q0[1]+best,2,2); }); }
+  if(bons<6) return 0;                                 /* pas de mur reconnaissable : arbres, voitures, flou */
+  C.forEach(function(x){
+    if(x.court || x.note<0.3) return;
+    var s=x.s, lum=!sol || (sol.el>6 && sx0*s.nx+sz0*s.nz>0.15), kr=lum?1:1.28, kb=lum?1:1.18, poids=(lum?1:0.6)*x.c*(1-x.t/(PORTEE48*1.6));
+    var e=acc[s.b]||(acc[s.b]=nouvelleMesure48());
+    var lg=Math.abs(x.q0[1]-x.q1[1]), ns=Math.min(48,Math.max(4,Math.round(lg/2))), pt=Math.max(1,Math.round(P.f*0.07/x.t)), n0=e.n;
+    for(var j=0;j<ns;j++){
+      var f=(j+0.5)/ns, X=x.q1[0]+(x.q0[0]-x.q1[0])*f, Y=x.q1[1]+(x.q0[1]-x.q1[1])*f+best, o=px(X,Y);
+      if(o<0) continue;
+      var r=d[o], g=d[o+1], bl=d[o+2], cl=classe48(r,g,bl);
+      if(cl===2){ e.vert+=poids; continue; }
+      if(cl===3){ e.sombre+=poids; continue; }
+      if(cl===4){ if(e.vif.length<400) e.vif.push([r,g,bl]); continue; }
+      if(cl!==0) continue;
+      var l0=0.299*r+0.587*g+0.114*bl;
+      r=Math.min(255,r*kr); g=Math.min(255,g*kr); bl=Math.min(255,bl*kb);
+      var l=0.299*r+0.587*g+0.114*bl;
+      var cle=((r>>4)<<8)|((g>>4)<<4)|(bl>>4), bac=e.bacs.get(cle);
+      if(!bac) e.bacs.set(cle,bac=[0,0,0,0]);
+      var pc=poids*(0.6+l/255); bac[0]+=pc; bac[1]+=r*pc; bac[2]+=g*pc; bac[3]+=bl*pc; e.n+=poids;
+      e.sl+=l*poids; e.sl2+=l*l*poids; e.srb+=(r-bl)*poids; e.srb2+=(r-bl)*(r-bl)*poids;
+      /* rugosité : écart de luminosité à 7 cm, joints et pierres d'un mur de moellons */
+      /* seulement entre pixels de mur : les bords de fenêtres et d'enseignes ne comptent pas */
+      var o1=px(X+pt,Y), o2=px(X,Y+pt);
+      if(o1>=0 && o2>=0 && classe48(d[o1],d[o1+1],d[o1+2])===0 && classe48(d[o2],d[o2+1],d[o2+2])===0){
+        var l1=0.299*d[o1]+0.587*d[o1+1]+0.114*d[o1+2], l2=0.299*d[o2]+0.587*d[o2+1]+0.114*d[o2+2];
+        var gr=Math.round((Math.abs(l1-l0)+Math.abs(l2-l0))/2/Math.max(40,l0)*200);
+        e.rug[Math.min(39,gr)]+=poids; e.nrug+=poids;
+      }
+      if(g2){ g2.fillStyle='rgba(255,0,255,0.55)'; g2.fillRect(X-1,Y-lg/ns/2,2,Math.max(1,lg/ns)); }
+    }
+    if(e.n>n0){ e.cols++; e.photos[ph.id]=1; vus++; }
+    if(g2){ g2.fillStyle='rgba(0,255,255,0.9)'; g2.fillRect(x.pt[0]-1,x.pt[1]+best,2,2); g2.fillRect(x.p1[0]-1,x.p1[1]+best,2,2); }
+  });
+  return vus;
+}
+/* la teinte qui couvre le plus de mur (l'enduit), pas la moyenne avec les fenêtres et les volets */
+function dominante48(bacs){
+  var best=null, bw=0;
+  function voisins(k,f){
+    var r=k>>8, g=(k>>4)&15, b=k&15;
+    for(var i=-1;i<=1;i++) for(var j=-1;j<=1;j++) for(var l=-1;l<=1;l++){
+      var R=r+i, G=g+j, B=b+l; if(R<0||G<0||B<0||R>15||G>15||B>15) continue;
+      var v=bacs.get((R<<8)|(G<<4)|B); if(v) f(v);
+    }
+  }
+  bacs.forEach(function(v,k){ var w=0; voisins(k,function(u){ w+=u[0]; }); if(w>bw){ bw=w; best=k; } });
+  if(best===null) return null;
+  var s=[0,0,0,0]; voisins(best,function(u){ s[0]+=u[0]; s[1]+=u[1]; s[2]+=u[2]; s[3]+=u[3]; });
+  return [s[1]/s[0], s[2]/s[0], s[3]/s[0]];
+}
+function hex48(r,g,b){ return ((1<<24)+(Math.round(r)<<16)+(Math.round(g)<<8)+Math.round(b)).toString(16).slice(1); }
+/* ce qu'on retient d'un bâtiment vu : couleur médiane, matière */
+function conclure48(e){
+  if(e.n<60 || e.cols<4) return null;
+  var dom=dominante48(e.bacs); if(!dom) return null;
+  var r=dom[0], g=dom[1], b=dom[2];
+  /* un mur franchement bleu ou vert, c'est une devanture, une enseigne ou une vitre : pas une façade à recopier */
+  if(b>r+12 || g>r+14) return null;
+  var ml=e.sl/e.n, sdl=Math.sqrt(Math.max(0,e.sl2/e.n-ml*ml)), mrb=e.srb/e.n, sdrb=Math.sqrt(Math.max(0,e.srb2/e.n-mrb*mrb));
+  var rug=0, cu=0; for(var i=0;i<40 && e.nrug;i++){ cu+=e.rug[i]; if(cu>=e.nrug*0.6){ rug=(i+0.5)/200; break; } }
+  var mat;
+  /* relevé sur Melle : enduits 0,02 à 0,07 ; pierre de taille claire 0,075 à 0,11 ; moellons au-delà */
+  var lum=0.299*r+0.587*g+0.114*b;
+  if(rug>=0.115) mat='m';
+  else if(rug>=0.075) mat=lum>=165 ? 't' : 'm';
+  else mat=(r-b>45 && g-b>16 && lum<205) ? 'o' : 'e';
+  return {r:Math.round(r), g:Math.round(g), b:Math.round(b), mat:mat, rug:+rug.toFixed(3), var:+(sdl/ml).toFixed(3), n:Math.round(e.n), cols:e.cols, photos:Object.keys(e.photos).length};
+}
+/* teintes de volets : chaque bâtiment vote une fois pour la teinte qu'il montre le plus */
+var VOLETS_TYPES48=[[111,135,150],[143,177,201],[138,154,123],[63,90,70],[122,46,46],[154,74,50],[122,90,60],[201,166,74],[80,90,110]];
+function volets48(acc){
+  var voix=VOLETS_TYPES48.map(function(){ return {n:0, r:0, g:0, b:0}; });
+  Object.keys(acc).forEach(function(k){
+    var v=acc[k].vif; if(v.length<12) return;
+    var c=VOLETS_TYPES48.map(function(){ return []; });
+    v.forEach(function(p){
+      var bi=0, bd=1e9;
+      VOLETS_TYPES48.forEach(function(t,i){ var dd=(p[0]-t[0])*(p[0]-t[0])+(p[1]-t[1])*(p[1]-t[1])+(p[2]-t[2])*(p[2]-t[2]); if(dd<bd){ bd=dd; bi=i; } });
+      if(bd<3600) c[bi].push(p);
+    });
+    var m=0; c.forEach(function(l,i){ if(l.length>c[m].length) m=i; });
+    if(c[m].length<10) return;
+    var V=voix[m]; V.n++; c[m].forEach(function(p){ V.r+=p[0]/c[m].length; V.g+=p[1]/c[m].length; V.b+=p[2]/c[m].length; });
+  });
+  return voix.filter(function(V){ return V.n>=3; }).sort(function(a,b){ return b.n-a.n; }).slice(0,4)
+    .map(function(V){ return hex48(V.r/V.n,V.g/V.n,V.b/V.n)+'\t'+V.n; });
+}
+/* les bâtiments jamais vus prennent la façade d'un voisin vu de même sorte */
+function sorte48(b){ return (b.a>220 || b.h>8.5) ? 'G' : 'P'; }
+function propager48(bats,vus){
+  var C=60, G={}, res={};
+  Object.keys(vus).forEach(function(k){ var b=bats[k]; (G[Math.floor(b.cx/C)+','+Math.floor(b.cz/C)]=G[Math.floor(b.cx/C)+','+Math.floor(b.cz/C)]||[]).push(+k); });
+  bats.forEach(function(b,bi){
+    if(vus[bi] || b.k!=='y') return;
+    var cand=[], gi=Math.floor(b.cx/C), gj=Math.floor(b.cz/C), so=sorte48(b);
+    for(var i=gi-4;i<=gi+4;i++) for(var j=gj-4;j<=gj+4;j++){
+      var L=G[i+','+j]; if(!L) continue;
+      L.forEach(function(k){
+        var v=bats[k], dd=Math.hypot(v.cx-b.cx,v.cz-b.cz); if(dd>250) return;
+        var w=1/(dd+15);
+        if(sorte48(v)!==so) w*=0.25;
+        if(b.murs && v.murs) w*=(b.murs===v.murs ? 2 : 0.35);
+        cand.push({k:k, w:w});
+      });
+    }
+    if(!cand.length) return;
+    cand.sort(function(x,y){ return y.w-x.w; }); cand.length=Math.min(cand.length,6);
+    var tot=0; cand.forEach(function(c){ tot+=c.w; });
+    var u=(Math.sin(bi*12.9898+78.233)*43758.5453)%1, pris=cand[0];
+    u=(u<0?u+1:u)*tot;
+    for(var q=0;q<cand.length;q++){ u-=cand[q].w; if(u<=0){ pris=cand[q]; break; } }
+    var m=vus[pris.k], j2=1+((bi*7919)%9-4)*0.01;
+    res[bi]={r:Math.min(255,m.r*j2), g:Math.min(255,m.g*j2), b:Math.min(255,m.b*j2), mat:m.mat};
+  });
+  return res;
+}
+
+/* ---------- tout le relevé ---------- */
+function photos48(z,repere,bats,arbres,murs,hauts,progres,trace){
+  var la0=repere.la0, lo0=repere.lo0, MLAT=repere.MLAT, MLON=repere.MLON;
+  function pX(lo){ return (lo-lo0)*MLON; } function pZ(la){ return (la0-la)*MLAT; }
+  var R=grilleMurs48(bats), GA={}, CA=20;
+  arbres.forEach(function(a){ (GA[Math.floor(a[0]/CA)+','+Math.floor(a[1]/CA)]=GA[Math.floor(a[0]/CA)+','+Math.floor(a[1]/CA)]||[]).push(a); });
+  var GM={};
+  (murs||[]).forEach(function(l){
+    var c=l.split('\t'); if(c.length<4) return;
+    var hm=+c[1]/10, P2=c[3].split(' ').map(function(q){ var v=q.split(','); return [+v[0]/10,+v[1]/10]; });
+    for(var i=0;i+1<P2.length;i++){
+      var A=P2[i], B=P2[i+1], sg={ax:A[0], az:A[1], dx:B[0]-A[0], dz:B[1]-A[1], h:hm}, k=Math.floor(A[0]/CA)+','+Math.floor(A[1]/CA);
+      (GM[k]=GM[k]||[]).push(sg);
+    }
+  });
+  function mursAutour(x,z_){
+    var L=[]; for(var i=Math.floor((x-50)/CA);i<=Math.floor((x+50)/CA);i++) for(var j=Math.floor((z_-50)/CA);j<=Math.floor((z_+50)/CA);j++){ var c=GM[i+','+j]; if(c) L.push.apply(L,c); }
+    return L;
+  }
+  function arbresAutour(x,z_){
+    var L=[]; for(var i=Math.floor((x-45)/CA);i<=Math.floor((x+45)/CA);i++) for(var j=Math.floor((z_-45)/CA);j<=Math.floor((z_+45)/CA);j++){ var c=GA[i+','+j]; if(c) L.push.apply(L,c); }
+    return L;
+  }
+  var st={trouvees:0, panoramax:0, mapillary:0, lues:0, echecs:0, vus:0, voisins:0};
+  if(progres) progres('Photos de rue : recherche…');
+  return Promise.all([photosPanoramax48(z), photosMapillary48(z,progres)]).then(function(r){
+    var P=r[0].concat(r[1]);
+    st.trouvees=P.length;
+    /* de jour seulement, et une photo par endroit et par direction */
+    var garde={};
+    P.forEach(function(ph){
+      if(ph.lo<z.o || ph.lo>z.e || ph.la<z.s || ph.la>z.n) return;
+      if(ph.prec>12) return;
+      ph.el=ph.quand ? soleil48(ph.la,ph.lo,ph.quand).el : 20;
+      if(ph.el<SOLEIL48_MIN) return;
+      ph.x=pX(ph.lo); ph.z=pZ(ph.la);
+      var cle=Math.round(ph.x/6)+','+Math.round(ph.z/6)+','+(ph.pano ? 'p' : Math.round(((ph.az%360)+360)%360/30)%12);
+      var q=(ph.pano?1.3:1)*(ph.fovSur?1:0.8)*(ph.quand?1:0.7)*Math.min(1,0.4+ph.el/30)+(ph.quand/1e13);
+      ph.q=q;
+      if(!garde[cle] || garde[cle].q<q) garde[cle]=ph;
+    });
+    var cands=Object.keys(garde).map(function(k){ return garde[k]; });
+    /* ce que chaque photo devrait voir, avant de la télécharger */
+    cands.forEach(function(ph){
+      var S=autour48(R,ph.x,ph.z,PORTEE48), n=ph.pano?36:15, rad=Math.PI/180, g={};
+      ph.S=S;
+      for(var i=0;i<n;i++){
+        var a=ph.pano ? (i/n-0.5)*2*Math.PI : (i/(n-1)-0.5)*ph.fov*0.8*rad;
+        var az=ph.az*rad+a, dx=Math.sin(az), dz=-Math.cos(az), h=rayon48(S,ph.x,ph.z,dx,dz,PORTEE48);
+        if(!h || h.t<3) continue;
+        var c=-(dx*h.s.nx+dz*h.s.nz); if(c<0.3) continue;
+        g[h.s.b]=(g[h.s.b]||0)+c*(1-h.t/60)*(ph.pano?0.5:1);
+      }
+      ph.gain=g;
+    });
+    /* choix glouton : chaque photo doit apporter des bâtiments pas encore vus */
+    var besoin={}, choix=[];
+    while(choix.length<PHOTOS48_MAX){
+      var best=null, bs=0;
+      for(var i=0;i<cands.length;i++){
+        var ph=cands[i]; if(ph.pris) continue;
+        var s=0; for(var k in ph.gain) s+=Math.min(1.5-(besoin[k]||0), ph.gain[k]);
+        if(s<0.5) continue;
+        if(s*ph.q>bs){ bs=s*ph.q; best=ph; }
+      }
+      if(!best) break;
+      best.pris=true; choix.push(best);
+      for(var k2 in best.gain) besoin[k2]=Math.min(1.5,(besoin[k2]||0)+best.gain[k2]);
+    }
+    if(trace){ trace.P=P; trace.cands=cands; trace.choix=choix; trace.bats=bats; }
+    var acc={}, k3=0, fini=0;
+    function suivante(){
+      if(k3>=choix.length) return Promise.resolve();
+      var ph=choix[k3++];
+      return image48(ph.url, ph.pano?2048:1600).then(function(im){
+        var tc=null;
+        if(trace){ tc=document.createElement('canvas'); tc.width=im.W; tc.height=im.H; tc.getContext('2d').drawImage(im.c,0,0); }
+        var v=lirePhoto48(ph,im,{x:ph.x,z:ph.z},ph.S,arbresAutour(ph.x,ph.z),mursAutour(ph.x,ph.z),hauts,bats,acc,tc);
+        if(v<0) st.rejetees=(st.rejetees||0)+1;
+        st.lues++; if(ph.src==='Mapillary') st.mapillary++; else st.panoramax++;
+        if(trace) trace.push({ph:ph, vus:v, url:tc.toDataURL('image/jpeg',0.6)});
+      }).catch(function(e){ st.echecs++; if(st.echecs<4) console.warn('photo de rue :',ph.src,e); })
+      .then(function(){ fini++; if(progres) progres('Photos de rue : '+fini+' / '+choix.length+' ('+Object.keys(acc).length.toLocaleString('fr-FR')+' bâtiments vus)'); })
+      .then(suivante);
+    }
+    return Promise.all([suivante(),suivante(),suivante(),suivante()]).then(function(){
+      var vus={};
+      Object.keys(acc).forEach(function(k){ var c=conclure48(acc[k]); if(c) vus[k]=c; });
+      if(trace) trace.vus=vus;
+      var voisins=propager48(bats,vus), L=[];
+      function ligne(bi,m,o){ var b=bats[bi]; L.push([Math.round(b.cx*10), Math.round(b.cz*10), m.mat, hex48(m.r,m.g,m.b), o].join('\t')); }
+      Object.keys(vus).forEach(function(k){ ligne(+k,vus[k],'v'); });
+      Object.keys(voisins).forEach(function(k){ ligne(+k,voisins[k],'p'); });
+      st.vus=Object.keys(vus).length; st.voisins=Object.keys(voisins).length; st.choisies=choix.length;
+      return {facades:L, volets:volets48(acc), stats:st, vus:vus};
+    });
   });
 }
 
@@ -219628,7 +220156,7 @@ function ouvrirCreation(){
     '<div class="pj-pied"><div class="pj-etat"></div><button type="button" class="pj-annuler">Annuler</button><button type="button" class="primaire pj-creer">Créer le projet</button></div></div>';
   document.body.appendChild(m); fenCreation=m;
   var f=$('.pj-form',m), champs=champsProjet(f,{});
-  f.insertAdjacentHTML('beforeend','<label class="pj-champ"><span>Partir de</span><select id="pj-source"><option value="">Projet vierge</option></select><small id="pj-source-aide">Un projet vierge : la carte et le réseau des rues de la zone, un tracé de départ à étirer.</small></label>');
+  f.insertAdjacentHTML('beforeend','<label class="pj-champ"><span>Partir de</span><select id="pj-source"><option value="">Projet vierge</option></select><small id="pj-source-aide">Un projet vierge : la carte et le réseau des rues de la zone, le parcours se dessine ensuite au clic sur la carte.</small></label>');
   var selSrc=$('#pj-source',f), aide=$('#pj-source-aide',f), etat=$('.pj-etat',m), badge=$('.pj-cadre-badge',m);
   var source=null, zoneSource=false, cadrageAuto=false;
   var carte=CarteFrance($('.pj-carte-fr',m),function(){
@@ -219636,7 +220164,7 @@ function ouvrirCreation(){
     if(zoneSource){ zoneSource=false; badge.hidden=true; majAide(); }
   });
   function majAide(){
-    if(!source){ aide.textContent='Un projet vierge : la carte et le réseau des rues de la zone, un tracé de départ à étirer.'; return; }
+    if(!source){ aide.textContent='Un projet vierge : la carte et le réseau des rues de la zone, le parcours se dessine ensuite au clic sur la carte.'; return; }
     var t='Copie le travail de « '+source.nom+' » : parcours, jalonneurs, barrières, rubalise, zones et points.';
     if(source.fond==='corrida') t+= zoneSource ? ' Même zone : toute la carte et la 3D détaillée de Saint-Maixent sont reprises.'
       : ' Zone déplacée : la carte sera générée pour la nouvelle zone (la 3D détaillée de Saint-Maixent ne suit pas). Recadre sur la zone d’origine en choisissant à nouveau ce projet.';
@@ -219716,6 +220244,7 @@ function ouvrirCreation(){
         return admin('donnees',{id:id, cle:'trois_d', data:D}).then(function(){
           E.fait(4,'Ville en 3D : '+D.stats.batiments.toLocaleString('fr-FR')+' bâtiments'+
             (D.stats.lidar ? ', '+D.stats.arbres.toLocaleString('fr-FR')+' arbres et '+D.stats.murs.toLocaleString('fr-FR')+' murs ou haies relevés au laser' : ' (pas de relevé laser sur cette zone)')+
+            (D.stats.photos ? ', façades d’après '+D.stats.photos.toLocaleString('fr-FR')+' photos de rue' : '')+
             ', relief tous les '+D.stats.pas+' m');
         });
       }).catch(function(e){ E.erreur(4,'Ville en 3D : '+(e && e.message || 'échec')+' (elle se préparera à l’ouverture de la vue 3D)'); });
@@ -219856,12 +220385,24 @@ function poserBloc(id,txt){
   document.body.appendChild(s);
   try{ if(typeof DONNEES_CACHE!=='undefined') delete DONNEES_CACHE[id]; }catch(e2){}
 }
+function typeNom(t){ for(var i=0;i<TYPES.length;i++) if(TYPES[i][0]===t) return TYPES[i][1]; return ''; }
+/* sources de la ville en 3D, et licence des photos de rue dont on a tiré les façades */
+function credits3D(D){
+  var e3=document.getElementById('e3'); if(!e3 || document.getElementById('pj-credits3d')) return;
+  var s=(D && D.stats) || {}, t='Données © IGN';
+  if(s.photos) t+=' · façades d’après les photos de rue '+(s.sources||'Panoramax')+' (CC BY-SA 4.0)';
+  var d=document.createElement('div'); d.id='pj-credits3d'; d.textContent=t; e3.appendChild(d);
+}
 function preparer3D(D){
   window.CARTE_ORIGINE=D.origine;
   window.CARTE_ENSEIGNES=[];
   window.DETAIL_3D=detail3D(D);
   for(var id in D.blocs) poserBloc(id,D.blocs[id]);
   var m=document.querySelector('#e3 .e3-marque'); if(m) m.textContent=P.nom.toUpperCase();
+  /* l'écran d'attente de la 3D : le nom du projet, pas celui de la Corrida */
+  var vt=document.querySelector('#e3-voile .e3-vtitre'); if(vt) vt.textContent=P.nom.toUpperCase();
+  var vs=document.querySelector('#e3-voile .e3-vsous'); if(vs) vs.textContent=P.joindre(typeNom(P.type),P.lieu);
+  credits3D(D);
   message('Ville en 3D : photo aérienne IGN…','');
   return mosaiqueOrtho(P.zone).then(function(sat){ poserBloc('sat-data',sat); });
 }

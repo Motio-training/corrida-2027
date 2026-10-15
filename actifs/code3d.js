@@ -11641,8 +11641,10 @@ construireBatis=function(bats){
     else if(ign && ign.murs===1 && h<=8.5) fam=r2<0.34?1:(r2<0.62?0:(r2<0.82?2:4));
     else if(aire>220||h>8.5) fam=r2<0.34?1:(r2<0.67?0:2);
     else fam=r2<0.18?1:(r2<0.36?0:(r2<0.50?2:(r2<0.75?4:5)));
+    if(rel && rel.photo48) fam=FAM48(fam,rel);
     var cm;
-    if(rel && rel.mur!==undefined) cm=teinte(rel.mur);
+    if(rel && rel.photo48) cm=MUR48(rel,fam);
+    else if(rel && rel.mur!==undefined) cm=teinte(rel.mur);
     else if(fam===3||fam===6){
       /* Pas de mélange au blanc pour ces familles : il désature, et le tone
          mapping ACES désature encore les surfaces claires. Pour obtenir à
@@ -31487,9 +31489,73 @@ if(AILLEURS48){
     if(T && T.coul) ct=couleurToit48(T.coul,ct);
     return _toitPlat48(tas,p,top,cm,ct);
   };
+  /* façades vues sur les photos de rue (ou chez un voisin vu) : matière et couleur */
+  var _releveProche48=releveProche;
+  releveProche=function(cx,cz){
+    var r=facades48Lire()[Math.round(cx*10)+','+Math.round(cz*10)];
+    return r || _releveProche48(cx,cz);
+  };
   /* le curseur, dans le menu « Afficher » */
   var _reorganiserMenus48=reorganiserMenus;
   reorganiserMenus=function(){ _reorganiserMenus48(); try{ curseurDetail48(); }catch(e){ console.warn('détail :',e); } };
+}
+/* ---------- façades d'après les photos de rue (photos48.js du générateur) ----------
+   d-facades48 « cx cz matière couleur origine » : e enduit, o enduit ocre,
+   t pierre de taille, m moellons ; v vu sur une photo, p repris d'un voisin.
+   d-volets48 « couleur voix » : les teintes de volets vues dans la commune. */
+var FACADES48=null;
+function facades48Lire(){
+  if(FACADES48) return FACADES48;
+  var F={};
+  lignes(texteBrut('d-facades48')).forEach(function(s){
+    var c=s.split('\t'); if(c.length<5 || !/^[0-9a-f]{6}$/i.test(c[3])) return;
+    F[c[0]+','+c[1]]={photo48:true, mat:c[2], hex:c[3], vu:c[4]==='v'};
+  });
+  /* une teinte de volets par texture de façade : celles vues dans la commune s'ajoutent aux habituelles */
+  var V=[];
+  lignes(texteBrut('d-volets48')).forEach(function(s){ var c=s.split('\t'); if(/^[0-9a-f]{6}$/i.test(c[0]) && V.length<3) V.push('#'+c[0]); });
+  if(V.length) [0,1,2,4].forEach(function(f){ VOLETS_FAM[f]=VOLETS_FAM[f].concat(V); });
+  return (FACADES48=F);
+}
+/* famille de façade d'après la matière vue ; casernes, écoles et commerces gardent la leur */
+function FAM48(fam,rel){
+  if(fam===3 || fam===6) return fam;
+  if(rel.mat==='m') return 4;
+  if(rel.mat==='t') return 1;
+  if(rel.mat==='o') return 2;
+  return (fam===0 || fam===5) ? fam : 0;
+}
+/* couleur des sommets : la teinte mesurée divisée par celle du fond photo de la famille.
+   Relevé sur la 3D de Melle (pixels affichés comparés à texture × sommets, en
+   linéaire) : un mur au soleil s'affiche ×1,20 / 1,21 / 1,29 (r, v, b), un mur à
+   l'ombre ×0,28 / 0,30 / 0,37. On vise la photo au soleil, un peu réchauffée
+   pour que l'ombre bleutée de la scène ne la ternisse pas. */
+var TEX48={}, ECL48=[1.2,1.25,1.39];
+function lin48(v){ v/=255; return v<=0.04045 ? v/12.92 : Math.pow((v+0.055)/1.055,2.4); }
+function fondMoyen48(f){
+  if(TEX48[f]) return TEX48[f];
+  var c=document.createElement('canvas'); c.width=128; c.height=102;
+  var g=c.getContext('2d'), m=[216,208,192];
+  try{
+    fondRiche(g,128,102,f);
+    var d=g.getImageData(0,0,128,102).data, s=[0,0,0], n=0;
+    for(var i=0;i<d.length;i+=16){ s[0]+=d[i]; s[1]+=d[i+1]; s[2]+=d[i+2]; n++; }
+    m=[s[0]/n, s[1]/n, s[2]/n];
+  }catch(e){}
+  if(PH_OK) TEX48[f]=m;
+  return m;
+}
+function MUR48(rel,fam){
+  var h=parseInt(rel.hex,16), r=(h>>16)&255, g=(h>>8)&255, b=h&255;
+  /* mesurée à l'ombre ou à contre-jour, une façade paraît trop sombre : clarté bornée */
+  /* teintes de façade plausibles : peu de bleu, pas de couleur criarde */
+  var mo=(r+g+b)/3, mx=Math.max(r,g,b), mn=Math.min(r,g,b), ks=1;
+  if(b>r+6) ks=6/(b-r); else if(mx-mn>70) ks=70/(mx-mn);
+  r=mo+(r-mo)*ks; g=mo+(g-mo)*ks; b=mo+(b-mo)*ks;
+  var l=0.299*r+0.587*g+0.114*b, k=l<125 ? 125/Math.max(1,l) : (l>236 ? 236/l : 1);
+  r=Math.min(255,r*k); g=Math.min(255,g*k); b=Math.min(255,b*k);
+  var t=fondMoyen48(fam);
+  return [r,g,b].map(function(v,i){ return Math.max(0.3,Math.min(1.25,lin48(v)/ECL48[i]/Math.max(0.05,lin48(t[i])))); });
 }
 /* une polyligne en points espacés de pas, avec leur normale (pour mur43, chaperon43) */
 function ligne48(p,pas){
