@@ -217300,7 +217300,7 @@ function planBatimentsPlats(c,cadre,kk){
 /* noms pour le fichier : zones d'aménagement de la sélection, sinon points de la ville */
 function planNoms(C,cadre){
   var n=[];
-  C.zones.forEach(function(z){ var t=z.nom.split(':')[0].replace(/\(.*?\)/g,'').trim(); if(n.indexOf(t)<0) n.push(t); });
+  C.zones.forEach(function(z){ if(z.zsv) return; var t=z.nom.split(':')[0].replace(/\(.*?\)/g,'').trim(); if(n.indexOf(t)<0) n.push(t); });
   if(!n.length && typeof POIS!=='undefined') POIS.forEach(function(p){
     var x=X(p.lo), y=Y(p.la);
     if(x>=cadre[0] && x<=cadre[2] && y>=cadre[1] && y<=cadre[3]) n.push(p.t);
