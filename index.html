@@ -218401,6 +218401,8 @@ function lireRelief(z,nr,nc){
     return out;
   });
 }
+/* matériau BD TOPO : premier chiffre non nul du code (« 10 » pierre, « 02 » meulière) */
+function chiffreIgn(v){ var m=/[1-9]/.exec(String(v||'')); return m ? +m[0] : 0; }
 function genererTroisD(P,progres){
   var z=P.zone, la0=(z.s+z.n)/2, lo0=(z.o+z.e)/2, f0=la0*Math.PI/180;
   var MLAT=111132.92-559.82*Math.cos(2*f0)+1.175*Math.cos(4*f0)-0.0023*Math.cos(6*f0);
@@ -218473,8 +218475,8 @@ function genererTroisD(P,progres){
         BATS48.push({q:e.q, b:b, cx:b.cx, cz:b.cz, a:e.a, rect:rect, rang:i});
         B['d-bats'].push([k, rect, d10(b.ang), d10(b.cx), d10(b.cz), d10(b.ow), d10(b.ol),
           Math.round(e.a), lv, d10(h), pts10(e.q)].join('\t'));
-        if(h>0) B['d-ign'].push([i, d10(h), d10(Math.min(rise,12)), String(p.materiaux_de_la_toiture||'').replace(/\D/g,'')||0,
-          String(p.materiaux_des_murs||'').replace(/\D/g,'')||0, lv].join('\t'));
+        if(h>0) B['d-ign'].push([i, d10(h), d10(Math.min(rise,12)), chiffreIgn(p.materiaux_de_la_toiture),
+          chiffreIgn(p.materiaux_des_murs), lv].join('\t'));
         if(k==='e'){ var c=centre(e.q); B['d-types'].push(['E','p',d10(c[0])+','+d10(c[1])].join('\t')); }
       });
       stats.bats=L.length;
@@ -218606,6 +218608,7 @@ function genererTroisD(P,progres){
       B['d-murs48']=LID.murs;
       B['d-toits48']=Object.keys(LID.toits).map(function(r){ var t=LID.toits[r]; return [r, t.forme, Math.round(t.axe*10), t.coul||''].join('\t'); });
       B['d-lidar48']=LID.faites;
+      B['d-sol48']=LID.sols;
     }
     var blocs={};
     for(var k in B) blocs[k]=B[k].join('\n');
@@ -218800,6 +218803,18 @@ function joindre48(L){
   }
   return actifs;
 }
+/* matière du sol vue sur la photo : 0 herbe, 1 enrobé, 2 béton ou dalles,
+   3 gravier ou stabilisé, 4 terre ; 255 inconnu (ombre) */
+function classeSol48(r,g,b){
+  var lum=(r+g+b)/3, sat=Math.max(r,g,b)-Math.min(r,g,b), exg=2*g-r-b, rb=r-b;
+  if(lum<52) return 255;
+  if(exg>8 && g>=r-4) return 0;
+  if(rb>26 && lum<150 && sat>=22) return 4;
+  if(lum<112 && sat<30) return (b>r+8) ? 255 : 1;   /* ombre bleutée : inconnu */
+  if(rb>=9 && rb<=48 && lum>=118) return 3;
+  if(sat<26) return 2;
+  return 0;
+}
 function lidar48(z,repere,bats,voies,progres){
   var la0=repere.la0, lo0=repere.lo0, MLAT=repere.MLAT, MLON=repere.MLON;
   function grille(R){
@@ -218814,7 +218829,7 @@ function lidar48(z,repere,bats,voies,progres){
   var tuiles=grille(0.5);
   if(tuiles.length>40) tuiles=grille(1.0);         /* grande ville : un relevé tous les mètres */
   if(tuiles.length>60) tuiles=tuiles.slice(0,60);
-  var arbres=[], murs=[], toits={}, faites=[], vides=0, num=0;
+  var arbres=[], murs=[], toits={}, faites=[], sols=[], vides=0, num=0;
   function traiter(t,H,P){
     var T=t.T, R=t.R, N=T*T, i, k;
     if(!H){ vides++; return; }
@@ -218930,6 +218945,37 @@ function lidar48(z,repere,bats,voies,progres){
       var kd=(exg>9 || (lMoy>1.25 && hMed>1.1)) ? 'h' : 'm';
       murs.push({k:kd, h:hMed, w:lMoy, p:dp48(P2,0.45), lg:lg});
     });
+    /* le sol : là où rien ne dépasse (ni bâtiment, ni arbre, ni voiture), la
+       matière vue sur la photo ; la chaussée reste de l'enrobé. Une passe de
+       vote 3 × 3 retire le grain de la photo. */
+    if(P){
+      var C=new Uint8Array(N), C2=new Uint8Array(N);
+      for(k=0;k<N;k++){
+        if(Rm[k*4+3]>40){ C[k]=1; continue; }
+        if(Bat[k] || H[k]>0.6){ C[k]=255; continue; }
+        C[k]=classeSol48(P[k*4],P[k*4+1],P[k*4+2]);
+      }
+      /* l'enrobé hors chaussée (entrées, parkings) touche la rue : plus loin,
+         c'est l'ombre d'un arbre ou d'un mur */
+      var RD=Math.round(8/R), Rn=new Uint8Array(N), tmp=new Uint8Array(N), xx2, yy2;
+      for(yy2=0;yy2<T;yy2++){ var run2=-1e9; for(xx2=0;xx2<T;xx2++){ if(Rm[(yy2*T+xx2)*4+3]>40) run2=xx2; if(xx2-run2<=RD) tmp[yy2*T+xx2]=1; }
+        run2=1e9; for(xx2=T-1;xx2>=0;xx2--){ if(Rm[(yy2*T+xx2)*4+3]>40) run2=xx2; if(run2-xx2<=RD) tmp[yy2*T+xx2]=1; } }
+      for(xx2=0;xx2<T;xx2++){ var run3=-1e9; for(yy2=0;yy2<T;yy2++){ if(tmp[yy2*T+xx2]) run3=yy2; if(yy2-run3<=RD) Rn[yy2*T+xx2]=1; }
+        run3=1e9; for(yy2=T-1;yy2>=0;yy2--){ if(tmp[yy2*T+xx2]) run3=yy2; if(run3-yy2<=RD) Rn[yy2*T+xx2]=1; } }
+      for(k=0;k<N;k++) if(C[k]===1 && !Rn[k] && Rm[k*4+3]<=40) C[k]=255;
+      var cpt=new Uint8Array(6);
+      for(var yy=0;yy<T;yy++) for(var xx=0;xx<T;xx++){
+        k=yy*T+xx; if(C[k]===255 || yy===0 || xx===0 || yy===T-1 || xx===T-1){ C2[k]=C[k]; continue; }
+        cpt.fill(0); var mx=C[k], nm=0;
+        for(var vj=-1;vj<=1;vj++) for(var vi=-1;vi<=1;vi++){ var cv=C[k+vj*T+vi]; if(cv<6){ cpt[cv]++; if(cpt[cv]>nm){ nm=cpt[cv]; mx=cv; } } }
+        C2[k]=nm>=5 ? mx : C[k];
+      }
+      var cs=document.createElement('canvas'); cs.width=T; cs.height=T;
+      var gs=cs.getContext('2d'), id=gs.createImageData(T,T);
+      for(k=0;k<N;k++){ var o2=k*4; id.data[o2]=id.data[o2+1]=id.data[o2+2]=C2[k]; id.data[o2+3]=255; }
+      gs.putImageData(id,0,0);
+      sols.push([Math.round(t.x0*10),Math.round(t.z0*10),Math.round(t.x1*10),Math.round(t.z1*10),cs.toDataURL('image/png')].join(' '));
+    }
     faites.push([Math.round(t.x0*10),Math.round(t.z0*10),Math.round(t.x1*10),Math.round(t.z1*10)].join(' '));
   }
   function suite(){
@@ -218944,7 +218990,7 @@ function lidar48(z,repere,bats,voies,progres){
   return suite().then(function(){
     /* un massif d'arbustes n'est pas une haie : 6 m au moins pour une haie, 3 m pour un mur */
     var M=joindre48(murs).filter(function(m){ return m.lg>=(m.k==='h'?6:3); });
-    return {arbres:arbres, toits:toits, faites:faites, vides:vides,
+    return {arbres:arbres, toits:toits, faites:faites, sols:sols, vides:vides,
       murs:M.map(function(m){ return [m.k, Math.round(m.h*10), Math.round(m.w*10), m.p.map(function(p){ return Math.round(p[0]*10)+','+Math.round(p[1]*10); }).join(' ')].join('\t'); })};
   });
 }

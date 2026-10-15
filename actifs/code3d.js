@@ -11691,7 +11691,7 @@ construireBatis=function(bats){
       }
       /* travées entières ; mur trop court : bande d'enduit sans fenêtre */
       var ua=0, ub;
-      if(L<bay*0.55){ ua=0.004; ub=0.024; } else ub=Math.max(1,Math.round(L/bay));
+      if(L<bay*0.55 || (AVEUGLE48 && AVEUGLE48(ax,az,bx,bz,L))){ ua=0.004; ub=0.024; } else ub=Math.max(1,Math.round(L/bay));
       var yc=Math.min(coupe,top), v0=-0.35/hs;
       pan4u(tasBas,ax,az,bx,bz,base,yc,nx,nz,ua,ub,v0,v0+(yc-base)/hs,ao,mi);
       if(top>coupe+0.05){
@@ -31315,7 +31315,7 @@ GENERIQUES48['Murs et haies relevés au laser']=20;
 function garderEtape48(e){ var s=GENERIQUES48[e[0]]; return s!==undefined && s<=DETAIL48; }
 
 /* ---- relevé laser (LiDAR HD) : blocs d-arbres48, d-murs48, d-toits48, d-lidar48 ---- */
-var LIDAR48=null, TOIT48=null;
+var LIDAR48=null, TOIT48=null, IGNC48=null, SOLCL48=[], AVEUGLE48=null;
 function lidar48Lire(){
   if(LIDAR48) return LIDAR48;
   var L={arbres:[], rects:[], murs:[], toits:{}};
@@ -31364,8 +31364,58 @@ if(AILLEURS48){
      un champ moissonné y passait pour du béton. Le béton reste là où il y a
      de quoi en faire, près des bâtiments et des rues ; ailleurs, terre nue. */
   var _solReel48=preparerSolReel;
-  preparerSolReel=function(){ return Promise.resolve(_solReel48()).then(function(){ try{ limiterBeton48(); }catch(e){ console.warn('béton :',e); } }); };
+  preparerSolReel=function(){
+    return Promise.resolve(_solReel48()).then(function(){ try{ limiterBeton48(); }catch(e){ console.warn('béton :',e); } })
+      .then(function(){ return solDetaille48().catch(function(e){ console.warn('sol détaillé :',e); }); });
+  };
   ETAPES.forEach(function(e){ if(e[1]===_solReel48) e[1]=preparerSolReel; });
+  /* le sol : gravier et enrobé en plus de l'herbe, du béton et de la terre */
+  var _matSol48=materielSol;
+  materielSol=function(){
+    var m=_matSol48();
+    if(!SOL || !SOL.tex2) return m;
+    var ob=m.onBeforeCompile, tG=textureDe(faireGravier48(),1,1), tE=textureDe(faireBitume(),1,1);
+    m.onBeforeCompile=function(sh,r){
+      if(ob) ob.call(this,sh,r);
+      if(sh.fragmentShader.indexOf('diffuseColor.rgb*=cSol;')<0) return;
+      sh.uniforms.tMasque2={value:SOL.tex2}; sh.uniforms.tGravier={value:tG}; sh.uniforms.tEnrobe={value:tE};
+      sh.fragmentShader=sh.fragmentShader
+        .replace('uniform sampler2D tMasque;','uniform sampler2D tMasque;\nuniform sampler2D tMasque2;\nuniform sampler2D tGravier;\nuniform sampler2D tEnrobe;')
+        .replace('diffuseColor.rgb*=cSol;',[
+          'vec3 mq2=texture2D(tMasque2,mu).rgb;',
+          'vec3 cGra=texture2D(tGravier,vMonde.xz/2.6).rgb*vec3(0.84,0.80,0.72);',
+          'vec3 cEnr=texture2D(tEnrobe,vMonde.xz/3.2).rgb*vec3(0.66,0.66,0.68);',
+          'cSol=mix(cSol,cGra,smoothstep(0.30,0.70,mq2.r));',
+          'cSol=mix(cSol,cEnr,smoothstep(0.30,0.70,mq2.g));',
+          'diffuseColor.rgb*=cSol;'].join('\n'));
+    };
+    var ck=m.customProgramCacheKey;
+    m.customProgramCacheKey=function(){ return (ck ? ck.call(this) : '')+'|sol48'; };
+    return m;
+  };
+  /* trottoirs seulement là où la photo montre un sol dur au bord de la rue */
+  var _trottoir48=trottoirDecoupe;
+  trottoirDecoupe=function(tas,I,p,off,id,haut){
+    if(!SOLCL48.length) return _trottoir48(tas,I,p,off,id,haut);
+    var q=densifier(decaler(p,off),2), run=[], i;
+    function vider(){
+      if(run.length>=4){
+        var len=0;
+        for(var k=2;k<run.length;k+=2) len+=Math.hypot(run[k]-run[k-2],run[k+1]-run[k-1]);
+        if(len>=2.5) bordure(tas,run,1.8,haut,COL.trottoir,COL.joue);
+      }
+      run=[];
+    }
+    for(i=0;i<q.x.length;i++){
+      if(dansChaussee(I,q.x[i],q.z[i],id,0.9) || !trottoirIci48(q.x[i],q.z[i])) vider();
+      else run.push(q.x[i],q.z[i]);
+    }
+    vider();
+  };
+  /* pignons aveugles et portes de grange */
+  AVEUGLE48=pignonAveugle48;
+  var iB48=indexEtape48('Bâtiments : façades, toitures, cheminées');
+  if(iB48>=0 && DETAIL48>=40) ETAPES.splice(iB48+1,0,['Portes des granges',etapeGranges48]);
   /* Une zone bien plus grande que la Corrida : les arbres de la photo sont
      répartis sur toute la zone (la plantation d'origine s'arrêtait au
      4 200e arbre, en partant du nord), en nombre proportionné à la surface. */
@@ -31406,7 +31456,7 @@ if(AILLEURS48){
   clotures43=function(){ if(lidar48Lire().murs.length) return; _clotures48(); };
   /* toits : forme, sens du faîtage et couleur relevés */
   var _ignBat48=ignBat;
-  ignBat=function(i){ var r=_ignBat48(i); TOIT48=lidar48Lire().toits[i]||null; return r; };
+  ignBat=function(i){ var r=_ignBat48(i); TOIT48=lidar48Lire().toits[i]||null; IGNC48=r; return r; };
   var _toit2_48=toitDeuxPentes, _toitPlat48=toitPlat;
   toitDeuxPentes=function(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique){
     var T=TOIT48, ctx=CTX_TOIT;
@@ -31477,6 +31527,145 @@ function etapeMurs48(){
   ajouter(O.detail,MAT.detail43,true,true);
   ajouter(O.haie,MAT.haie,true,true);
 }
+/* ---- le sol lu sur la photo HD (bloc d-sol48 : un carreau classé par ligne) ----
+   Deux masques couvrent la zone : le premier garde le béton (R) et la terre
+   (B) du moteur, le second porte le gravier (R) et l'enrobé (G). Herbe
+   partout ailleurs ; inconnu (ombre, sous un arbre) : ce que donnait la
+   photo d'ensemble. */
+function solDetaille48(){
+  var L=lignes(texteBrut('d-sol48'));
+  if(!L.length || !SOL || !SOL.apercu) return Promise.resolve();
+  var s=Math.min(1, 4096/Math.max((XMAX-XMIN)/0.5,(ZMAX-ZMIN)/0.5));
+  var Wm=Math.max(64,Math.round((XMAX-XMIN)/0.5*s)), Hm=Math.max(64,Math.round((ZMAX-ZMIN)/0.5*s));
+  var c1=toile(Wm,Hm), g1=c1.getContext('2d'), c2=toile(Wm,Hm), g2=c2.getContext('2d');
+  g1.drawImage(SOL.apercu,0,0,Wm,Hm);
+  g2.fillStyle='#000'; g2.fillRect(0,0,Wm,Hm);
+  return Promise.all(L.map(function(l){
+    var i=l.indexOf(' data:'); if(i<0) return null;
+    var r=l.slice(0,i).split(' ').map(function(v){ return +v/10; });
+    return new Promise(function(ok){
+      var im=new Image(); im.onload=function(){ ok({r:r, im:im}); }; im.onerror=function(){ ok(null); }; im.src=l.slice(i+1);
+    });
+  })).then(function(T){
+    T.forEach(function(t){
+      if(!t) return;
+      var w=t.im.width, h=t.im.height, cv=toile(w,h), g=cv.getContext('2d');
+      g.drawImage(t.im,0,0);
+      var d=g.getImageData(0,0,w,h).data, cl=new Uint8Array(w*h);
+      var a1=g.createImageData(w,h), a2=g.createImageData(w,h), k;
+      for(k=0;k<w*h;k++){
+        var c=d[k*4]; cl[k]=c;
+        if(c===255) continue;                       /* inconnu : on garde le fond */
+        var o=k*4;
+        a1.data[o]=(c===2)?255:0; a1.data[o+2]=(c===4)?255:0; a1.data[o+3]=255;
+        a2.data[o]=(c===3)?255:0; a2.data[o+1]=(c===1)?255:0; a2.data[o+3]=255;
+      }
+      SOLCL48.push({x0:t.r[0], z0:t.r[1], x1:t.r[2], z1:t.r[3], w:w, h:h, cl:cl});
+      var x=(t.r[0]-XMIN)/(XMAX-XMIN)*Wm, y=(t.r[1]-ZMIN)/(ZMAX-ZMIN)*Hm;
+      var lw=(t.r[2]-t.r[0])/(XMAX-XMIN)*Wm, lh=(t.r[3]-t.r[1])/(ZMAX-ZMIN)*Hm;
+      var t1=toile(w,h), t2=toile(w,h);
+      t1.getContext('2d').putImageData(a1,0,0); t2.getContext('2d').putImageData(a2,0,0);
+      g1.drawImage(t1,x,y,lw,lh); g2.drawImage(t2,x,y,lw,lh);
+    });
+    /* béton, gravier et enrobé seulement aux abords des bâtiments et des rues */
+    if(SOL.urbain){
+      var cu=toile(Wm,Hm), gu=cu.getContext('2d'); gu.drawImage(SOL.urbain,0,0,Wm,Hm);
+      var du=gu.getImageData(0,0,Wm,Hm).data, i1=g1.getImageData(0,0,Wm,Hm), i2=g2.getImageData(0,0,Wm,Hm);
+      for(var q=0;q<Wm*Hm;q++){ if(du[q*4]>=128) continue; i1.data[q*4]=0; i2.data[q*4]=0; i2.data[q*4+1]=0; }
+      g1.putImageData(i1,0,0); g2.putImageData(i2,0,0);
+    }
+    function tex(c){
+      var f=toile(c.width,c.height), gf=f.getContext('2d');
+      try{ gf.filter='blur(0.7px)'; }catch(e){}
+      gf.drawImage(c,0,0);
+      var t=new THREE.CanvasTexture(f); t.flipY=false; t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping; t.anisotropy=4;
+      return t;
+    }
+    SOL.tex=tex(c1); SOL.tex2=tex(c2);
+  });
+}
+function solClasse48(x,z){
+  for(var i=0;i<SOLCL48.length;i++){
+    var t=SOLCL48[i];
+    if(x<t.x0 || x>=t.x1 || z<t.z0 || z>=t.z1) continue;
+    var px=Math.floor((x-t.x0)/(t.x1-t.x0)*t.w), pz=Math.floor((z-t.z0)/(t.z1-t.z0)*t.h);
+    return t.cl[Math.max(0,Math.min(t.h-1,pz))*t.w+Math.max(0,Math.min(t.w-1,px))];
+  }
+  return 255;
+}
+/* un trottoir là où le bord de rue est dur : enrobé ou béton ; du gravier
+   seulement en bande étroite (une cour gravillonnée n'a pas de trottoir) */
+function trottoirIci48(x,z){
+  var c=solClasse48(x,z);
+  if(c===255 || c===1 || c===2) return true;
+  if(c!==3) return false;
+  var n=0;
+  [[3,0],[-3,0],[0,3],[0,-3],[2.1,2.1],[-2.1,2.1],[2.1,-2.1],[-2.1,-2.1]].forEach(function(d){ if(solClasse48(x+d[0],z+d[1])===3) n++; });
+  return n<4;
+}
+function faireGravier48(){
+  var W=256, H=256, c=toile(W,H), g=c.getContext('2d'), i;
+  g.fillStyle='#a49680'; g.fillRect(0,0,W,H);
+  grain(g,W,H,14000,0.35,'#d2c6ae','#6a604f');
+  for(i=0;i<2600;i++){
+    var x=Math.random()*W, y=Math.random()*H, r=0.8+Math.random()*1.8, v=120+Math.floor(Math.random()*75);
+    g.fillStyle='rgba('+v+','+(v-6)+','+(v-20)+',0.85)';
+    g.beginPath(); g.ellipse(x,y,r,r*(0.6+Math.random()*0.4),Math.random()*3,0,7); g.fill();
+  }
+  return c;
+}
+/* Pignon (mur sous la pointe du toit, perpendiculaire au faîtage relevé) :
+   aveugle sur les maisons de pierre ou de meulière, souvent ailleurs */
+function pignonAveugle48(ax,az,bx,bz,L){
+  var T=TOIT48; if(!T || T.forme!==2 || L<3) return false;
+  var a=Math.atan2(bz-az,bx-ax)-T.axe*PI/180;
+  if(Math.abs(Math.cos(a))>0.4) return false;
+  var ancien=IGNC48 && (IGNC48.murs===1 || IGNC48.murs===2);
+  return alea(Math.round(ax*3+bx),Math.round(az*3+bz))<(ancien?0.9:0.45);
+}
+/* granges et grandes annexes : une porte charretière sur le mur côté rue */
+function etapeGranges48(){
+  if(!Dbats || !GEO || !GEO.voies) return;
+  var tas=new Tas(8192), cadre=teinte(0x3b2e24);
+  var bois=[teinte(0x6b4a2f),teinte(0x5f6b5a),teinte(0x5a2e24),teinte(0x7a6a55)];
+  var rues=GEO.voies.filter(function(v){ return v.k==='r'; });
+  function distRue(x,z){
+    var best=1e9;
+    for(var i=0;i<rues.length;i++){
+      var p=rues[i].p;
+      for(var k=2;k<p.length;k+=2){
+        var ax=p[k-2], az=p[k-1], dx=p[k]-ax, dz=p[k+1]-az, l2=dx*dx+dz*dz;
+        if(Math.abs(ax-x)>80 && Math.abs(p[k]-x)>80) continue;
+        var t=l2>0?Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/l2)):0;
+        var d=Math.hypot(x-ax-dx*t,z-az-dz*t)-rues[i].w/2;
+        if(d<best) best=d;
+      }
+    }
+    return best;
+  }
+  Dbats.forEach(function(l,i){
+    var c=l.split('\t'); if(c.length<11) return;
+    var k=c[0], aire=+c[7];
+    if(!((k==='g' && aire>=30) || k==='i')) return;
+    var ign=ignBat(i), h=(ign && ign.h) ? ign.h : ((+c[9])/10 || 4);
+    if(h<3.3) return;
+    var p=pointsDe(c[10]), n=p.length/2, best=null, bd=14;
+    for(var j=0;j<n;j++){
+      var jj=(j+1)%n, ax=p[j*2], az=p[j*2+1], bx=p[jj*2], bz=p[jj*2+1], L=Math.hypot(bx-ax,bz-az);
+      if(L<4) continue;
+      var d=distRue((ax+bx)/2,(az+bz)/2);
+      if(d<bd){ bd=d; best=[ax,az,bx,bz,L]; }
+    }
+    if(!best) return;
+    var ax2=best[0], az2=best[1], bx2=best[2], bz2=best[3], L2=best[4];
+    var mx=(ax2+bx2)/2, mz=(az2+bz2)/2, nx=(bz2-az2)/L2, nz=-(bx2-ax2)/L2, ang=Math.atan2(bz2-az2,bx2-ax2);
+    var larg=Math.min(3.2,L2*0.55), haut=Math.min(3.3,h-0.5), y=hauteur(mx,mz)-0.1;
+    var col=bois[Math.floor(alea(Math.round(mx),Math.round(mz))*bois.length)];
+    boiteOr(tas,mx+nx*0.05,y,mz+nz*0.05,larg+0.24,haut+0.12,0.08,ang,cadre);
+    boiteOr(tas,mx+nx*0.09,y,mz+nz*0.09,larg,haut,0.06,ang,col);
+  });
+  ajouter(tas,MAT.deco,true,true);
+}
 function limiterBeton48(){
   if(!SOL || !SOL.apercu || !GEO) return;
   var W=SOL.W, H=SOL.H, sx=W/(XMAX-XMIN), sz=H/(ZMAX-ZMIN);
@@ -31497,6 +31686,7 @@ function limiterBeton48(){
   }
   fg.putImageData(id,0,0);
   SOL.tex.needsUpdate=true;
+  SOL.urbain=c;     /* abords des bâtiments et des rues, pour le sol détaillé */
 }
 function curseurDetail48(){
   if($e('e3-detail48')) return;
