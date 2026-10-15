@@ -31265,4 +31265,104 @@ VEH_DEF.fl_depart={construire:function(){ return construireFleche47('depart','#2
 VEH_DEF.panneau_info={construire:construirePanneauInfo47, nom:'Panneau d’information', icone:'ℹ'};
 VEH_DEF.food_truck={construire:construireFoodTruck47, nom:'Food truck', icone:'🚚'};
 VEH_DEF.table_puces={construire:construireTablePuces47, nom:'Table récupération puces', icone:'✂'};
+/* =================================================================
+   48. Projets sur une autre commune (15 oct. 2026). La page a posé les
+   blocs fabriqués depuis l'IGN (bâtiments et leurs hauteurs, rues, eau,
+   végétation, relief) et window.CARTE_ORIGINE. On ne garde que les étapes
+   génériques, selon le curseur de détail (window.DETAIL_3D, de 0 à 100 ;
+   100 = tout le détail automatique, ce que la Corrida a sans ses
+   constructions faites à la main). La place d'armes, les monuments,
+   l'abbatiale, les terrains de l'ENSOA, la piste d'obstacles et les
+   devantures relevées en photo n'existent qu'à Saint-Maixent.
+================================================================= */
+var AILLEURS48=!!(window.PROJET_X && window.CARTE_ORIGINE);
+var DETAIL48=Math.max(0,Math.min(100,Math.round(+(window.DETAIL_3D===undefined?100:window.DETAIL_3D)||0)));
+/* étape générique → détail minimal pour qu'elle soit construite */
+var GENERIQUES48={
+  'Lecture des données':0, 'Ciel et lumière : ciel photographique':0, 'Bois, prés et rivière':0,
+  'Modelé du terrain':0, 'Rues, trottoirs et marquage':0, 'Bâtiments : façades, toitures, cheminées':0,
+  'Horizon':0, 'Routes fermées':0, 'Personnages réalistes : coureur et jalonneurs':0,
+  'Parcours et jalonneurs':0, 'Barrières et rubalise':0, 'Véhicules militaires':0,
+  'Mise en place du coureur':0, 'Fusil du coureur':0, 'Ouvreur à vélo':0, 'Couloir du peloton':0,
+  'Mon coureur':0, 'Vestiaire':0,
+  'Photo aérienne : béton, herbe et arbres réels':20, 'Murs de pierre, haies taillées':20,
+  'Sèvre Niortaise, seuils et ponts':20, 'Arbres réalistes':20,
+  'Textures photo : enduits, pierre, tuiles, bitume':40, 'Textures photo : ardoises, tuiles, enduits anciens':40,
+  'Voitures stationnées et mobilier urbain':40, 'Ambiance de course':40, 'Berges de la Sèvre':40,
+  'Détails : ombres, chaussée, mobilier, herbe':60, 'Personnages variés':60, 'Panneaux de sens interdit':60,
+  'Roseaux et herbes des berges':60, 'Piétons et gestes des jalonneurs':60, 'Coureurs et spectateurs':60,
+  'Jardins et clôtures':80, 'Toits : lucarnes, antennes, cheminées':80, 'Arbres lointains':80,
+  'Vie de la ville : pigeons, terrasses':95
+};
+function garderEtape48(e){ var s=GENERIQUES48[e[0]]; return s!==undefined && s<=DETAIL48; }
+if(AILLEURS48){
+  /* bâtiments OSM de Saint-Maixent remplacés par des modèles faits à la main : aucun ici */
+  REPRISES.length=0;
+  for(var i48=ETAPES.length-1;i48>=0;i48--) if(!garderEtape48(ETAPES[i48])) ETAPES.splice(i48,1);
+  if(typeof DIFFERES24!=='undefined' && DIFFERES24)
+    for(var j48=DIFFERES24.length-1;j48>=0;j48--) if(!garderEtape48(DIFFERES24[j48])) DIFFERES24.splice(j48,1);
+  /* La photo aérienne vient de l'IGN, plus claire que celle de Saint-Maixent :
+     un champ moissonné y passait pour du béton. Le béton reste là où il y a
+     de quoi en faire, près des bâtiments et des rues ; ailleurs, terre nue. */
+  var _solReel48=preparerSolReel;
+  preparerSolReel=function(){ return Promise.resolve(_solReel48()).then(function(){ try{ limiterBeton48(); }catch(e){ console.warn('béton :',e); } }); };
+  ETAPES.forEach(function(e){ if(e[1]===_solReel48) e[1]=preparerSolReel; });
+  /* Une zone bien plus grande que la Corrida : les arbres de la photo sont
+     répartis sur toute la zone (la plantation d'origine s'arrêtait au
+     4 200e arbre, en partant du nord), en nombre proportionné à la surface. */
+  var _semer48=semerArbresCanopee;
+  semerArbresCanopee=function(arbres,voies,max){
+    var aire=(XMAX-XMIN)*(ZMAX-ZMIN)/1e6;
+    var m=Math.round(Math.min(16000, max*Math.max(1,aire/4.8)*(0.5+DETAIL48/200)));
+    var tous=[]; _semer48(tous,voies,1e9);
+    if(tous.length<=m) tous.forEach(function(a){ arbres.push(a); });
+    else for(var f=0,pas=tous.length/m; f<tous.length; f+=pas) arbres.push(tous[Math.floor(f)]);
+    /* et les bois de la BD TOPO, que la photo ne fait pas toujours ressortir */
+    var nb=0;
+    (Dzones||[]).forEach(function(l){
+      var c=l.split('\t'); if(c.length<3 || c[0]!=='f' || nb>6000) return;
+      var avant=arbres.length; semerArbresZone(pointsDe(c[2]),arbres,260,220,0); nb+=arbres.length-avant;
+    });
+  };
+  /* le curseur, dans le menu « Afficher » */
+  var _reorganiserMenus48=reorganiserMenus;
+  reorganiserMenus=function(){ _reorganiserMenus48(); try{ curseurDetail48(); }catch(e){ console.warn('détail :',e); } };
+}
+function limiterBeton48(){
+  if(!SOL || !SOL.apercu || !GEO) return;
+  var W=SOL.W, H=SOL.H, sx=W/(XMAX-XMIN), sz=H/(ZMAX-ZMIN);
+  var c=toile(W,H), g=c.getContext('2d');
+  g.fillStyle='#fff'; g.strokeStyle='#fff'; g.lineJoin='round'; g.lineCap='round';
+  function trait(p,ferme){
+    g.beginPath();
+    for(var k=0;k<p.length;k+=2){ var x=(p[k]-XMIN)*sx, y=(p[k+1]-ZMIN)*sz; if(k) g.lineTo(x,y); else g.moveTo(x,y); }
+    if(ferme) g.closePath();
+  }
+  g.lineWidth=Math.max(2,36*sx);
+  (GEO.bats||[]).forEach(function(b){ trait(b.p,true); g.fill(); g.stroke(); });
+  (GEO.voies||[]).forEach(function(v){ if(v.k!=='r') return; g.lineWidth=Math.max(2,(v.w+16)*sx); trait(v.p,false); g.stroke(); });
+  var u=g.getImageData(0,0,W,H).data, fg=SOL.apercu.getContext('2d'), id=fg.getImageData(0,0,W,H), d=id.data;
+  for(var i=0;i<W*H;i++){
+    var o=i*4;
+    if(u[o]<128 && d[o]>0){ d[o+2]=Math.max(d[o+2],d[o]); d[o]=0; }
+  }
+  fg.putImageData(id,0,0);
+  SOL.tex.needsUpdate=true;
+}
+function curseurDetail48(){
+  if($e('e3-detail48')) return;
+  var pa=trouverPop(/Afficher|☰|👁/); if(!pa) return;
+  var t=document.createElement('div'); t.className='e3-pop-titre'; t.textContent='Détail de la ville';
+  var w=document.createElement('div'); w.id='e3-detail48';
+  w.style.cssText='padding:2px 10px 10px;display:flex;flex-direction:column;gap:7px;min-width:220px';
+  w.innerHTML='<label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:default">'+
+    '<input type="range" min="0" max="100" step="10" value="'+DETAIL48+'" style="flex:1;accent-color:#F2B33D" aria-label="Niveau de détail de la ville">'+
+    '<b style="min-width:42px;text-align:right">'+DETAIL48+' %</b></label>'+
+    '<button type="button" disabled>Reconstruire la 3D</button>'+
+    '<small style="opacity:.72;font-size:11.5px;line-height:1.35">100 % : tout le détail automatique (textures photo, arbres, voitures, jardins, toits, vie de la ville). Moins de détail : une 3D plus rapide à construire et plus fluide.</small>';
+  pa.appendChild(t); pa.appendChild(w);
+  var r=w.querySelector('input'), v=w.querySelector('b'), b=w.querySelector('button');
+  r.addEventListener('input',function(){ v.textContent=r.value+' %'; b.disabled=(+r.value===DETAIL48); });
+  b.addEventListener('click',function(){ if(window.PROJETS_RECONSTRUIRE3D) window.PROJETS_RECONSTRUIRE3D(+r.value); });
+}
 })();

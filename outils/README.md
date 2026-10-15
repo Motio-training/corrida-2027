@@ -995,3 +995,33 @@ qu'on aura n'apprend pas grand-chose.
 exactement `G4/2 G4/2 C5/4`, la liste affiche `sol4 la4 do5`, l'annulation
 retire bien la dernière, l'annonce défile `4… 3… 2… 1…` avant le départ, et le
 fichier de synthèse ressort à 45 notes dont les dix premières sont justes.
+
+## Projets sur une autre commune (`projets_base.sql`)
+
+Le menu « Projets » de la carte crée un projet sur n'importe quelle commune.
+Tout se fait dans la page, en ligne, depuis les services de l'IGN
+(Géoplateforme, licence ouverte), sans outil à lancer :
+
+- **réseau des rues** (carte et tracé) : BD TOPO `troncon_de_route` par le WFS
+  `data.geopf.fr/wfs/ows`, altitudes comprises, rangé dans
+  `projets_donnees` sous la clé `graphe` (mêmes tableaux que le réseau
+  embarqué de la Corrida : `NXY`, `NEL`, `ED`, `EW`, `WN`) ;
+- **ville en 3D** : les blocs du moteur (`d-bats`, `d-ign`, `d-voies`,
+  `d-zones`, `d-lignes`, `d-topo`, `d-types`, `d-ele5`, `d-ele`) fabriqués
+  depuis les couches BD TOPO `batiment` (hauteur, pente du toit, matériaux),
+  `zone_de_vegetation`, `haie`, `surface_hydrographique`,
+  `troncon_hydrographique`, `construction_lineaire` (ponts),
+  `terrain_de_sport`, `cimetiere`, `equipement_de_transport`,
+  `zone_d_activite_ou_d_interet`, et le relief RGE ALTI en une seule image
+  d'altitudes (WMS, flottants 32 bits) ; clé `trois_d`. La photo aérienne
+  (classement béton, herbe, arbres) est découpée à l'ouverture de la 3D
+  depuis le WMS des orthophotos, au format du bloc `sat-data`.
+
+Dans `actifs/code3d.js`, la section 48 ne garde pour ces projets que les étapes
+génériques, selon le curseur « Détail de la ville » du menu Afficher (100 % =
+tout le détail automatique). Les constructions faites à la main pour
+Saint-Maixent (place d'armes, monuments, abbatiale, terrains de l'ENSOA, piste
+d'obstacles, devantures relevées) n'y sont pas.
+
+Le schéma de la base (tables `projets`, `projets_donnees`, fonctions
+`enregistrer_projet` et `projet_admin`) est dans `projets_base.sql`.

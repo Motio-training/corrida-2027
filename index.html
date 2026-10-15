@@ -2370,7 +2370,7 @@ button.mini{
   /* réseau de rues d'un projet généré, et tracé de départ s'il n'a encore rien */
   function construireX(P,G,etat){
     var z=P.zone, la0=(z.s+z.n)/2, lo0=(z.o+z.e)/2;
-    var X={zone:z, LA0:la0, LO0:lo0, blocs:{}, POIS:[], aPreparer:!G, sans3D:true};
+    var X={zone:z, LA0:la0, LO0:lo0, blocs:{}, POIS:[], aPreparer:!G};
     if(!G || !G.NXY || G.NXY.length<4 || !G.ED || G.ED.length<2)
       G={OLA:la0, OLO:lo0, NXY:[0,0,0,300], NEL:[0,0], ED:[0,1], EW:[0], WN:['']};
     X.OLA=G.OLA; X.OLO=G.OLO; X.NXY=G.NXY; X.NEL=G.NEL; X.ED=G.ED; X.EW=G.EW; X.WN=G.WN; X.EC=G.EC||null;
@@ -218276,6 +218276,243 @@ function construireGraphe(feats,z){
     OLA:OLA, OLO:OLO, NXY:NXY, NEL:NEL, ED:ED, EW:EW, EC:EC, WN:WN, troncons:feats.length};
 }
 
+
+/* ---------------- la 3D d'un projet généré (IGN) ----------------
+   Les blocs que lit le moteur 3D (actifs/code3d.js), fabriqués à partir de
+   la BD TOPO et du relief RGE ALTI de l'IGN, dans le repère local du projet
+   (mètres depuis le centre de la zone, x vers l'est, z vers le sud, en
+   décimètres dans les blocs). Formats : voir outils/carte_depuis_osm.js et
+   lireDonnees, lireTopo, ignBat, indexerTypes dans code3d.js.
+   d-bats   k rect ang cx cz ow ol aire niveaux haut points
+   d-ign    rang h écart_toit toit murs niveaux
+   d-voies  k largeur pont points sens_unique classe
+   d-zones  k aire points          d-lignes  k points
+   d-topo   RIV|STR|PONT rôle largeur nom points
+   d-types  fonction a points     d-ele5 cm (sud → nord)   d-ele dm 33 × 41 */
+var MAX_BATS=18000, MAX_GRILLE=480;
+function wfsTout(couche,champs,z,progres,libelle){
+  var base=IGN+'/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=BDTOPO_V3:'+couche+
+    '&OUTPUTFORMAT=application/json&SRSNAME=CRS:84&SORTBY=cleabs'+(champs ? '&PROPERTYNAME='+champs : '')+
+    '&BBOX='+z.o+','+z.s+','+z.e+','+z.n+',CRS:84';
+  function page(d){ return fetch(base+'&COUNT='+PAGE+'&STARTINDEX='+d).then(function(r){ if(!r.ok) throw new Error('IGN '+couche+' ('+r.status+')'); return r.json(); }); }
+  return page(0).then(function(j){
+    var total=+j.numberMatched||0, feats=(j.features||[]).slice(), pages=[];
+    for(var d=PAGE; d<Math.min(total,150000); d+=PAGE) pages.push(d);
+    if(progres) progres(libelle+' : '+feats.length.toLocaleString('fr-FR')+' / '+total.toLocaleString('fr-FR'));
+    function suite(){
+      var d=pages.shift(); if(d===undefined) return Promise.resolve();
+      return page(d).then(function(k){ feats.push.apply(feats,k.features||[]); if(progres) progres(libelle+' : '+feats.length.toLocaleString('fr-FR')+' / '+total.toLocaleString('fr-FR')); return suite(); });
+    }
+    return Promise.all([suite(),suite(),suite()]).then(function(){ return feats; });
+  });
+}
+/* relief : une seule image d'altitudes (WMS, flottants 32 bits), nœud = centre de pixel */
+function lireRelief(z,nr,nc){
+  var dla=(z.n-z.s)/(nr-1), dlo=(z.e-z.o)/(nc-1);
+  var u=IGN+'/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=ELEVATION.ELEVATIONGRIDCOVERAGE.HIGHRES&STYLES=&CRS=EPSG:4326'+
+    '&BBOX='+(z.s-dla/2)+','+(z.o-dlo/2)+','+(z.n+dla/2)+','+(z.e+dlo/2)+'&WIDTH='+nc+'&HEIGHT='+nr+'&FORMAT='+encodeURIComponent('image/x-bil;bits=32');
+  return fetch(u).then(function(r){ if(!r.ok) throw new Error('relief IGN ('+r.status+')'); return r.arrayBuffer(); }).then(function(b){
+    if(b.byteLength!==nr*nc*4) throw new Error('relief IGN : réponse inattendue');
+    var f=new Float32Array(b), out=new Float32Array(nr*nc), bons=[];
+    /* l'image commence au nord ; le moteur attend le sud en premier */
+    for(var r=0;r<nr;r++) for(var c=0;c<nc;c++){ var v=f[(nr-1-r)*nc+c]; out[r*nc+c]=v; if(v>-500 && v<9000) bons.push(v); }
+    bons.sort(function(a,b){ return a-b; });
+    var med=bons.length ? bons[bons.length>>1] : 100;
+    for(var i=0;i<out.length;i++) if(!(out[i]>-500 && out[i]<9000)) out[i]=med;
+    return out;
+  });
+}
+function genererTroisD(P,progres){
+  var z=P.zone, la0=(z.s+z.n)/2, lo0=(z.o+z.e)/2, f0=la0*Math.PI/180;
+  var MLAT=111132.92-559.82*Math.cos(2*f0)+1.175*Math.cos(4*f0)-0.0023*Math.cos(6*f0);
+  var MLON=111412.84*Math.cos(f0)-93.5*Math.cos(3*f0)+0.118*Math.cos(5*f0);
+  function pX(lo){ return (lo-lo0)*MLON; } function pZ(la){ return (la0-la)*MLAT; }
+  function d10(v){ return Math.round(v*10); }
+  function pts10(p){ return p.map(function(q){ return d10(q[0])+','+d10(q[1]); }).join(' '); }
+  function loc(cs){
+    var p=cs.map(function(q){ return [pX(q[0]),pZ(q[1])]; });
+    if(p.length>2 && Math.hypot(p[0][0]-p[p.length-1][0],p[0][1]-p[p.length-1][1])<0.05) p.pop();
+    return p;
+  }
+  function anneaux(g){   /* contours extérieurs d'un (multi)polygone */
+    if(!g) return [];
+    if(g.type==='Polygon') return [loc(g.coordinates[0])];
+    if(g.type==='MultiPolygon') return g.coordinates.map(function(a){ return loc(a[0]); });
+    return [];
+  }
+  function traits(g){
+    if(!g) return [];
+    if(g.type==='LineString') return [loc(g.coordinates)];
+    if(g.type==='MultiLineString') return g.coordinates.map(loc);
+    return [];
+  }
+  function aireS(p){ var a=0; for(var i=0,j=p.length-1;i<p.length;j=i++) a+=p[j][0]*p[i][1]-p[i][0]*p[j][1]; return a/2; }
+  function boiteMin(p){
+    var best=null;
+    for(var i=0;i<p.length;i++){
+      var j=(i+1)%p.length, dx=p[j][0]-p[i][0], dz=p[j][1]-p[i][1], L=Math.hypot(dx,dz);
+      if(L<0.05) continue;
+      var c=dx/L, s=dz/L, u0=1e9,u1=-1e9,v0=1e9,v1=-1e9;
+      for(var k=0;k<p.length;k++){ var u=p[k][0]*c+p[k][1]*s, v=-p[k][0]*s+p[k][1]*c; if(u<u0)u0=u; if(u>u1)u1=u; if(v<v0)v0=v; if(v>v1)v1=v; }
+      var a=(u1-u0)*(v1-v0);
+      if(!best || a<best.aire){ var um=(u0+u1)/2, vm=(v0+v1)/2; best={aire:a, ang:Math.atan2(s,c)*180/Math.PI, ow:u1-u0, ol:v1-v0, cx:um*c-vm*s, cz:um*s+vm*c}; }
+    }
+    return best;
+  }
+  function centre(p){ var x=0,y=0; p.forEach(function(q){ x+=q[0]; y+=q[1]; }); return [x/p.length,y/p.length]; }
+  var B={'d-bats':[], 'd-ign':[], 'd-voies':[], 'd-zones':[], 'd-lignes':[], 'd-topo':[], 'd-types':[], 'd-mobilier':[]};
+  var stats={};
+  var largeur=(z.e-z.o)*MLON, hauteurZ=(z.n-z.s)*MLAT;
+  var pas=Math.max(5, Math.max(largeur,hauteurZ)/(MAX_GRILLE-1));
+  var nc=Math.max(9,Math.round(largeur/pas)+1), nr=Math.max(9,Math.round(hauteurZ/pas)+1);
+  var etapes=[];
+
+  /* bâtiments */
+  etapes.push(function(){
+    return wfsTout('batiment','geometrie,nature,usage_1,hauteur,nombre_d_etages,altitude_minimale_toit,altitude_maximale_toit,materiaux_de_la_toiture,materiaux_des_murs,construction_legere,etat_de_l_objet',
+      z,progres,'Bâtiments').then(function(F){
+      var L=[];
+      F.forEach(function(f){
+        var p=f.properties||{};
+        if(p.etat_de_l_objet && p.etat_de_l_objet!=='En service') return;
+        anneaux(f.geometry).forEach(function(q){
+          if(q.length<3) return;
+          var a=Math.abs(aireS(q)); if(a<4) return;
+          var b=boiteMin(q); if(!b || b.ow<1 || b.ol<1) return;
+          L.push({q:aireS(q)<0 ? q.slice().reverse() : q, a:a, b:b, p:p});
+        });
+      });
+      if(L.length>MAX_BATS){ L.sort(function(x,y){ return y.a-x.a; }); stats.batsAlleges=L.length-MAX_BATS; L.length=MAX_BATS; }
+      L.forEach(function(e,i){
+        var p=e.p, b=e.b, nat=p.nature||'', us=p.usage_1||'';
+        var k=/Eglise|Église|Chapelle/.test(nat) ? 'e'
+          : ((us==='Industriel' || us==='Agricole' || /Industriel/.test(nat)) && e.a>250) ? 'i'
+          : (us==='Annexe' || p.construction_legere || nat==='Serre' || e.a<22) ? 'g' : 'y';
+        var h=+p.hauteur||0, lv=+p.nombre_d_etages||0;
+        var rise=(p.altitude_maximale_toit!=null && p.altitude_minimale_toit!=null) ? Math.max(0,p.altitude_maximale_toit-p.altitude_minimale_toit) : 0;
+        B['d-bats'].push([k, Math.max(1,Math.min(100,Math.round(100*e.a/(b.ow*b.ol)))), d10(b.ang), d10(b.cx), d10(b.cz), d10(b.ow), d10(b.ol),
+          Math.round(e.a), lv, d10(h), pts10(e.q)].join('\t'));
+        if(h>0) B['d-ign'].push([i, d10(h), d10(Math.min(rise,12)), String(p.materiaux_de_la_toiture||'').replace(/\D/g,'')||0,
+          String(p.materiaux_des_murs||'').replace(/\D/g,'')||0, lv].join('\t'));
+        if(k==='e'){ var c=centre(e.q); B['d-types'].push(['E','p',d10(c[0])+','+d10(c[1])].join('\t')); }
+      });
+      stats.bats=L.length;
+    });
+  });
+  /* rues et chemins */
+  etapes.push(function(){
+    return wfsTout('troncon_de_route','geometrie,nature,importance,largeur_de_chaussee,sens_de_circulation,position_par_rapport_au_sol,etat_de_l_objet',
+      z,progres,'Rues').then(function(F){
+      var CL={'1':'primary','2':'secondary','3':'tertiary','4':'unclassified','5':'residential','6':'service'};
+      var LG={'1':9,'2':8,'3':7,'4':6,'5':5.2,'6':4};
+      F.forEach(function(f){
+        var p=f.properties||{}, nat=p.nature||'';
+        if(p.etat_de_l_objet && p.etat_de_l_objet!=='En service') return;
+        if(nat==='Bac ou liaison maritime') return;
+        var pos=+p.position_par_rapport_au_sol||0; if(pos<0) return;
+        var k=/Sentier|Escalier|Piste cyclable/.test(nat) ? 's' : /Chemin|empierrée/.test(nat) ? 't' : 'r';
+        var w=k==='s' ? (nat==='Escalier'?1.8:2) : k==='t' ? 3 : ((+p.largeur_de_chaussee>1) ? +p.largeur_de_chaussee : (LG[p.importance]||5));
+        if(nat==='Type autoroutier') w=Math.max(w,11);
+        var cl=k==='s' ? (nat==='Escalier'?'steps':(nat==='Piste cyclable'?'cycleway':'footway')) : k==='t' ? 'track'
+          : nat==='Bretelle' ? 'primary_link' : (CL[p.importance]||'residential');
+        var sens=p.sens_de_circulation==='Sens direct' || p.sens_de_circulation==='Sens inverse';
+        traits(f.geometry).forEach(function(q){
+          if(q.length<2) return;
+          if(p.sens_de_circulation==='Sens inverse') q=q.slice().reverse();
+          B['d-voies'].push([k, d10(w), pos>0?1:0, pts10(q), sens?1:0, cl].join('\t'));
+        });
+      });
+      stats.voies=B['d-voies'].length;
+    });
+  });
+  /* végétation, eau, sport, cimetières, parkings, zones d'activité */
+  etapes.push(function(){
+    return wfsTout('zone_de_vegetation','geometrie,nature',z,progres,'Bois et prés').then(function(F){
+      F.forEach(function(f){
+        var nat=(f.properties||{}).nature||'';
+        var k=/Haie/.test(nat) ? null : /Verger|Vigne|Bananeraie|Canne/.test(nat) ? 'a' : /Lande/.test(nat) ? 'g' : 'f';
+        if(!k) return;
+        anneaux(f.geometry).forEach(function(q){ if(q.length>=3) B['d-zones'].push([k, Math.round(Math.abs(aireS(q))), pts10(q)].join('\t')); });
+      });
+    });
+  });
+  etapes.push(function(){
+    return wfsTout('surface_hydrographique','geometrie,nature,persistance',z,progres,'Eau').then(function(F){
+      F.forEach(function(f){ anneaux(f.geometry).forEach(function(q){ if(q.length>=3) B['d-zones'].push(['w', Math.round(Math.abs(aireS(q))), pts10(q)].join('\t')); }); });
+    });
+  });
+  etapes.push(function(){
+    return Promise.all([
+      wfsTout('terrain_de_sport','geometrie,nature',z,null,''),
+      wfsTout('cimetiere','geometrie',z,null,''),
+      wfsTout('equipement_de_transport','geometrie,nature',z,null,''),
+      wfsTout('zone_d_activite_ou_d_interet','geometrie,categorie,nature',z,null,'')
+    ]).then(function(R){
+      function zone(k,f){ anneaux(f.geometry).forEach(function(q){ if(q.length>=3) B['d-zones'].push([k, Math.round(Math.abs(aireS(q))), pts10(q)].join('\t')); }); }
+      R[0].forEach(function(f){ zone(/tennis|multi-sports/i.test((f.properties||{}).nature||'') ? 'k' : 'p', f); });
+      R[1].forEach(function(f){ zone('c',f); });
+      R[2].forEach(function(f){ if(/Parking/.test((f.properties||{}).nature||'')) zone('k',f); });
+      R[3].forEach(function(f){
+        var p=f.properties||{}, nat=p.nature||'', cat=p.categorie||'', t=null;
+        /* les zones « culte » englobent presbytères et maisons voisines : les
+           églises viennent des bâtiments eux-mêmes (nature Église, Chapelle) */
+        if(nat==='Mairie') t='M';
+        else if(cat==='Science et enseignement') t='S';
+        else if(cat==='Administratif ou militaire' || cat==='Santé') t=/militaire|Camp|Quartier/i.test(nat) ? null : 'P';
+        else if(/Zone industrielle|Usine|Déchèterie/.test(nat)) t='I';
+        else if(/Marché|Centre commercial|Magasin|Commerce/i.test(nat)) t='C';
+        if(t) anneaux(f.geometry).forEach(function(q){ if(q.length>=3) B['d-types'].push([t,'a',pts10(q)].join('\t')); });
+        if(/Zone industrielle|Zone d'activités/.test(nat)) zone('i',f);
+        if(/Camp militaire|Quartier militaire|Terrain militaire/.test(nat)) zone('M',f);
+      });
+    });
+  });
+  /* haies, cours d'eau, ponts */
+  etapes.push(function(){
+    return Promise.all([
+      wfsTout('haie','geometrie',z,null,''),
+      wfsTout('troncon_hydrographique','geometrie,nature,persistance,position_par_rapport_au_sol,classe_de_largeur,cpx_toponyme_de_cours_d_eau,fictif',z,null,''),
+      wfsTout('construction_lineaire','geometrie,nature,toponyme',z,null,'')
+    ]).then(function(R){
+      R[0].forEach(function(f){ traits(f.geometry).forEach(function(q){ if(q.length>=2) B['d-lignes'].push(['h',pts10(q)].join('\t')); }); });
+      R[1].forEach(function(f){
+        var p=f.properties||{}; if(p.fictif || /buse/i.test(p.nature||'') || (+p.position_par_rapport_au_sol||0)<0) return;
+        var nom=p.cpx_toponyme_de_cours_d_eau||'', cl=p.classe_de_largeur||'';
+        var riv=!!nom && p.persistance!=='Intermittent';
+        var larg=/50 m/.test(cl) && /Plus/.test(cl) ? 60 : /15 et 50/.test(cl) ? 22 : (riv ? 6 : 2.6);
+        traits(f.geometry).forEach(function(q){ if(q.length>=2) B['d-topo'].push([riv?'RIV':'STR','',larg,nom,pts10(q)].join('\t')); });
+      });
+      R[2].forEach(function(f){
+        var p=f.properties||{}; if(p.nature!=='Pont') return;
+        traits(f.geometry).forEach(function(q){ if(q.length>=2) B['d-topo'].push(['PONT','',0,p.toponyme||'',pts10(q)].join('\t')); });
+      });
+    });
+  });
+  /* relief */
+  var ELE5=null;
+  etapes.push(function(){
+    if(progres) progres('Relief : grille de '+nc+' × '+nr+' points ('+Math.round(pas)+' m)');
+    return lireRelief(z,nr,nc).then(function(e){ ELE5=e; });
+  });
+
+  return etapes.reduce(function(pr,fn){ return pr.then(fn); }, Promise.resolve()).then(function(){
+    var e5=new Array(ELE5.length);
+    for(var i=0;i<ELE5.length;i++) e5[i]=Math.round(ELE5[i]*100);
+    /* ancien relief 33 × 41 (dm), lu avant le relief fin : échantillonné dessus */
+    var ea=[];
+    for(var r=0;r<33;r++) for(var c=0;c<41;c++){
+      var rr=Math.round(r/32*(nr-1)), cc=Math.round(c/40*(nc-1));
+      ea.push(Math.round(ELE5[rr*nc+cc]*10));
+    }
+    var blocs={};
+    for(var k in B) blocs[k]=B[k].join('\n');
+    blocs['d-ele5']=e5.join('\n'); blocs['d-ele']=ea.join('\n');
+    return {v:1, source:'IGN BD TOPO et RGE ALTI', date:new Date().toISOString(),
+      origine:{la:la0, lo:lo0, gla0:z.s, gla1:z.n, glo0:z.o, glo1:z.e, grows:nr, gcols:nc},
+      stats:{batiments:stats.bats||0, voies:stats.voies||0, allege:stats.batsAlleges||0, pas:Math.round(pas)}, blocs:blocs};
+  });
+}
+
 /* ---------------- fenêtre « Nouveau projet » ---------------- */
 var fenCreation=null;
 function etapes(conteneur,noms){
@@ -218356,7 +218593,7 @@ function ouvrirCreation(){
     delete zone.sous_titre;
     m.classList.add('occupe');
     Array.prototype.forEach.call(m.querySelectorAll('.pj-pied button, .pj-x'),function(b){ b.disabled=true; });
-    var E=etapes(etat,['Code secret','Commune de la zone','Réseau des rues','Création du projet','Ouverture']), id=null, G=null;
+    var E=etapes(etat,['Code secret','Commune de la zone','Réseau des rues','Création du projet','Ville en 3D','Ouverture']), id=null, G=null;
     E.debut(0);
     admin('verifier').then(function(){
       E.fait(0); E.debut(1);
@@ -218384,7 +218621,17 @@ function ouvrirCreation(){
       return admin('donnees',{id:id, cle:'graphe', data:G});
     }).then(function(){
       E.fait(3,'Projet créé'); E.debut(4);
-      try{ if(window.CARTE && CARTE.estModifie && CARTE.estModifie()){ /* le brouillon reste gardé pour ce projet-ci */ } }catch(e){}
+      if(fond==='corrida'){ E.fait(4,'Ville en 3D : celle de la Corrida'); return; }
+      if(copier){ E.fait(4,'Ville en 3D : reprise de « '+source.nom+' »'); return; }
+      /* un échec ici ne bloque pas : la 3D se prépare plus tard, à l'ouverture de la vue 3D */
+      return genererTroisD({zone:zone},function(t){ E.texte(4,'Ville en 3D : '+t); }).then(function(D){
+        E.texte(4,'Ville en 3D : enregistrement…');
+        return admin('donnees',{id:id, cle:'trois_d', data:D}).then(function(){
+          E.fait(4,'Ville en 3D : '+D.stats.batiments.toLocaleString('fr-FR')+' bâtiments, relief tous les '+D.stats.pas+' m');
+        });
+      }).catch(function(e){ E.erreur(4,'Ville en 3D : '+(e && e.message || 'échec')+' (elle se préparera à l’ouverture de la vue 3D)'); });
+    }).then(function(){
+      E.debut(5);
       location.href=urlProjet(id);
     }).catch(function(err){
       var L=etat.querySelectorAll('.pj-etapes li'), i=0;
@@ -218417,6 +218664,10 @@ function ouvrirReglages(){
     bR.title='Recharge les rues de la zone depuis la BD TOPO de l’IGN : utile si des rues ont changé';
     sec.insertAdjacentHTML('beforeend','<h3>Données</h3>'); sec.appendChild(bR);
     bR.onclick=function(){ fermer(); preparerReseau(true); };
+    var b3=el('button',{type:'button'},'Refaire la ville en 3D (IGN)');
+    b3.title='Relit bâtiments, relief, rues, eau et végétation de la zone depuis l’IGN';
+    sec.appendChild(b3);
+    b3.onclick=function(){ fermer(); fabriquer3D(function(){ message('Ville en 3D refaite : elle s’affichera à la prochaine ouverture de la vue 3D.','ok'); }); };
   }
   if(!corrida){
     var bA=el('button',{type:'button','class':'pj-danger'},'Archiver ce projet');
@@ -218471,12 +218722,96 @@ function preparerReseau(relire){
 }
 
 /* ---------------- au chargement ---------------- */
-/* la 3D d'un projet généré n'existe pas encore : un message à la place */
-if(X && X.sans3D && window.ESPACE3D){
-  window.ESPACE3D.ouvrir=function(){
-    message('La vue 3D de ce projet n’est pas encore générée : elle arrivera avec les bâtiments, le relief et les rues de '+(P.lieu||'la zone')+'. La carte, le tracé et les documents fonctionnent déjà.','');
+/* La 3D d'un projet généré : ses blocs (fabriqués depuis l'IGN à la
+   création, rangés dans la base) sont posés dans la page juste avant que le
+   moteur se charge, avec l'origine du repère et le niveau de détail. */
+var CLE_DETAIL='corrida-detail3d:'+P.id;
+function detail3D(D){
+  try{ var v=localStorage.getItem(CLE_DETAIL); if(v!==null && v!=='' && isFinite(+v)) return +v; }catch(e){}
+  var n=(D && D.stats && D.stats.batiments) || 0;
+  return n>12000 ? 50 : (n>6000 ? 70 : 100);
+}
+window.PROJETS_RECONSTRUIRE3D=function(v){
+  try{ localStorage.setItem(CLE_DETAIL,String(v)); sessionStorage.setItem('corrida-ouvrir3d',P.id); }catch(e){}
+  location.reload();
+};
+/* la photo aérienne IGN, découpée comme le bloc « sat-data » de la Corrida
+   (80 tuiles de 120 unités de carte) : le moteur y lit béton, herbe et arbres */
+function mosaiqueOrtho(z){
+  return new Promise(function(ok){
+    var C=40075016.68557849, WX0=(z.o+180)/360, WX1=(z.e+180)/360, WY0=wy(z.n), WY1=wy(z.s);
+    function mx(u){ return (WX0+u/1200*(WX1-WX0))*C-C/2; }
+    function my(v){ return C/2-(WY0+v/900*(WY1-WY0))*C; }
+    var im=new Image(); im.crossOrigin='anonymous';
+    var fini=false; function fin(v){ if(!fini){ fini=true; ok(v); } }
+    im.onload=function(){
+      try{
+        var c=document.createElement('canvas'); c.width=256; c.height=256;
+        var g=c.getContext('2d'), L=[];
+        for(var j=0;j<8;j++) for(var i=0;i<10;i++){
+          g.clearRect(0,0,256,256); g.drawImage(im,i*256,j*256,256,256,0,0,256,256);
+          L.push([i*120, -60+j*120, c.toDataURL('image/jpeg',0.82).split(',')[1]]);
+        }
+        fin(JSON.stringify(L));
+      }catch(e){ fin(''); }
+    };
+    im.onerror=function(){ fin(''); };
+    setTimeout(function(){ fin(''); },30000);
+    im.src=IGN+'/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=ORTHOIMAGERY.ORTHOPHOTOS&STYLES=&CRS=EPSG:3857'+
+      '&BBOX='+mx(0)+','+my(900)+','+mx(1200)+','+my(-60)+'&WIDTH=2560&HEIGHT=2048&FORMAT=image/jpeg';
+  });
+}
+function poserBloc(id,txt){
+  var e=document.getElementById(id); if(e) e.parentNode.removeChild(e);
+  var s=document.createElement('script'); s.type='text/plain'; s.id=id; s.textContent=txt||'';
+  document.body.appendChild(s);
+  try{ if(typeof DONNEES_CACHE!=='undefined') delete DONNEES_CACHE[id]; }catch(e2){}
+}
+function preparer3D(D){
+  window.CARTE_ORIGINE=D.origine;
+  window.CARTE_ENSEIGNES=[];
+  window.DETAIL_3D=detail3D(D);
+  for(var id in D.blocs) poserBloc(id,D.blocs[id]);
+  var m=document.querySelector('#e3 .e3-marque'); if(m) m.textContent=P.nom.toUpperCase();
+  message('Ville en 3D : photo aérienne IGN…','');
+  return mosaiqueOrtho(P.zone).then(function(sat){ poserBloc('sat-data',sat); });
+}
+function fabriquer3D(apres){
+  var b=bandeau('<span class="pj-etat">Ville en 3D : lecture des données IGN…</span>');
+  var t=$('.pj-etat',b);
+  return genererTroisD(P,function(s){ t.textContent='Ville en 3D : '+s; }).then(function(D){
+    t.textContent='Ville en 3D : enregistrement ('+D.stats.batiments.toLocaleString('fr-FR')+' bâtiments)…';
+    return admin('donnees',{id:P.id, cle:'trois_d', data:D}).then(function(){ b.remove(); return D; });
+  }).then(function(D){ if(apres) apres(D); return D; }).catch(function(e){
+    b.classList.add('err'); t.textContent='Ville en 3D : '+(e && e.message || 'échec')+'.';
+    var x=el('button',{type:'button'},'Fermer'); x.onclick=function(){ b.remove(); }; b.appendChild(x);
+  });
+}
+if(X && window.ESPACE3D && window.ESPACE3D.ouvrir){
+  var attente3D=window.ESPACE3D, ouvrir0=attente3D.ouvrir, pret3D=false, enCours3D=false;
+  attente3D.ouvrir=function(){
+    if(pret3D) return ouvrir0.apply(attente3D,arguments);
+    if(enCours3D) return;
+    enCours3D=true; message('Chargement de la ville en 3D…','');
+    function lancer(D){ return preparer3D(D).then(function(){ pret3D=true; enCours3D=false; ouvrir0.apply(attente3D); }); }
+    api('projets_donnees?projet=eq.'+encodeURIComponent(P.id)+'&cle=eq.trois_d&select=data').then(function(r){
+      var D=r && r[0] && r[0].data;
+      if(D) return lancer(D);
+      enCours3D=false;
+      if(CONSULT || !EN_LIGNE){ message('La ville en 3D de ce projet n’est pas encore préparée.',''); return; }
+      if(!window.confirm('La ville en 3D de « '+P.nom+' » n’est pas encore préparée. La fabriquer maintenant depuis les données de l’IGN (bâtiments, relief, rues, eau, végétation) ? Compter une à trois minutes.')) return;
+      enCours3D=true;
+      fabriquer3D(function(D2){ lancer(D2); }).then(function(D2){ if(!D2) enCours3D=false; });
+    }).catch(function(e){ enCours3D=false; message('Ville en 3D indisponible ('+e.message+').','err'); });
   };
 }
+/* après « Reconstruire la 3D » (curseur de détail), la vue 3D se rouvre seule */
+try{
+  if(sessionStorage.getItem('corrida-ouvrir3d')===P.id){
+    sessionStorage.removeItem('corrida-ouvrir3d');
+    setTimeout(function(){ var b3=document.getElementById('b-3d'); if(b3) b3.click(); },700);
+  }
+}catch(e){}
 if(window.PROJET_ERREUR){
   var be=bandeau('<span>Projet introuvable ('+esc(window.PROJET_ERREUR)+') : c’est la Corrida 2027 qui est affichée.</span>','err');
   var bx=el('button',{type:'button'},'OK'); bx.onclick=function(){ be.remove(); }; be.appendChild(bx);
