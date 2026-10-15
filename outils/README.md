@@ -1017,11 +1017,26 @@ Tout se fait dans la page, en ligne, depuis les services de l'IGN
   (classement béton, herbe, arbres) est découpée à l'ouverture de la 3D
   depuis le WMS des orthophotos, au format du bloc `sat-data`.
 
+- **relevé laser** (LiDAR HD de l'IGN, hauteurs au-dessus du sol au pas de
+  50 cm, couche `IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93`,
+  et orthophoto au même pas) lu par carreaux de 500 m là où il y a des
+  bâtiments : chaque arbre (sommet de couronne, hauteur, rayon ; tronc ramené
+  au bord quand la couronne déborde sur la chaussée), les murs, murets et
+  haies (ce qui dépasse de 0,45 à 3,4 m hors bâtiments, rues et couronnes,
+  réduit à son squelette, morceaux raccordés, haie si la photo est verte),
+  et pour chaque toit sa forme (plat, deux pentes, croupe), le sens du
+  faîtage et sa couleur vue du ciel. Blocs `d-arbres48`, `d-murs48`,
+  `d-toits48`, `d-lidar48` (carreaux traités). Hors couverture LiDAR, les
+  arbres viennent de la photo et les haies de la BD TOPO.
+
 Dans `actifs/code3d.js`, la section 48 ne garde pour ces projets que les étapes
 génériques, selon le curseur « Détail de la ville » du menu Afficher (100 % =
 tout le détail automatique). Les constructions faites à la main pour
 Saint-Maixent (place d'armes, monuments, abbatiale, terrains de l'ENSOA, piste
-d'obstacles, devantures relevées) n'y sont pas.
+d'obstacles, devantures relevées) n'y sont pas. Les murs et haies relevés y remplacent les
+clôtures que « Jardins et clôtures » inventait le long des rues, et les textes
+de la course (arche, sono, banderoles, panneaux, résultats) prennent le nom
+du projet (`MARQUE48`).
 
 Le schéma de la base (tables `projets`, `projets_donnees`, fonctions
 `enregistrer_projet` et `projet_admin`) est dans `projets_base.sql`.

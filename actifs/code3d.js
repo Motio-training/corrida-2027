@@ -6105,10 +6105,10 @@ function etapeArbresReels(){
     if(a[2]===2 && MAT.haie) continue;
     var r=alea(Math.round(a[0]*7),Math.round(a[1]*7)), r2=alea(Math.round(a[1]*11),Math.round(a[0]*11));
     /* loin du parcours, on éclaircit : 6 arbres sur 10 */
-    if(r>0.6 && !arbresPartout42() && (!TRACE.length || surLeParcours(a[0],a[1]).ecart>30)) continue;
+    if(r>0.6 && !a[3] && !arbresPartout42() && (!TRACE.length || surLeParcours(a[0],a[1]).ecart>30)) continue;
     var conif=(a[2]===0 && r2>0.8);
     var vi=conif?4:Math.floor(r*3.999);
-    var hc=conif?(11+r*6):(a[2]===2?4+r*2:(9+r*7));
+    var hc=a[3]||(conif?(11+r*6):(a[2]===2?4+r*2:(9+r*7)));
     L.push({x:a[0], z:a[1], y:hauteur(a[0],a[1])-0.08, rot:r2*6.283, hc:hc, v:vi});
     compte[vi]++;
   }
@@ -12915,9 +12915,9 @@ function zaTexResultats(){
   return zaTexture('resultats',512,300,function(g,W,H){
     g.fillStyle='#0b1628'; g.fillRect(0,0,W,H);
     g.fillStyle='#f2b33d'; g.fillRect(0,0,W,46);
-    g.fillStyle='#0b1628'; g.font='800 30px Arial'; g.textAlign='left'; g.fillText('CORRIDA 2027 · RÉSULTATS',16,33);
+    g.fillStyle='#0b1628'; g.font='800 30px Arial'; g.textAlign='left'; g.fillText(MARQUE48.resultats,16,33);
     g.font='600 24px Arial'; g.fillStyle='#e8eef8';
-    ['1  00:31:48  ENSOA','2  00:32:05  ENSOA','3  00:32:40  ENSOA','4  00:33:12','5  00:33:30','6  00:33:58'].forEach(function(t,i){ g.fillText(t,20,84+i*36); });
+    ['1  00:31:48  ENSOA','2  00:32:05  ENSOA','3  00:32:40  ENSOA','4  00:33:12','5  00:33:30','6  00:33:58'].map(function(t){ return t.replace('ENSOA',MARQUE48.equipe); }).forEach(function(t,i){ g.fillText(t,20,84+i*36); });
   });
 }
 function zaTexAmbulance(){
@@ -12938,7 +12938,7 @@ function construireArche(){
   var mMar=zaMat('arche-marine',{color:0x16264a, roughness:0.6});
   var tArr=zaBandeau('arche-arrivee',['ARRIVÉE'],{w:1024,h:128,fond:'#16264a',coul:'#f2b33d',
     avant:function(c,W,H){ c.fillStyle='#f2b33d'; c.fillRect(0,0,W,6); c.fillRect(0,H-6,W,6); }});
-  var tCol=zaBandeau('arche-colonne',['CORRIDA','2027','ENSOA'],{w:128,h:512,fond:'#16264a',coul:'#ffffff',tailles:[34,54,34]});
+  var tCol=zaBandeau('arche-colonne',MARQUE48.colonne,{w:128,h:512,fond:'#16264a',coul:'#ffffff',tailles:[34,54,34]});
   [-l/2,l/2].forEach(function(x){
     zaCyl(g,r,r*1.08,h,mMar,x,h/2,0,20);
     zaCyl(g,r*1.25,r*1.25,0.18,ZAC.noir(),x,0.09,0,16);
@@ -13012,7 +13012,7 @@ function construireTenteRavito(){
 function construireSono(){
   var g=new THREE.Group(), L=4, W=3, hp=0.6;
   zaBoite(g,L,hp,W,ZAC.plateau(),0,hp/2,0);
-  var jupe=zaBandeau('sono-jupe',['CORRIDA 2027 · ENSOA'],{w:1024,h:128,fond:'#16264a',coul:'#f2b33d'});
+  var jupe=zaBandeau('sono-jupe',MARQUE48.jupe,{w:1024,h:128,fond:'#16264a',coul:'#f2b33d'});
   zaPlan(g,L,hp-0.04,zaMatTexte('sono-jupe-mat',jupe),0,hp/2,W/2+0.01,0);
   /* marches à l'arrière */
   for(var s=0;s<3;s++) zaBoite(g,1.0,0.2*(s+1),0.3,ZAC.plateau(),-1.2,0.1*(s+1),-W/2-0.15-(2-s)*0.3);
@@ -13026,7 +13026,7 @@ function construireSono(){
     zaBoite(g,0.75,0.6,0.7,ZAC.noir(),x+(i ? -0.3 : 0.3),hp+0.3,1.0);
   });
   /* banderole de fond, table de mixage, micro */
-  var fond=zaBandeau('sono-fond',['CORRIDA 2027','ENSOA · COURSE NOCTURNE'],{w:1024,h:400,fond:'#16264a',coul:'#ffffff',tailles:[150,70],
+  var fond=zaBandeau('sono-fond',MARQUE48.fond,{w:1024,h:400,fond:'#16264a',coul:'#ffffff',tailles:[150,70],
     avant:function(c,W,H){ c.fillStyle='#f2b33d'; c.fillRect(0,H-26,W,26); }});
   zaBoite(g,L-0.6,0.05,0.05,ZAC.alu(),0,hp+2.6,-1.35);
   zaPlan(g,L-0.8,1.6,zaMatTexte('sono-fond-mat',fond),0,hp+1.75,-1.33,0);
@@ -13170,7 +13170,7 @@ function construireArcheTexte(texte,coul,horloge){
   var mMar=zaMat('arche-marine',{color:0x16264a, roughness:0.6});
   var tTxt=zaBandeau(cle,[texte],{w:1024,h:128,fond:'#16264a',coul:coul,
     avant:function(c,W,H){ c.fillStyle=coul; c.fillRect(0,0,W,6); c.fillRect(0,H-6,W,6); }});
-  var tCol=zaBandeau('arche-colonne',['CORRIDA','2027','ENSOA'],{w:128,h:512,fond:'#16264a',coul:'#ffffff',tailles:[34,54,34]});
+  var tCol=zaBandeau('arche-colonne',MARQUE48.colonne,{w:128,h:512,fond:'#16264a',coul:'#ffffff',tailles:[34,54,34]});
   var mc=zaMatTexte('arche-col-mat',tCol);
   [-l/2,l/2].forEach(function(x){
     zaCyl(g,r,r*1.08,h,mMar,x,h/2,0,20);
@@ -18793,7 +18793,7 @@ function majRubalise(){
    drapeaux plumes qui claquent au vent, en quinconce */
 function atlasBanderoles(){
   var W=1024, c=toile(W,1024), g=c.getContext('2d');
-  var lignes=[['CORRIDA 2027','#16264a','#f2b33d'],['ENSOA · SAINT-MAIXENT-L’ÉCOLE','#f2b33d','#16264a'],['ALLEZ LES COUREURS !','#ffffff','#16264a'],['','#16264a','#16264a']];
+  var lignes=[[MARQUE48.ligne1,'#16264a','#f2b33d'],[MARQUE48.ligne2,'#f2b33d','#16264a'],['ALLEZ LES COUREURS !','#ffffff','#16264a'],['','#16264a','#16264a']];
   lignes.forEach(function(L,i){
     var y=i*256;
     g.fillStyle=L[1]; g.fillRect(0,y,W,256);
@@ -18813,8 +18813,8 @@ function texPlume(){
   g.fillStyle='#f2b33d'; g.fillRect(0,0,128,70); g.fillRect(0,470,128,42);
   g.save(); g.translate(70,290); g.rotate(-PI/2);
   g.fillStyle='#ffffff'; g.font='900 58px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
-  g.fillText('CORRIDA',0,0); g.restore();
-  g.fillStyle='#16264a'; g.font='900 40px system-ui, sans-serif'; g.textAlign='center'; g.fillText('2027',64,48);
+  g.fillText(MARQUE48.plume1,0,0); g.restore();
+  g.fillStyle='#16264a'; g.font='900 40px system-ui, sans-serif'; g.textAlign='center'; g.fillText(MARQUE48.plume2,64,48);
   var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
   return t;
 }
@@ -18988,7 +18988,7 @@ function etapePanneauxKm(){
     g.fillStyle='#16264a'; g.fillRect(x0,y0,256,256);
     g.fillStyle='#f2b33d'; g.fillRect(x0,y0,256,46);
     g.fillStyle='#16264a'; g.font='800 26px system-ui, sans-serif'; g.textAlign='center'; g.textBaseline='middle';
-    g.fillText('CORRIDA 2027',x0+128,y0+24);
+    g.fillText(MARQUE48.nom,x0+128,y0+24);
     g.fillStyle='#ffffff'; g.font='900 132px system-ui, sans-serif'; g.fillText(String(k),x0+128,y0+132);
     g.fillStyle='#f2b33d'; g.font='800 38px system-ui, sans-serif'; g.fillText('KM',x0+128,y0+222);
     g.strokeStyle='#f2b33d'; g.lineWidth=6; g.strokeRect(x0+3,y0+3,250,250);
@@ -19104,7 +19104,7 @@ function interfaceCourse(){
 function montrerArrivee(){
   var a=$e('e3-arrivee'); if(!a) return;
   var t=COURSE.final, km=LONGUEUR/1000, allure=t/km, v=km/(t/3600);
-  a.innerHTML='<small>Arrivée · Corrida 2027</small><b>'+fmtChrono(t,t>=3600)+'</b><span>'+
+  a.innerHTML='<small>Arrivée · '+MARQUE48.titre+'</small><b>'+fmtChrono(t,t>=3600)+'</b><span>'+
     km.toFixed(2).replace('.',',')+' km · '+Math.floor(allure/60)+'’'+('0'+Math.round(allure%60)).slice(-2)+'” au km · '+v.toFixed(1).replace('.',',')+' km/h</span>';
   a.classList.add('vu');
   clearTimeout(COURSE.minuteur); COURSE.minuteur=setTimeout(cacherArrivee,9000);
@@ -31276,6 +31276,23 @@ VEH_DEF.table_puces={construire:construireTablePuces47, nom:'Table récupératio
    devantures relevées en photo n'existent qu'à Saint-Maixent.
 ================================================================= */
 var AILLEURS48=!!(window.PROJET_X && window.CARTE_ORIGINE);
+/* Les textes de la course (arche, sono, banderoles, panneaux, résultats,
+   chrono d'arrivée) : ceux de la Corrida, ou le nom du projet ouvert */
+var MARQUE48=(function(){
+  var P=window.PROJET;
+  var C={titre:'Corrida 2027', nom:'CORRIDA 2027', colonne:['CORRIDA','2027','ENSOA'], jupe:['CORRIDA 2027 · ENSOA'],
+    fond:['CORRIDA 2027','ENSOA · COURSE NOCTURNE'], ligne1:'CORRIDA 2027', ligne2:'ENSOA · SAINT-MAIXENT-L’ÉCOLE',
+    plume1:'CORRIDA', plume2:'2027', resultats:'CORRIDA 2027 · RÉSULTATS', equipe:'ENSOA'};
+  if(!P || !P.id || P.id==='corrida-2027') return C;
+  var nom=String(P.nom||'').toUpperCase(), mots=nom.split(/\s+/).filter(Boolean), lieu=String(P.lieu||'').toUpperCase();
+  var typ={course:'COURSE À PIED', nocturne:'COURSE NOCTURNE', trail:'TRAIL', marche:'MARCHE', velo:'VÉLO'}[P.type]||'';
+  var annee=String(P.date_evt||'').slice(0,4);
+  var col=mots.length<=3 ? mots.slice() : [mots[0], mots.slice(1,-1).join(' '), mots[mots.length-1]];
+  while(col.length<3) col.push('');
+  return {titre:P.nom, nom:nom, colonne:col, jupe:[lieu ? nom+' · '+lieu : nom], fond:[nom, [lieu,typ].filter(Boolean).join(' · ')],
+    ligne1:nom, ligne2:lieu||typ, plume1:mots[0]||nom, plume2:(mots.length>1 ? mots[mots.length-1] : annee),
+    resultats:nom+' · RÉSULTATS', equipe:''};
+})();
 var DETAIL48=Math.max(0,Math.min(100,Math.round(+(window.DETAIL_3D===undefined?100:window.DETAIL_3D)||0)));
 /* étape générique → détail minimal pour qu'elle soit construite */
 var GENERIQUES48={
@@ -31294,7 +31311,49 @@ var GENERIQUES48={
   'Jardins et clôtures':80, 'Toits : lucarnes, antennes, cheminées':80, 'Arbres lointains':80,
   'Vie de la ville : pigeons, terrasses':95
 };
+GENERIQUES48['Murs et haies relevés au laser']=20;
 function garderEtape48(e){ var s=GENERIQUES48[e[0]]; return s!==undefined && s<=DETAIL48; }
+
+/* ---- relevé laser (LiDAR HD) : blocs d-arbres48, d-murs48, d-toits48, d-lidar48 ---- */
+var LIDAR48=null, TOIT48=null;
+function lidar48Lire(){
+  if(LIDAR48) return LIDAR48;
+  var L={arbres:[], rects:[], murs:[], toits:{}};
+  lignes(texteBrut('d-arbres48')).forEach(function(s){ var c=s.split('\t'); if(c.length>=4) L.arbres.push([+c[0]/10,+c[1]/10,+c[2]/10,+c[3]/10]); });
+  lignes(texteBrut('d-lidar48')).forEach(function(s){ var c=s.split(' '); if(c.length>=4) L.rects.push(c.map(function(v){ return +v/10; })); });
+  L.murs=lignes(texteBrut('d-murs48')).filter(function(s){ return s.split('\t').length>=4; });
+  lignes(texteBrut('d-toits48')).forEach(function(s){ var c=s.split('\t'); if(c.length>=3) L.toits[+c[0]]={forme:+c[1], axe:(+c[2])/10, coul:c[3]||''}; });
+  return (LIDAR48=L);
+}
+function dansReleve48(x,z){
+  var R=lidar48Lire().rects;
+  for(var i=0;i<R.length;i++) if(x>=R[i][0] && x<R[i][2] && z>=R[i][1] && z<R[i][3]) return true;
+  return false;
+}
+/* emprise d'un bâtiment le long d'un axe donné (faîtage relevé) */
+function etendue48(p,n,ang){
+  var co=Math.cos(ang), si=Math.sin(ang), u0=1e9,u1=-1e9,v0=1e9,v1=-1e9, cx=0, cz=0, k;
+  for(k=0;k<n;k++){ cx+=p[k*2]; cz+=p[k*2+1]; }
+  cx/=n; cz/=n;
+  for(k=0;k<n;k++){
+    var ex=p[k*2]-cx, ez=p[k*2+1]-cz, u=ex*co+ez*si, v=-ex*si+ez*co;
+    if(u<u0)u0=u; if(u>u1)u1=u; if(v<v0)v0=v; if(v>v1)v1=v;
+  }
+  var um=(u0+u1)/2, vm=(v0+v1)/2;
+  return {cx:cx+um*co-vm*si, cz:cz+um*si+vm*co, ang:ang, w:u1-u0, l:v1-v0};
+}
+/* la couleur vue du ciel, éclaircie : la texture des tuiles l'assombrit */
+function couleurToit48(hex,defaut){
+  var v=parseInt(hex,16); if(!isFinite(v)) return defaut;
+  return melange(assombrir(teinte(v),1.45),defaut,0.3);
+}
+function tasToit48(T,tas){
+  if(!T || !T.coul) return tas;
+  var v=parseInt(T.coul,16), r=(v>>16)&255, g=(v>>8)&255, b=v&255, sat=Math.max(r,g,b)-Math.min(r,g,b), lum=(r+g+b)/3;
+  if(sat<20 && lum<135) return BAT.toitsA||tas;                  /* gris foncé : ardoise */
+  if(sat>=28 && tas===BAT.toitsA) return BAT.toits||tas;          /* teinte chaude : tuiles */
+  return tas;
+}
 if(AILLEURS48){
   /* bâtiments OSM de Saint-Maixent remplacés par des modèles faits à la main : aucun ici */
   REPRISES.length=0;
@@ -31312,21 +31371,111 @@ if(AILLEURS48){
      4 200e arbre, en partant du nord), en nombre proportionné à la surface. */
   var _semer48=semerArbresCanopee;
   semerArbresCanopee=function(arbres,voies,max){
+    /* hors des carreaux relevés au laser, les arbres déduits de la photo */
     var aire=(XMAX-XMIN)*(ZMAX-ZMIN)/1e6;
     var m=Math.round(Math.min(16000, max*Math.max(1,aire/4.8)*(0.5+DETAIL48/200)));
     var tous=[]; _semer48(tous,voies,1e9);
+    tous=tous.filter(function(a){ return !dansReleve48(a[0],a[1]); });
     if(tous.length<=m) tous.forEach(function(a){ arbres.push(a); });
     else for(var f=0,pas=tous.length/m; f<tous.length; f+=pas) arbres.push(tous[Math.floor(f)]);
     /* et les bois de la BD TOPO, que la photo ne fait pas toujours ressortir */
-    var nb=0;
+    var nb=0, avant, q;
     (Dzones||[]).forEach(function(l){
       var c=l.split('\t'); if(c.length<3 || c[0]!=='f' || nb>6000) return;
-      var avant=arbres.length; semerArbresZone(pointsDe(c[2]),arbres,260,220,0); nb+=arbres.length-avant;
+      var tmp=[]; semerArbresZone(pointsDe(c[2]),tmp,260,220,0);
+      for(q=0;q<tmp.length;q++) if(!dansReleve48(tmp[q][0],tmp[q][1])){ arbres.push(tmp[q]); nb++; }
     });
+  };
+  /* les arbres relevés au laser, chacun à sa place et à sa hauteur (pas au
+     milieu du tracé, ni dans un bâtiment), posés avant la plantation */
+  /* (une seule insertion : insérer pendant un forEach repasse sur la même étape) */
+  function indexEtape48(nom){ for(var k=0;k<ETAPES.length;k++) if(ETAPES[k][0]===nom) return k; return -1; }
+  var iA48=indexEtape48('Arbres réalistes');
+  if(iA48>=0) ETAPES.splice(iA48,0,['Arbres relevés au laser',function(){
+    lidar48Lire().arbres.forEach(function(a){
+      if(bloquer(a[0],a[1])) return;
+      if(TRACE.length && surLeParcours(a[0],a[1]).ecart<2.2) return;
+      Darbres.push([a[0],a[1],0,Math.max(3,Math.min(32,a[2]))]);
+    });
+  }]);
+  /* murs, murets et haies relevés : à la place des clôtures inventées le long des rues */
+  var iM48=indexEtape48('Murs de pierre, haies taillées');
+  if(iM48<0) iM48=indexEtape48('Bâtiments : façades, toitures, cheminées')-1;
+  if(iM48>=-1 && DETAIL48>=20) ETAPES.splice(iM48+1,0,['Murs et haies relevés au laser',etapeMurs48]);
+  var _clotures48=clotures43;
+  clotures43=function(){ if(lidar48Lire().murs.length) return; _clotures48(); };
+  /* toits : forme, sens du faîtage et couleur relevés */
+  var _ignBat48=ignBat;
+  ignBat=function(i){ var r=_ignBat48(i); TOIT48=lidar48Lire().toits[i]||null; return r; };
+  var _toit2_48=toitDeuxPentes, _toitPlat48=toitPlat;
+  toitDeuxPentes=function(tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique){
+    var T=TOIT48, ctx=CTX_TOIT;
+    if(!T || !ctx || !ctx.p) return _toit2_48.apply(this,arguments);
+    if(T.coul) c=couleurToit48(T.coul,c);
+    tas=tasToit48(T,tas);
+    if(T.forme===1){ _toitPlat48(BAT.plats,ctx.p,top,ctx.col,c); return; }
+    if(T.forme===2 || T.forme===4){
+      var E=etendue48(ctx.p,ctx.n,T.axe*PI/180);
+      if(T.forme===4){ var rr=toitCroupe(tas,E.cx,E.cz,E.ang,E.w,E.l,top,c,IGN_RISE||3.2); FAITE_TOIT=top+rr; }
+      else toitTente(tas,E.cx,E.cz,E.ang,E.w,E.l,top,c,fpente,aire,r,brique,ctx);
+      return;
+    }
+    return _toit2_48.call(this,tas,cx,cz,ang,w,l,top,c,fpente,aire,r,brique);
+  };
+  /* un bâtiment que la 3D couvrait d'un toit plat (emprise en L…) alors que
+     le laser voit des pentes : une toiture découpée sur l'emprise */
+  toitPlat=function(tas,p,top,cm,ct){
+    var T=TOIT48, ctx=CTX_TOIT;
+    if(T && ctx && tas===BAT.plats && (T.forme===2 || T.forme===4)){
+      var E=etendue48(p,p.length/2,T.axe*PI/180);
+      if(E.w>=3 && E.l>=2.4){
+        var c=T.coul?couleurToit48(T.coul,ct):ct;
+        toitTente(tasToit48(T,BAT.toits),E.cx,E.cz,E.ang,E.w,E.l,top,c,1,E.w*E.l,0.5,false,ctx);
+        return;
+      }
+    }
+    if(T && T.coul) ct=couleurToit48(T.coul,ct);
+    return _toitPlat48(tas,p,top,cm,ct);
   };
   /* le curseur, dans le menu « Afficher » */
   var _reorganiserMenus48=reorganiserMenus;
   reorganiserMenus=function(){ _reorganiserMenus48(); try{ curseurDetail48(); }catch(e){ console.warn('détail :',e); } };
+}
+/* une polyligne en points espacés de pas, avec leur normale (pour mur43, chaperon43) */
+function ligne48(p,pas){
+  var L=[], n=p.length/2;
+  for(var k=1;k<n;k++){
+    var ax=p[k*2-2], az=p[k*2-1], bx=p[k*2], bz=p[k*2+1], d=Math.hypot(bx-ax,bz-az);
+    if(d<0.05) continue;
+    var nx=(bz-az)/d, nz=-(bx-ax)/d, m=Math.max(1,Math.ceil(d/pas));
+    for(var j=(L.length?1:0);j<=m;j++) L.push({x:ax+(bx-ax)*j/m, z:az+(bz-az)*j/m, nx:nx, nz:nz});
+  }
+  return L;
+}
+function etapeMurs48(){
+  var Ld=lidar48Lire(); if(!Ld.murs.length) return;
+  var O={pierre:new Tas(65536), enduit:new Tas(32768), detail:new Tas(16384), haie:new Tas(32768)};
+  if(!MAT.enduit43){
+    MAT.enduit43=matTexture(faireMurNu(),1.6,{rugo:0.92});
+    MAT.detail43=new THREE.MeshStandardMaterial({vertexColors:true, roughness:0.7, metalness:0.1});
+  }
+  if(!MAT.haie) MAT.haie=matTexture(faireHaie(),3.2,{rugo:0.95});
+  Ld.murs.forEach(function(s,ix){
+    var c=s.split('\t'), k=c[0], h=(+c[1])/10, w=(+c[2])/10, p=pointsDe(c[3]);
+    if(p.length<4 || !(h>0.3)) return;
+    if(k==='h'){ haie(O.haie,p,Math.max(0.6,Math.min(2.4,w)),Math.max(0.9,Math.min(4.5,h))); return; }
+    var g=Math.abs(Math.round(p[0]*3)*37+Math.round(p[1]*3)*11+ix);
+    var pierre=alea(g,g*3+1)<0.55, ep=h<1.0?0.3:(pierre?0.45:0.32);
+    var col=pierre?COUL43.pierre[g%COUL43.pierre.length]:COUL43.enduit[g%COUL43.enduit.length];
+    var L=ligne48(p,2.5); if(L.length<2) return;
+    h=Math.min(3.2,h);
+    mur43(pierre?O.pierre:O.enduit,L,0,ep,h,col);
+    chaperon43(pierre?O.pierre:O.detail,L,0,ep,h,pierre?COUL43.chap:COUL43.tuile);
+  });
+  ajouter(O.pierre,MAT.murets||MAT.enduit43,true,true);
+  ajouter(O.enduit,MAT.enduit43,true,true);
+  ajouter(O.detail,MAT.detail43,true,true);
+  ajouter(O.haie,MAT.haie,true,true);
 }
 function limiterBeton48(){
   if(!SOL || !SOL.apercu || !GEO) return;

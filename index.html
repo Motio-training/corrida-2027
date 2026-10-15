@@ -217528,6 +217528,7 @@ majTracer();
     'Le départ est donné au pied de la statue de Denfert-Rochereau.',
     'La 3D se prépare une seule fois : ensuite, tout reste en place.'
   ];
+  if(window.PROJET && PROJET.id!=='corrida-2027') CONSEILS=CONSEILS.filter(function(c){ return !/Corrida|Denfert/.test(c); });
   var V={cible:0, plafond:0, aff:0, L:0, raf:0, pret:false, ic:0, horloge:null};
   function $(id){ return document.getElementById(id); }
   function dessinerTrace(){
@@ -218443,7 +218444,7 @@ function genererTroisD(P,progres){
   var largeur=(z.e-z.o)*MLON, hauteurZ=(z.n-z.s)*MLAT;
   var pas=Math.max(5, Math.max(largeur,hauteurZ)/(MAX_GRILLE-1));
   var nc=Math.max(9,Math.round(largeur/pas)+1), nr=Math.max(9,Math.round(hauteurZ/pas)+1);
-  var etapes=[];
+  var etapes=[], BATS48=[], VOIES48=[], HAIES48=[];
 
   /* bâtiments */
   etapes.push(function(){
@@ -218468,7 +218469,9 @@ function genererTroisD(P,progres){
           : (us==='Annexe' || p.construction_legere || nat==='Serre' || e.a<22) ? 'g' : 'y';
         var h=+p.hauteur||0, lv=+p.nombre_d_etages||0;
         var rise=(p.altitude_maximale_toit!=null && p.altitude_minimale_toit!=null) ? Math.max(0,p.altitude_maximale_toit-p.altitude_minimale_toit) : 0;
-        B['d-bats'].push([k, Math.max(1,Math.min(100,Math.round(100*e.a/(b.ow*b.ol)))), d10(b.ang), d10(b.cx), d10(b.cz), d10(b.ow), d10(b.ol),
+        var rect=Math.max(1,Math.min(100,Math.round(100*e.a/(b.ow*b.ol))));
+        BATS48.push({q:e.q, b:b, cx:b.cx, cz:b.cz, a:e.a, rect:rect, rang:i});
+        B['d-bats'].push([k, rect, d10(b.ang), d10(b.cx), d10(b.cz), d10(b.ow), d10(b.ol),
           Math.round(e.a), lv, d10(h), pts10(e.q)].join('\t'));
         if(h>0) B['d-ign'].push([i, d10(h), d10(Math.min(rise,12)), String(p.materiaux_de_la_toiture||'').replace(/\D/g,'')||0,
           String(p.materiaux_des_murs||'').replace(/\D/g,'')||0, lv].join('\t'));
@@ -218498,6 +218501,7 @@ function genererTroisD(P,progres){
           if(q.length<2) return;
           if(p.sens_de_circulation==='Sens inverse') q=q.slice().reverse();
           B['d-voies'].push([k, d10(w), pos>0?1:0, pts10(q), sens?1:0, cl].join('\t'));
+          VOIES48.push({k:k, w:w, p:q});
         });
       });
       stats.voies=B['d-voies'].length;
@@ -218552,7 +218556,8 @@ function genererTroisD(P,progres){
       wfsTout('troncon_hydrographique','geometrie,nature,persistance,position_par_rapport_au_sol,classe_de_largeur,cpx_toponyme_de_cours_d_eau,fictif',z,null,''),
       wfsTout('construction_lineaire','geometrie,nature,toponyme',z,null,'')
     ]).then(function(R){
-      R[0].forEach(function(f){ traits(f.geometry).forEach(function(q){ if(q.length>=2) B['d-lignes'].push(['h',pts10(q)].join('\t')); }); });
+      /* les haies de la BD TOPO ; là où passe le relevé laser, ce sont les siennes qui comptent */
+      R[0].forEach(function(f){ traits(f.geometry).forEach(function(q){ if(q.length>=2) HAIES48.push(q); }); });
       R[1].forEach(function(f){
         var p=f.properties||{}; if(p.fictif || /buse/i.test(p.nature||'') || (+p.position_par_rapport_au_sol||0)<0) return;
         var nom=p.cpx_toponyme_de_cours_d_eau||'', cl=p.classe_de_largeur||'';
@@ -218565,6 +218570,13 @@ function genererTroisD(P,progres){
         traits(f.geometry).forEach(function(q){ if(q.length>=2) B['d-topo'].push(['PONT','',0,p.toponyme||'',pts10(q)].join('\t')); });
       });
     });
+  });
+  /* relevé laser : arbres, murs et haies, forme des toits */
+  var LID=null;
+  etapes.push(function(){
+    if(progres) progres('Relevé laser IGN…');
+    return lidar48(z,{la0:la0, lo0:lo0, MLAT:MLAT, MLON:MLON},BATS48,VOIES48,progres)
+      .then(function(r){ LID=r; }).catch(function(e){ console.warn('LiDAR :',e); LID=null; });
   });
   /* relief */
   var ELE5=null;
@@ -218582,12 +218594,358 @@ function genererTroisD(P,progres){
       var rr=Math.round(r/32*(nr-1)), cc=Math.round(c/40*(nc-1));
       ea.push(Math.round(ELE5[rr*nc+cc]*10));
     }
+    /* haies BD TOPO hors des carreaux relevés au laser */
+    var rects=LID ? LID.faites.map(function(s){ return s.split(' ').map(function(v){ return +v/10; }); }) : [];
+    HAIES48.forEach(function(q){
+      var m=q[q.length>>1];
+      if(rects.some(function(r){ return m[0]>=r[0] && m[0]<r[2] && m[1]>=r[1] && m[1]<r[3]; })) return;
+      B['d-lignes'].push(['h',pts10(q)].join('\t'));
+    });
+    if(LID){
+      B['d-arbres48']=LID.arbres.map(function(a){ return [d10(a[0]),d10(a[1]),d10(a[2]),d10(a[3])].join('\t'); });
+      B['d-murs48']=LID.murs;
+      B['d-toits48']=Object.keys(LID.toits).map(function(r){ var t=LID.toits[r]; return [r, t.forme, Math.round(t.axe*10), t.coul||''].join('\t'); });
+      B['d-lidar48']=LID.faites;
+    }
     var blocs={};
     for(var k in B) blocs[k]=B[k].join('\n');
     blocs['d-ele5']=e5.join('\n'); blocs['d-ele']=ea.join('\n');
     return {v:1, source:'IGN BD TOPO et RGE ALTI', date:new Date().toISOString(),
       origine:{la:la0, lo:lo0, gla0:z.s, gla1:z.n, glo0:z.o, glo1:z.e, grows:nr, gcols:nc},
-      stats:{batiments:stats.bats||0, voies:stats.voies||0, allege:stats.batsAlleges||0, pas:Math.round(pas)}, blocs:blocs};
+      stats:{batiments:stats.bats||0, voies:stats.voies||0, allege:stats.batsAlleges||0, pas:Math.round(pas),
+        arbres:LID?LID.arbres.length:0, murs:LID?LID.murs.length:0, toits:LID?Object.keys(LID.toits).length:0, lidar:LID?LID.faites.length:0}, blocs:blocs};
+  });
+}
+
+/* ---------------- relevé laser (LiDAR HD de l'IGN) ----------------
+   Hauteurs au-dessus du sol (MNH, 50 cm) et photo aérienne au même pas, lues
+   par carreaux de 500 m là où il y a des bâtiments. On en tire :
+   - les arbres : chaque sommet de couronne, sa hauteur et son rayon ;
+   - les murs, murets et haies : ce qui dépasse de 0,45 à 3,4 m hors des
+     bâtiments, des rues et des couronnes, réduit à son squelette puis en
+     lignes ; haie si la photo est verte ou si la bande est large ;
+   - les toits : plat, deux pentes ou croupe, sens du faîtage, couleur vue
+     du ciel.
+   Sorties (blocs) : d-arbres48 « x z h r » (dm), d-murs48 « k h larg points »,
+   d-toits48 « rang forme axe(°×10) couleur », d-lidar48 les carreaux traités. */
+var LIDAR_COUCHE='IGNF_LIDAR-HD_MNH_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93';
+function lidarTuile(t,W,H){
+  var b=t.s+','+t.o+','+t.n+','+t.e;
+  var uH=IGN+'/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS='+LIDAR_COUCHE+'&STYLES=&CRS=EPSG:4326&BBOX='+b+
+    '&WIDTH='+W+'&HEIGHT='+H+'&FORMAT='+encodeURIComponent('image/x-bil;bits=32');
+  var uP=IGN+'/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=ORTHOIMAGERY.ORTHOPHOTOS&STYLES=&CRS=EPSG:4326&BBOX='+b+
+    '&WIDTH='+W+'&HEIGHT='+H+'&FORMAT=image/jpeg';
+  var pH=fetch(uH).then(function(r){ return r.ok ? r.arrayBuffer() : null; }).then(function(a){ return (a && a.byteLength===W*H*4) ? new Float32Array(a) : null; }).catch(function(){ return null; });
+  var pP=fetch(uP).then(function(r){ return r.ok ? r.blob() : null; }).then(function(bl){ return bl ? createImageBitmap(bl) : null; }).then(function(im){
+    if(!im) return null;
+    var c=document.createElement('canvas'); c.width=W; c.height=H;
+    var g=c.getContext('2d'); g.drawImage(im,0,0,W,H);
+    return g.getImageData(0,0,W,H).data;
+  }).catch(function(){ return null; });
+  return Promise.all([pH,pP]);
+}
+/* squelette d'un masque binaire (Zhang-Suen), sur la liste des pixels allumés */
+function squelette48(M,W,H){
+  var liste=[], i;
+  for(i=0;i<M.length;i++) if(M[i]) liste.push(i);
+  var change=true, passe=0, del=[];
+  function v(k){ return M[k]?1:0; }
+  while(change && passe<40){
+    change=false; passe++;
+    for(var sub=0;sub<2;sub++){
+      del.length=0;
+      for(var q=0;q<liste.length;q++){
+        var k=liste[q]; if(!M[k]) continue;
+        var x=k%W, y=(k/W)|0; if(x<1||y<1||x>=W-1||y>=H-1){ continue; }
+        var p2=v(k-W),p3=v(k-W+1),p4=v(k+1),p5=v(k+W+1),p6=v(k+W),p7=v(k+W-1),p8=v(k-1),p9=v(k-W-1);
+        var B=p2+p3+p4+p5+p6+p7+p8+p9; if(B<2||B>6) continue;
+        var A=(!p2&&p3)+(!p3&&p4)+(!p4&&p5)+(!p5&&p6)+(!p6&&p7)+(!p7&&p8)+(!p8&&p9)+(!p9&&p2);
+        if(A!==1) continue;
+        if(sub===0){ if(p2*p4*p6) continue; if(p4*p6*p8) continue; }
+        else { if(p2*p4*p8) continue; if(p2*p6*p8) continue; }
+        del.push(k);
+      }
+      for(q=0;q<del.length;q++){ M[del[q]]=0; change=true; }
+    }
+    liste=liste.filter(function(k){ return M[k]; });
+  }
+  return liste;
+}
+/* les traits du squelette, d'un bout ou d'un carrefour au suivant */
+function traits48(M,W,liste){
+  var VOIS=[-W-1,-W,-W+1,-1,1,W-1,W,W+1];
+  function voisins(k){ var r=[]; for(var d=0;d<8;d++){ var n=k+VOIS[d]; if(M[n]) r.push(n); } return r; }
+  var deg={}, vu={}, T=[];
+  liste.forEach(function(k){ deg[k]=voisins(k).length; });
+  function cle(a,b){ return a<b ? a+'_'+b : b+'_'+a; }
+  function suivre(a,b){
+    var tr=[a,b]; vu[cle(a,b)]=1;
+    var prec=a, cur=b, garde=0;
+    while(deg[cur]===2 && garde++<100000){
+      var vs=voisins(cur), nx=-1;
+      for(var i=0;i<vs.length;i++) if(vs[i]!==prec && !vu[cle(cur,vs[i])]){ nx=vs[i]; break; }
+      if(nx<0) break;
+      vu[cle(cur,nx)]=1; tr.push(nx); prec=cur; cur=nx;
+    }
+    return tr;
+  }
+  liste.forEach(function(k){
+    if(deg[k]===2) return;
+    voisins(k).forEach(function(n){ if(!vu[cle(k,n)]) T.push(suivre(k,n)); });
+  });
+  liste.forEach(function(k){   /* boucles fermées */
+    if(deg[k]!==2) return;
+    voisins(k).forEach(function(n){ if(!vu[cle(k,n)]) T.push(suivre(k,n)); });
+  });
+  return T;
+}
+function dp48(P,tol){
+  if(P.length<3) return P;
+  var g=new Uint8Array(P.length); g[0]=g[P.length-1]=1;
+  var pile=[[0,P.length-1]];
+  while(pile.length){
+    var s=pile.pop(), a=s[0], b=s[1], ax=P[a][0], az=P[a][1], dx=P[b][0]-ax, dz=P[b][1]-az, L=dx*dx+dz*dz, im=-1, dm=0;
+    for(var i=a+1;i<b;i++){
+      var px=P[i][0]-ax, pz=P[i][1]-az, t=L ? Math.max(0,Math.min(1,(px*dx+pz*dz)/L)) : 0, ex=px-t*dx, ez=pz-t*dz, d=ex*ex+ez*ez;
+      if(d>dm){ dm=d; im=i; }
+    }
+    if(im>0 && Math.sqrt(dm)>tol){ g[im]=1; pile.push([a,im],[im,b]); }
+  }
+  return P.filter(function(p,i){ return g[i]; });
+}
+function dansPoly48(q,x,z){
+  var c=false;
+  for(var i=0,j=q.length-1;i<q.length;j=i++){
+    if(((q[i][1]>z)!==(q[j][1]>z)) && (x<(q[j][0]-q[i][0])*(z-q[i][1])/(q[j][1]-q[i][1])+q[i][0])) c=!c;
+  }
+  return c;
+}
+/* forme du toit d'après les hauteurs relevées dans l'emprise */
+function formeToit48(e,pts){
+  var b=e.b, a=b.ang*Math.PI/180, co=Math.cos(a), si=Math.sin(a), hw=b.ow/2, hl=b.ol/2;
+  var hs=pts.map(function(p){ return p[2]; }).sort(function(x,y){ return x-y; });
+  if(hs.length<12) return null;
+  var p5=hs[Math.floor(hs.length*0.05)], p95=hs[Math.floor(hs.length*0.95)];
+  if(p95-p5<0.7) return {forme:1, axe:b.ang};
+  /* deux pentes : h = c - k|v| (faîte le long de u), ou h = c - k|u| */
+  function regr(f){
+    var n=0,sx=0,sy=0,sxx=0,sxy=0,syy=0;
+    pts.forEach(function(p){
+      var u=(p[0]-b.cx)*co+(p[1]-b.cz)*si, v=-(p[0]-b.cx)*si+(p[1]-b.cz)*co;
+      if(Math.abs(u)>hw*0.92 || Math.abs(v)>hl*0.92) return;
+      var x=f(u,v), y=p[2]; n++; sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; syy+=y*y;
+    });
+    if(n<10) return {r2:0,k:0,c:0};
+    var vx=sxx-sx*sx/n, vy=syy-sy*sy/n, cxy=sxy-sx*sy/n;
+    if(vx<=1e-6 || vy<=1e-6) return {r2:0,k:0,c:0};
+    var k=cxy/vx;
+    return {r2:cxy*cxy/(vx*vy), k:-k, c:(sy-k*sx)/n};
+  }
+  var A=regr(function(u,v){ return Math.abs(v); }), B=regr(function(u,v){ return Math.abs(u); });
+  var meil=A.r2>=B.r2 ? A : B, longU=A.r2>=B.r2;
+  if(meil.r2<0.3 || meil.k<0.15) return null;
+  var axe=longU ? b.ang : b.ang+90;
+  /* croupe : les bouts du faîtage descendent eux aussi */
+  var lgF=longU?hw:hl, lgV=longU?hl:hw, n=0, res=0;
+  pts.forEach(function(p){
+    var u=(p[0]-b.cx)*co+(p[1]-b.cz)*si, v=-(p[0]-b.cx)*si+(p[1]-b.cz)*co;
+    var f=longU?Math.abs(u):Math.abs(v), t=longU?Math.abs(v):Math.abs(u);
+    if(f<lgF-lgV*0.7 || f>lgF*0.95 || t>lgV*0.5) return;
+    res+=p[2]-(meil.c-meil.k*t); n++;
+  });
+  var pente=meil.k*lgV;
+  if(n>=6 && res/n < -0.3*pente) return {forme:4, axe:axe};
+  return {forme:2, axe:axe};
+}
+/* morceaux d'une même haie ou d'un même mur, coupés par un arbre ou un
+   carreau : raccordés si leurs bouts sont à moins de 2,5 m et dans le
+   prolongement l'un de l'autre */
+function joindre48(L){
+  function dir(p,bout){
+    var a=bout ? p[p.length-1] : p[0], b=bout ? p[Math.max(0,p.length-2)] : p[Math.min(p.length-1,1)];
+    var dx=a[0]-b[0], dz=a[1]-b[1], n=Math.hypot(dx,dz)||1; return [dx/n,dz/n];   /* vers l'extérieur */
+  }
+  function longueur(p){ var s=0; for(var i=1;i<p.length;i++) s+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]); return s; }
+  var actifs=L.slice(), garde=0, change=true;
+  while(change && garde++<6){
+    change=false;
+    var idx={};
+    function cle(q){ return Math.floor(q[0]/3)+','+Math.floor(q[1]/3); }
+    actifs.forEach(function(m,i){ [0,1].forEach(function(b){ var q=b?m.p[m.p.length-1]:m.p[0], c=cle(q); (idx[c]=idx[c]||[]).push([i,b]); }); });
+    var mort={};
+    for(var i=0;i<actifs.length;i++){
+      if(mort[i]) continue;
+      var m=actifs[i];
+      for(var b=0;b<2;b++){
+        var q=b?m.p[m.p.length-1]:m.p[0], d1=dir(m.p,b), best=null, bd=2.5;
+        var gx=Math.floor(q[0]/3), gz=Math.floor(q[1]/3);
+        for(var a1=-1;a1<=1;a1++) for(var a2=-1;a2<=1;a2++) (idx[(gx+a1)+','+(gz+a2)]||[]).forEach(function(e){
+          var j=e[0]; if(j===i || mort[j] || actifs[j].k!==m.k) return;
+          var o=actifs[j], r=e[1]?o.p[o.p.length-1]:o.p[0], d=Math.hypot(r[0]-q[0],r[1]-q[1]);
+          if(d>=bd) return;
+          var d2=dir(o.p,e[1]);
+          if(d1[0]*d2[0]+d1[1]*d2[1] > -0.64) return;     /* bouts face à face, à 50° près */
+          bd=d; best=e;
+        });
+        if(!best) continue;
+        var o=actifs[best[0]], po=best[1] ? o.p.slice().reverse() : o.p.slice();   /* commence au bout raccordé */
+        var pm=b ? m.p : m.p.slice().reverse();                                   /* finit au bout raccordé */
+        var lm=longueur(m.p), lo=longueur(o.p), t=lm+lo || 1;
+        m.p=pm.concat(po); m.h=(m.h*lm+o.h*lo)/t; m.w=(m.w*lm+o.w*lo)/t; m.lg=longueur(m.p);
+        mort[best[0]]=1; change=true;
+        break;
+      }
+    }
+    actifs=actifs.filter(function(m,i){ return !mort[i]; });
+  }
+  return actifs;
+}
+function lidar48(z,repere,bats,voies,progres){
+  var la0=repere.la0, lo0=repere.lo0, MLAT=repere.MLAT, MLON=repere.MLON;
+  function grille(R){
+    var T=1000, tla=R/MLAT*T, tlo=R/MLON*T, nI=Math.ceil((z.e-z.o)/tlo), nJ=Math.ceil((z.n-z.s)/tla), L=[];
+    for(var j=0;j<nJ;j++) for(var i=0;i<nI;i++){
+      var o=z.o+i*tlo, n=z.n-j*tla, t={o:o, n:n, e:o+tlo, s:n-tla, R:R, T:T};
+      t.x0=(o-lo0)*MLON; t.z0=(la0-n)*MLAT; t.x1=t.x0+R*T; t.z1=t.z0+R*T;
+      if(bats.some(function(b){ return b.cx>t.x0-60 && b.cx<t.x1+60 && b.cz>t.z0-60 && b.cz<t.z1+60; })) L.push(t);
+    }
+    return L;
+  }
+  var tuiles=grille(0.5);
+  if(tuiles.length>40) tuiles=grille(1.0);         /* grande ville : un relevé tous les mètres */
+  if(tuiles.length>60) tuiles=tuiles.slice(0,60);
+  var arbres=[], murs=[], toits={}, faites=[], vides=0, num=0;
+  function traiter(t,H,P){
+    var T=t.T, R=t.R, N=T*T, i, k;
+    if(!H){ vides++; return; }
+    var bons=0; for(i=0;i<N;i+=97) if(H[i]>-50 && H[i]<200) bons++;
+    if(bons<(N/97)*0.4){ vides++; return; }          /* hors de la couverture LiDAR */
+    for(i=0;i<N;i++) if(!(H[i]>-50 && H[i]<200)) H[i]=0;
+    function px(x){ return (x-t.x0)/R; } function pz(z_){ return (z_-t.z0)/R; }
+    /* bâtiments et rues dans le carreau */
+    var cv=document.createElement('canvas'); cv.width=T; cv.height=T;
+    var g=cv.getContext('2d');
+    g.fillStyle='#fff'; g.strokeStyle='#fff'; g.lineJoin='round'; g.lineCap='round'; g.lineWidth=2.2/R;
+    var ici=bats.filter(function(b){ return b.cx>t.x0-40 && b.cx<t.x1+40 && b.cz>t.z0-40 && b.cz<t.z1+40; });
+    ici.forEach(function(b){ g.beginPath(); b.q.forEach(function(p,j){ if(j) g.lineTo(px(p[0]),pz(p[1])); else g.moveTo(px(p[0]),pz(p[1])); }); g.closePath(); g.fill(); g.stroke(); });
+    var Bm=g.getImageData(0,0,T,T).data, Bat=new Uint8Array(N);
+    for(i=0;i<N;i++) Bat[i]=Bm[i*4+3]>40?1:0;
+    g.clearRect(0,0,T,T);
+    voies.forEach(function(v){
+      if(v.k!=='r') return;
+      var dedans=v.p.some(function(p){ return p[0]>t.x0-30 && p[0]<t.x1+30 && p[1]>t.z0-30 && p[1]<t.z1+30; });
+      if(!dedans) return;
+      g.lineWidth=Math.max(1,(v.w+0.4)/R); g.beginPath();
+      v.p.forEach(function(p,j){ if(j) g.lineTo(px(p[0]),pz(p[1])); else g.moveTo(px(p[0]),pz(p[1])); });
+      g.stroke();
+    });
+    var Rm=g.getImageData(0,0,T,T).data;
+    /* toits : les bâtiments dont le centre est dans ce carreau */
+    ici.forEach(function(b){
+      if(b.cx<t.x0 || b.cx>=t.x1 || b.cz<t.z0 || b.cz>=t.z1 || b.rect<60 || b.a<25) return;
+      var xs=b.q.map(function(p){ return p[0]; }), zs=b.q.map(function(p){ return p[1]; });
+      var i0=Math.max(0,Math.floor(px(Math.min.apply(null,xs)))), i1=Math.min(T-1,Math.ceil(px(Math.max.apply(null,xs))));
+      var j0=Math.max(0,Math.floor(pz(Math.min.apply(null,zs)))), j1=Math.min(T-1,Math.ceil(pz(Math.max.apply(null,zs))));
+      var pts=[], hmax=0;
+      for(var jj=j0;jj<=j1;jj++) for(var ii=i0;ii<=i1;ii++){
+        var x=t.x0+(ii+0.5)*R, zz=t.z0+(jj+0.5)*R;
+        if(!dansPoly48(b.q,x,zz)) continue;
+        var h=H[jj*T+ii]; if(h<1.5) continue;
+        pts.push([x,zz,h,jj*T+ii]); if(h>hmax) hmax=h;
+      }
+      var f=formeToit48(b,pts); if(!f) f={forme:0, axe:b.b.ang};
+      if(P){
+        var r=0,v=0,bl=0,n=0;
+        pts.forEach(function(p){ if(p[2]<hmax*0.55) return; var o=p[3]*4; r+=P[o]; v+=P[o+1]; bl+=P[o+2]; n++; });
+        if(n>=4) f.coul=((1<<24)|(Math.round(r/n)<<16)|(Math.round(v/n)<<8)|Math.round(bl/n)).toString(16).slice(1);
+      }
+      toits[b.rang]=f;
+    });
+    /* bâtiments élargis d'un pixel : leurs bords ne font ni murs ni arbres */
+    var B2=new Uint8Array(N);
+    for(k=0;k<N;k++) if(Bat[k]){ B2[k]=1; if(k>=T) B2[k-T]=1; if(k<N-T) B2[k+T]=1; if(k%T) B2[k-1]=1; if(k%T<T-1) B2[k+1]=1; }
+    /* arbres : sommets de couronne, du plus haut au plus bas */
+    var cand=[];
+    for(k=0;k<N;k++) if(H[k]>=3 && !B2[k]) cand.push(k);
+    cand.sort(function(a,b){ return H[b]-H[a]; });
+    var cell=4, gr={}, couronne=new Uint8Array(N), nArb=0;
+    for(var c=0;c<cand.length && nArb<5000;c++){
+      k=cand[c];
+      /* rayon d'exclusion proche de la couronne réelle : un grand arbre = un seul arbre */
+      var hx=k%T, hz=(k/T)|0, h=H[k], rr=Math.max(2,Math.min(8,0.42*h));
+      var x=t.x0+(hx+0.5)*R, zz=t.z0+(hz+0.5)*R, gx=Math.floor(x/cell), gz=Math.floor(zz/cell), pris=false;
+      for(var a1=-2;a1<=2 && !pris;a1++) for(var a2=-2;a2<=2 && !pris;a2++){
+        var L=gr[(gx+a1)+','+(gz+a2)]; if(!L) continue;
+        for(var m=0;m<L.length;m++){ if(Math.hypot(L[m][0]-x,L[m][1]-zz)<Math.max(rr,L[m][3])){ pris=true; break; } }
+      }
+      if(pris) continue;
+      /* couronne au-dessus de la chaussée : le tronc est au bord, pas au milieu de la rue */
+      if(Rm[k*4+3]>40){
+        var nk=-1;
+        for(var rad=1;rad<=Math.round(7/R) && nk<0;rad++){
+          for(var dd=-rad;dd<=rad && nk<0;dd++){
+            var cands=[[hx+dd,hz-rad],[hx+dd,hz+rad],[hx-rad,hz+dd],[hx+rad,hz+dd]];
+            for(var cc=0;cc<4;cc++){
+              var ux=cands[cc][0], uz=cands[cc][1]; if(ux<0||uz<0||ux>=T||uz>=T) continue;
+              var kk2=uz*T+ux; if(Rm[kk2*4+3]<=40 && !Bat[kk2]){ nk=kk2; break; }
+            }
+          }
+        }
+        if(nk<0) continue;
+        hx=nk%T; hz=(nk/T)|0; x=t.x0+(hx+0.5)*R; zz=t.z0+(hz+0.5)*R;
+      }
+      var e=[x,zz,h,rr]; (gr[gx+','+gz]=gr[gx+','+gz]||[]).push(e); nArb++;
+      if(x>=t.x0 && x<t.x1 && zz>=t.z0 && zz<t.z1) arbres.push(e);
+      if(h>4){
+        var rp=Math.ceil(rr*0.75/R);
+        for(var dj=-rp;dj<=rp;dj++) for(var di=-rp;di<=rp;di++){
+          if(di*di+dj*dj>rp*rp) continue;
+          var ix=hx+di, iz=hz+dj; if(ix>=0 && iz>=0 && ix<T && iz<T) couronne[iz*T+ix]=1;
+        }
+      }
+    }
+    /* murs, murets et haies */
+    var M=new Uint8Array(N);
+    for(k=0;k<N;k++) M[k]=(H[k]>=0.45 && H[k]<=3.4 && !B2[k] && !couronne[k] && Rm[k*4+3]<40)?1:0;
+    var Mz=M.slice();   /* la bande avant amincissement : largeur et couleur */
+    var sq=squelette48(M,T,T), tr=traits48(M,T,sq);
+    tr.forEach(function(L){
+      if(L.length<6) return;
+      var P2=L.map(function(k2){ return [t.x0+(k2%T+0.5)*R, t.z0+(((k2/T)|0)+0.5)*R]; });
+      var lg=0; for(var q=1;q<P2.length;q++) lg+=Math.hypot(P2[q][0]-P2[q-1][0],P2[q][1]-P2[q-1][1]);
+      if(lg<3) return;
+      var hs=[], larg=0, vert=0, nv=0;
+      L.forEach(function(k2){
+        var hm=0, w=0;
+        for(var dj=-2;dj<=2;dj++) for(var di=-2;di<=2;di++){
+          var kk=k2+dj*T+di; if(kk<0||kk>=N) continue;
+          if(dj===0 && di===0) hm=H[kk];        /* la hauteur sur la ligne même */
+          if(Mz[kk]){ w++; if(P){ var o=kk*4; vert+=2*P[o+1]-P[o]-P[o+2]; nv++; } }
+        }
+        hs.push(hm); larg+=w;
+      });
+      hs.sort(function(a,b){ return a-b; });
+      var hMed=hs[hs.length>>1], lMoy=Math.max(0.2,Math.min(3,(larg/L.length)/5*R));
+      var exg=nv ? vert/nv : 0;
+      var kd=(exg>9 || (lMoy>1.25 && hMed>1.1)) ? 'h' : 'm';
+      murs.push({k:kd, h:hMed, w:lMoy, p:dp48(P2,0.45), lg:lg});
+    });
+    faites.push([Math.round(t.x0*10),Math.round(t.z0*10),Math.round(t.x1*10),Math.round(t.z1*10)].join(' '));
+  }
+  function suite(){
+    var t=tuiles.shift(); if(!t) return Promise.resolve();
+    num++;
+    if(progres) progres('Relevé laser : carreau '+num+' / '+(num+tuiles.length)+' ('+arbres.length.toLocaleString('fr-FR')+' arbres, '+murs.length.toLocaleString('fr-FR')+' murs et haies)');
+    return lidarTuile(t,t.T,t.T).then(function(r){
+      try{ traiter(t,r[0],r[1]); }catch(e){ console.warn('LiDAR :',e); vides++; }
+      return new Promise(function(ok){ setTimeout(ok,0); });
+    }).then(suite);
+  }
+  return suite().then(function(){
+    /* un massif d'arbustes n'est pas une haie : 6 m au moins pour une haie, 3 m pour un mur */
+    var M=joindre48(murs).filter(function(m){ return m.lg>=(m.k==='h'?6:3); });
+    return {arbres:arbres, toits:toits, faites:faites, vides:vides,
+      murs:M.map(function(m){ return [m.k, Math.round(m.h*10), Math.round(m.w*10), m.p.map(function(p){ return Math.round(p[0]*10)+','+Math.round(p[1]*10); }).join(' ')].join('\t'); })};
   });
 }
 
@@ -218705,7 +219063,9 @@ function ouvrirCreation(){
       return genererTroisD({zone:zone},function(t){ E.texte(4,'Ville en 3D : '+t); }).then(function(D){
         E.texte(4,'Ville en 3D : enregistrement…');
         return admin('donnees',{id:id, cle:'trois_d', data:D}).then(function(){
-          E.fait(4,'Ville en 3D : '+D.stats.batiments.toLocaleString('fr-FR')+' bâtiments, relief tous les '+D.stats.pas+' m');
+          E.fait(4,'Ville en 3D : '+D.stats.batiments.toLocaleString('fr-FR')+' bâtiments'+
+            (D.stats.lidar ? ', '+D.stats.arbres.toLocaleString('fr-FR')+' arbres et '+D.stats.murs.toLocaleString('fr-FR')+' murs ou haies relevés au laser' : ' (pas de relevé laser sur cette zone)')+
+            ', relief tous les '+D.stats.pas+' m');
         });
       }).catch(function(e){ E.erreur(4,'Ville en 3D : '+(e && e.message || 'échec')+' (elle se préparera à l’ouverture de la vue 3D)'); });
     }).then(function(){
