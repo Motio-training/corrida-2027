@@ -1029,9 +1029,12 @@ Tout se fait dans la page, en ligne, depuis les services de l'IGN
   `d-toits48`, `d-lidar48` (carreaux traités). Hors couverture LiDAR, les
   arbres viennent de la photo et les haies de la BD TOPO.
 
-- **façades d'après les photos de rue** (Panoramax, et Mapillary quand
-  `MAPILLARY_CLE` porte un jeton client ; licence CC BY-SA 4.0, citée en bas
-  de la vue 3D). Rien de la photo ne passe dans la 3D : on n'en garde que la
+- **façades d'après les photos de rue** (Panoramax, et Mapillary quand un
+  jeton client est saisi dans les Réglages du projet : il reste dans le
+  navigateur de l'appareil, clé `corrida-mapillary`, jamais dans le code
+  publié ; licence CC BY-SA 4.0, citée en bas de la vue 3D). Mapillary
+  donne aussi l'orientation calculée de chaque photo (`computed_rotation`,
+  monde → caméra), donc son inclinaison. Rien de la photo ne passe dans la 3D : on n'en garde que la
   couleur du mur, sa matière (enduit, enduit ocre, pierre de taille,
   moellons) et les teintes de volets. Photos de jour seulement (soleil à plus
   de 7°, ni brouillard ni nuit), une par endroit et par direction, choisies

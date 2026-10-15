@@ -219640,7 +219640,8 @@ function lidar48(z,repere,bats,voies,progres){
 }
 /* ---------------- façades d'après les photos de rue ----------------
    Photos libres prises dans la rue : Panoramax et Mapillary (licence
-   CC BY-SA 4.0 ; Mapillary demande un jeton client, MAPILLARY_CLE). Rien de
+   CC BY-SA 4.0 ; Mapillary demande un jeton client, saisi dans les Réglages
+   et gardé seulement sur l'appareil, jamais dans le code publié). Rien de
    la photo ne passe dans la 3D : on n'en garde que des mesures, la couleur
    du mur, sa matière (enduit, enduit ocre, pierre de taille, moellons) et la
    teinte des volets. Les façades restent dessinées par le moteur.
@@ -219654,7 +219655,8 @@ function lidar48(z,repere,bats,voies,progres){
    voisin vu de même sorte (taille, matériau IGN), à moins de 250 m.
    Sorties : d-facades48 « cx cz matière couleur origine » (dm, e|o|t|m,
    hex, v vu | p voisin), d-volets48 « couleur voix ». */
-var MAPILLARY_CLE=window.MAPILLARY_CLE||'';
+var CLE_MAPILLARY='corrida-mapillary';
+function cleMapillary48(){ if(window.MAPILLARY_CLE) return window.MAPILLARY_CLE; try{ return localStorage.getItem(CLE_MAPILLARY)||''; }catch(e){ return ''; } }
 var PHOTOS48_MAX=180, PORTEE48=40, SOLEIL48_MIN=window.SOLEIL48_MIN||7;
 
 /* hauteur et direction du soleil (degrés ; azimut depuis le nord, sens horaire) */
@@ -219692,13 +219694,13 @@ function photosPanoramax48(z){
     .then(function(){ return L; }).catch(function(e){ console.warn('Panoramax :',e); return L; });
 }
 function photosMapillary48(z,progres){
-  if(!MAPILLARY_CLE) return Promise.resolve([]);
+  var cle=cleMapillary48(); if(!cle) return Promise.resolve([]);
   var pas=0.01; while(Math.ceil((z.e-z.o)/pas)*Math.ceil((z.n-z.s)/pas)>300) pas*=1.5;
   var cases=[], L=[], faits=0, echecs=0;
   for(var lo=z.o; lo<z.e; lo+=pas) for(var la=z.s; la<z.n; la+=pas) cases.push([lo,la,Math.min(lo+pas,z.e),Math.min(la+pas,z.n)]);
   var champs='id,computed_geometry,geometry,computed_compass_angle,compass_angle,computed_rotation,camera_type,camera_parameters,width,height,captured_at,thumb_2048_url';
   function une(c){
-    return fetch('https://graph.mapillary.com/images?access_token='+encodeURIComponent(MAPILLARY_CLE)+'&fields='+champs+
+    return fetch('https://graph.mapillary.com/images?access_token='+encodeURIComponent(cle)+'&fields='+champs+
       '&bbox='+c.map(function(v){ return v.toFixed(6); }).join(',')+'&limit=2000')
     .then(function(r){ if(!r.ok) throw new Error('Mapillary '+r.status); return r.json(); }).then(function(d){
       (d.data||[]).forEach(function(m){
@@ -220276,7 +220278,18 @@ function ouvrirReglages(){
     f.insertAdjacentHTML('beforeend','<p class="pj-note">Le nom, le type et la date de la Corrida 2027 sont fixés dans ses documents (fiches, arrêtés) : seuls la couleur et le logo se changent ici.</p>');
   }
   var sec=el('div',{'class':'pj-section'}); f.appendChild(sec);
-  sec.innerHTML='<h3>Partage</h3><p class="pj-note">Lien de consultation (téléphones) : <b>'+esc(lienPublic(P.id))+'</b></p>';
+  sec.innerHTML='<h3>Partage</h3><p class="pj-note">Lien de consultation (téléphones) : <b>'+esc(lienPublic(P.id))+'</b></p>'+
+    '<h3>Photos de rue</h3><label class="pj-champ"><span>Jeton client Mapillary (facultatif)</span>'+
+    '<input type="password" id="pj-mly" placeholder="MLY|…" autocomplete="off" spellcheck="false"></label>'+
+    '<p class="pj-note">Sert à lire les photos de rue Mapillary quand la ville en 3D se fabrique (couleur et matière des façades). Gardé seulement sur cet appareil ; sans jeton, seules les photos Panoramax servent.</p>';
+  /* le jeton ne passe ni par la base ni par le code publié : il reste dans ce navigateur */
+  var iM=$('#pj-mly',f);
+  try{ iM.value=localStorage.getItem('corrida-mapillary')||''; }catch(e){}
+  iM.addEventListener('change',function(){
+    var v=iM.value.trim();
+    try{ if(v) localStorage.setItem('corrida-mapillary',v); else localStorage.removeItem('corrida-mapillary'); }catch(e){}
+    etat.className='pj-etat'; etat.textContent=v ? 'Jeton Mapillary gardé sur cet appareil.' : 'Jeton Mapillary retiré.';
+  });
   if(X && !corrida){
     var bR=el('button',{type:'button'},'Relire le réseau des rues (IGN)');
     bR.title='Recharge les rues de la zone depuis la BD TOPO de l’IGN : utile si des rues ont changé';
