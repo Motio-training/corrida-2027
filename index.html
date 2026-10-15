@@ -2376,37 +2376,9 @@ button.mini{
     X.OLA=G.OLA; X.OLO=G.OLO; X.NXY=G.NXY; X.NEL=G.NEL; X.ED=G.ED; X.EW=G.EW; X.WN=G.WN; X.EC=G.EC||null;
     X.LEGS=[[G.ED[0],G.ED[1]]];
     X.EMBARQUE=(etat && etat.maj) || '';
-    if(etat && Array.isArray(etat.waypoints) && etat.waypoints.length>=2){ X.WPLL=etat.waypoints; X.WPMODES=etat.modes||null; }
-    else {
-      var c=(z.c && z.c.length===2) ? z.c : [la0,lo0];   /* centre du bourg, sinon centre de la zone */
-      X.WPLL=departParDefaut(G,c[0],c[1]); X.WPMODES='r'; X.nouveau=true;
-    }
+    if(etat && Array.isArray(etat.waypoints)){ X.WPLL=etat.waypoints; X.WPMODES=etat.modes||''; }
+    else { X.WPLL=[]; X.WPMODES=''; X.nouveau=true; }   /* pas de tracé : on le dessine au clic */
     return X;
-  }
-  /* un petit tronçon de 300 à 500 m près du centre de la zone, à étirer ensuite */
-  function departParDefaut(G,la0,lo0){
-    var n=G.NXY.length/2, i, best=0, bd=Infinity, deg=new Int32Array(n);
-    for(i=0;i<G.ED.length;i++) deg[G.ED[i]]++;
-    var kx=Math.cos(la0*Math.PI/180);
-    for(i=0;i<n;i++){
-      if(!deg[i]) continue;
-      var dy=G.OLA+G.NXY[2*i]/1e6-la0, dx=(G.OLO+G.NXY[2*i+1]/1e6-lo0)*kx, d=dx*dx+dy*dy;
-      if(d<bd){ bd=d; best=i; }
-    }
-    var adj={};
-    for(i=0;i<G.ED.length;i+=2){ (adj[G.ED[i]]=adj[G.ED[i]]||[]).push(G.ED[i+1]); (adj[G.ED[i+1]]=adj[G.ED[i+1]]||[]).push(G.ED[i]); }
-    function ll(k){ return [G.OLA+G.NXY[2*k]/1e6, G.OLO+G.NXY[2*k+1]/1e6]; }
-    function dist(a,b){ var A=ll(a), B=ll(b), dy=(B[0]-A[0])*111132, dx=(B[1]-A[1])*111320*kx; return Math.sqrt(dx*dx+dy*dy); }
-    /* parcours en largeur jusqu'au premier nœud à plus de 300 m */
-    var vu={}, file=[[best,0]], fin=best, dmax=0; vu[best]=1;
-    while(file.length){
-      var c=file.shift(), u=c[0], du=c[1];
-      if(du>dmax){ dmax=du; fin=u; }
-      if(du>=300) break;
-      (adj[u]||[]).forEach(function(v){ if(!vu[v]){ vu[v]=1; file.push([v, du+dist(u,v)]); } });
-    }
-    var a=ll(best), b=ll(fin===best && adj[best] ? adj[best][0] : fin);
-    return [[+a[0].toFixed(6), +a[1].toFixed(6), 0], [+b[0].toFixed(6), +b[1].toFixed(6), 0]];
   }
 })();
 
@@ -209904,7 +209876,14 @@ function reconstruire(){
   return true;
 }
 function chargerWaypoints(list,modes){
-  if(!list || list.length<2) return false;
+  if(!list) return false;
+  if(list.length<2){
+    /* tracé vide ou départ seul (projet neuf) : la suite se dessine au clic */
+    var w0=list[0], n0=null;
+    if(w0){ n0=w0[2] ? creerLibre(w0[0],w0[1]) : nearestNode(X(w0[1]),Y(w0[0])); if(n0<0) return false; }
+    WP=(n0===null)?[]:[n0]; LG=[]; LM=[];
+    return true;
+  }
   var nwp=[], nlm=[];
   for(var i=0;i<list.length;i++){
     var w=list[i];
@@ -209936,6 +209915,7 @@ chargerOrigine();
 
 function polyline(){
   var p=[];
+  if(!LG.length) return WP.length ? [WP[0]] : [];
   for(var i=0;i<LG.length;i++){
     var l=LG[i];
     for(var j=(i?1:0);j<l.length;j++) p.push(l[j]);
@@ -210020,6 +210000,7 @@ document.getElementById('b-zout').onclick=function(){ zoomer(1/1.35,VBW/2,VBH/2)
 document.getElementById('b-fit').onclick=function(){ cadrerTrace(); };
 
 function cadrerTrace(){
+  if(POLY.length<2){ k=1; tx=0; ty=0; contraindre(); majTransform(); return; }
   var mnx=Infinity,mxx=-Infinity,mny=Infinity,mxy=-Infinity;
   for(var i=0;i<POLY.length;i++){
     var x=px[POLY[i]], y=py[POLY[i]];
@@ -210082,7 +210063,7 @@ function recalculer(){
   CUM=new Float64Array(POLY.length);
   for(var i=1;i<POLY.length;i++) CUM[i]=CUM[i-1]+hav(POLY[i-1],POLY[i]);
   INFO=denivele(POLY);
-  if(ORIG_KM===null) ORIG_KM=CUM[CUM.length-1];
+  if(ORIG_KM===null) ORIG_KM=CUM.length?CUM[CUM.length-1]:0;
 }
 
 /* Écart appliqué aux portions parcourues deux fois : chaque passage
@@ -210557,7 +210538,7 @@ window.addEventListener('resize',function(){
 /* --------------------- Panneau --------------------- */
 function fnum(x,dec){ return x.toFixed(dec).replace('.',','); }
 function majChiffres(){
-  var total=CUM[CUM.length-1];
+  var total=CUM.length?CUM[CUM.length-1]:0;
   document.getElementById("c-km").textContent=fnum(total/1000,2);
   document.getElementById("c-dp").textContent=Math.round(INFO.dplus);
   document.getElementById("c-pts").textContent=WP.length;
@@ -211013,7 +210994,7 @@ function ouvrirExport(){
   modale.hidden=false;
   sortie.focus(); sortie.select();
 }
-document.getElementById('b-gpx').onclick=ouvrirExport;
+document.getElementById('b-gpx').onclick=function(){ if(WP.length<2){ dire('Pas encore de tracé à exporter.','err'); return; } ouvrirExport(); };
 document.getElementById('m-fermer').onclick=function(){ modale.hidden=true; };
 modale.addEventListener('click',function(ev){ if(ev.target===modale) modale.hidden=true; });
 document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') modale.hidden=true; });
@@ -211042,6 +211023,7 @@ document.getElementById('m-dl').onclick=function(){
     });
 };
 document.getElementById('b-dl').onclick=function(){
+  if(WP.length<2){ dire('Pas encore de tracé à exporter.','err'); return; }
   if(!CAPS.downloads){ dire('Le téléchargement n’est pas disponible dans cette vue.','err'); return; }
   CAPS.downloads.save({filename:'corrida-2027-ensoa.json',data:geojson()})
     .then(function(){ dire('Fichier GeoJSON enregistré.','ok'); })
@@ -211055,7 +211037,7 @@ document.getElementById('b-dl').onclick=function(){
 function paquet(){
   return {
     maj:new Date().toISOString(),
-    distance_m:Math.round(CUM[CUM.length-1]),
+    distance_m:Math.round(CUM.length?CUM[CUM.length-1]:0),
     denivele_m:Math.round(INFO.dplus),
     nb_points:WP.length,
     modes:LM.join(''),
@@ -211236,7 +211218,7 @@ function chargerEtat(data,refRef){
   if(data.parcours) chargerParcours(data.parcours);
   tout();
   if(!jalPret) replacerJalons();
-  if(refRef){ ORIG_KM=CUM[CUM.length-1]; majChiffres(); }
+  if(refRef){ ORIG_KM=CUM.length?CUM[CUM.length-1]:0; majChiffres(); }
   cadrerTrace();
   viderHistEquip();
   majParcoursUI();
@@ -211380,6 +211362,7 @@ window.CARTE={
   dire:function(t,k){ dire(t,k); }
 };
 document.getElementById('b-3d').onclick=function(){
+  if(WP.length<2){ dire('Trace d’abord le parcours, du départ à l’arrivée : la vue 3D le suit.','err'); return; }
   if(!window.ESPACE3D || !window.ESPACE3D.ouvrir){
     dire('La vue 3D n’a pas pu se charger : la bibliothèque 3D est indisponible dans ce navigateur.','err');
     return;
@@ -217439,6 +217422,90 @@ setTimeout(function(){
   pf.appendChild(b);
 },80);
 })();
+/* <tracer> ---------------------------------------------------------
+   Tracé dessiné au clic. Un projet neuf n'a aucun tracé : premier clic
+   sur la carte = le départ, chaque clic suivant ajoute un point (le
+   tracé suit les rues, ou va en ligne droite avec « Hors rues ») et le
+   dernier point est l'arrivée. Sur un tracé existant, « Prolonger le
+   tracé au clic » (menu Tracé) reprend le même geste depuis l'arrivée ;
+   Échap ou « Terminer » l'arrête. Ctrl+Z retire le dernier point posé.
+--------------------------------------------------------------------- */
+var TRACER={actif:false, bas:null, dispo:false};
+function tracerOuvert(){ return !window.CONSULTATION && (TRACER.actif || WP.length<2); }
+var pilTracer=document.createElement('div');
+pilTracer.className='pil-tracer'; pilTracer.hidden=true;
+document.getElementById('mapwrap').appendChild(pilTracer);
+function majTracer(){
+  /* sans tracé, on dessine jusqu'à ce que l'on dise « Terminer » */
+  if(!WP.length && !window.CONSULTATION) TRACER.actif=true;
+  var on=tracerOuvert();
+  document.body.classList.toggle('mode-tracer',on);
+  pilTracer.hidden=!on;
+  if(on){
+    var t=!WP.length ? 'Clique sur la carte pour placer le <b>départ</b>.'
+      : (WP.length===1 ? 'Clique pour poser le point suivant : le tracé suit les rues. Le dernier point posé est l’<b>arrivée</b>.'
+      : 'Chaque clic ajoute un point après l’arrivée. Ctrl+Z retire le dernier, « Terminer » quand le parcours est complet.');
+    pilTracer.innerHTML='<span>✎ '+t+'</span>'+(TRACER.actif && WP.length>=2 ? '<button type="button">Terminer</button>' : '');
+    var b=pilTracer.querySelector('button'); if(b) b.onclick=function(){ TRACER.actif=false; majTracer(); };
+  }
+  var bt=document.getElementById('b-tracer');
+  if(bt){ bt.textContent=(TRACER.actif && WP.length>=2) ? '✓ Terminer le tracé au clic' : '✎ Prolonger le tracé au clic'; bt.disabled=WP.length<2; }
+  var be=document.getElementById('b-effacer-trace'); if(be) be.disabled=!WP.length;
+}
+function ajouterPointFin(w){
+  var avant=instantane(), n;
+  if(modeDroit) n=creerLibre(versLat(w.y),versLon(w.x));
+  else { n=nearestNode(w.x,w.y); if(n<0) return; }
+  if(WP.length && n===WP[WP.length-1]) return;
+  WP.push(n);
+  if(WP.length>=2){
+    var i=WP.length-2;
+    LM.push((modeDroit || estLibre(WP[i]) || estLibre(n)) ? 'd' : 'r'); LG.push(null);
+    if(!refaireLeg(i)){ LM[i]='d'; refaireLeg(i); dire('Pas de chemin par les rues jusqu’à ce point : relié en ligne droite.',''); }
+  }
+  hist.push(avant); if(hist.length>60) hist.shift(); futur.length=0; majBoutons();
+  tout(); marquerModifie(); majTracer();
+  if(WP.length===1) dire('Départ posé. Clique sur la carte pour la suite du parcours.','ok');
+}
+svg.addEventListener('pointerdown',function(ev){
+  TRACER.bas={x:ev.clientX, y:ev.clientY};
+  /* pas pendant une autre pose (jalonneur, point, zone, calque live) ni un glisser */
+  TRACER.dispo=tracerOuvert() && ev.button===0 && !poseJalon
+    && !(typeof POSE_CARTE!=='undefined' && POSE_CARTE) && !(typeof POSE_ZJ!=='undefined' && POSE_ZJ)
+    && !document.body.classList.contains('mode-live') && !glisse
+    && !(ev.target && ev.target.closest && ev.target.closest('#dyn'));
+},true);
+svg.addEventListener('click',function(ev){
+  if(!TRACER.dispo || !TRACER.bas || !tracerOuvert()) return;
+  TRACER.dispo=false;
+  if(Math.hypot(ev.clientX-TRACER.bas.x,ev.clientY-TRACER.bas.y)>5) return;
+  ajouterPointFin(toWorld(ev));
+});
+document.addEventListener('keydown',function(ev){
+  if(ev.key==='Escape' && TRACER.actif){ TRACER.actif=false; majTracer(); }
+});
+/* annuler, rétablir et « Revenir » changent le nombre de points */
+['b-undo','b-redo','b-reset'].forEach(function(id){ var b=document.getElementById(id); if(b) b.addEventListener('click',function(){ setTimeout(majTracer,0); }); });
+document.addEventListener('keydown',function(ev){ if((ev.ctrlKey||ev.metaKey) && ev.key.toLowerCase()==='z') setTimeout(majTracer,0); });
+setTimeout(function(){
+  if(window.CONSULTATION) return;
+  var pop=document.querySelector('.bar .menu[data-m="trace"] .menu-pop'); if(!pop) return;
+  var bt=document.createElement('button'); bt.type='button'; bt.id='b-tracer';
+  bt.title='Chaque clic sur la carte ajoute un point après l’arrivée (Échap pour arrêter)';
+  bt.onclick=function(ev){ if(ev) ev.stopPropagation(); TRACER.actif=!(TRACER.actif && WP.length>=2); majTracer(); };
+  var be=document.createElement('button'); be.type='button'; be.id='b-effacer-trace';
+  be.textContent='🗑 Effacer le tracé'; be.title='Repartir d’une carte sans tracé (Ctrl+Z pour revenir)';
+  be.onclick=function(ev){
+    if(ev) ev.stopPropagation();
+    if(!WP.length || !window.confirm('Effacer tout le tracé de ce parcours ? Les jalonneurs, barrières et rubalise restent en place. Ctrl+Z pour revenir.')) return;
+    pousser(); WP=[]; LG=[]; LM=[]; tout(); marquerModifie(); majTracer();
+    dire('Tracé effacé : clique sur la carte pour placer le départ.','ok');
+  };
+  pop.insertBefore(be,pop.firstChild); pop.insertBefore(bt,pop.firstChild);
+  majTracer();
+},120);
+majTracer();
+/* </tracer> */
 })();
 </script>
 <script>
@@ -217761,6 +217828,17 @@ body.projet-genere #raster{filter:invert(1) hue-rotate(180deg) saturate(.55) bri
   .pj-form{border-right:none;border-bottom:1px solid var(--trait);overflow:visible}
   .pj-zone{min-height:72vh}
 }
+
+/* ---------- tracé dessiné au clic ---------- */
+body.mode-tracer #map{cursor:crosshair}
+body.mode-tracer #map .poignee{cursor:grab}
+.pil-tracer{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:6;max-width:calc(100% - 24px);
+  display:flex;align-items:center;gap:10px;padding:7px 8px 7px 14px;border-radius:999px;
+  background:rgba(20,28,43,.94);border:1px solid var(--frontale);color:var(--creme);font-size:13px;line-height:1.3;
+  box-shadow:0 8px 24px rgba(0,0,0,.45);pointer-events:auto}
+.pil-tracer[hidden]{display:none}
+.pil-tracer b{color:var(--frontale);font-weight:600}
+.pil-tracer button{padding:5px 12px!important;border-radius:999px!important;background:var(--frontale)!important;color:#160F02!important;border-color:var(--frontale)!important;font-weight:600}
 </style>
 <script id="projets-ui">
 /* ---------------------------------------------------------------
@@ -218824,7 +218902,7 @@ if(X && X.aPreparer){
     var go=el('button',{type:'button','class':'primaire'},'Préparer maintenant'); go.onclick=function(){ bp.remove(); preparerReseau(false); }; bp.appendChild(go);
   }
 } else if(X && X.nouveau && !CONSULT){
-  setTimeout(function(){ message('Nouveau projet « '+P.nom+' » : un petit tracé de départ est posé au centre. Fais glisser le départ et l’arrivée, ou tire le tracé pour ajouter des points : il suit les rues. Puis Enregistrer.','ok'); },600);
+  setTimeout(function(){ message('Nouveau projet « '+P.nom+' » : clique sur la carte pour placer le départ, puis chaque point du parcours jusqu’à l’arrivée. Puis Enregistrer.','ok'); },600);
 }
 })();
 </script>
