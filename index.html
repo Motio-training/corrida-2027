@@ -217326,24 +217326,23 @@ function planLegendeItems(C,reg){
   }
   titre('parcours','Parcours');
   ligne('parcours',function(cx,cy){ return '<line x1="'+(cx-44)+'" y1="'+cy+'" x2="'+(cx+44)+'" y2="'+cy+'" stroke="#1D4ED8" stroke-width="10" stroke-linecap="round"/>'+
-    '<path d="M'+(cx-6)+' '+(cy-11)+'L'+(cx+8)+' '+cy+'L'+(cx-6)+' '+(cy+11)+'" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>'; },
+    '<path d="M'+(cx-4)+' '+(cy-6)+'L'+(cx+5)+' '+cy+'L'+(cx-4)+' '+(cy+6)+'" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'; },
     'Tracé des coureurs et sens de course','');
   ['arche_depart','arche'].forEach(function(t){ if(compte[t]) ligne(t,symbType(t),PLAN_DEF[t].nom,compte[t]); });
   var nb=C.bar.length+C.anc.length;
   if(nb || C.rubM){
     titre('barrieres','Barrières et rubalise');
     if(nb) ligne('barriere',function(cx,cy){ var o=''; for(var i=-2;i<=1;i++) o+='<line x1="'+(cx+i*22+2)+'" y1="'+cy+'" x2="'+(cx+i*22+20)+'" y2="'+cy+'" stroke="'+PLAN_BARRIERE+'" stroke-width="10"/>'; return o; },
-      'Barrière municipale',nb,C.anc.length ? 'Un trait = une barrière de 2 m, dont '+C.anc.length+' pour la rubalise' : 'Un trait = une barrière de 2 m');
+      'Barrière municipale',nb);
     if(C.rubM) ligne('rubalise',function(cx,cy){ return '<line x1="'+(cx-44)+'" y1="'+cy+'" x2="'+(cx+44)+'" y2="'+cy+'" stroke="#FFFFFF" stroke-width="8"/>'+
       '<line x1="'+(cx-44)+'" y1="'+cy+'" x2="'+(cx+44)+'" y2="'+cy+'" stroke="'+PLAN_RUBALISE+'" stroke-width="8" stroke-dasharray="12 8"/>'; },
-      'Rubalise',C.rubM+' m','Nouée aux barrières d’ancrage');
+      'Rubalise',C.rubM+' m');
   }
   var mat=Object.keys(PLAN_DEF).filter(function(t){ return compte[t] && ['tente','table','info'].indexOf(PLAN_DEF[t].f)>=0; });
   if(mat.length){
     titre('materiel','Matériel');
     mat.forEach(function(t){
-      var T=VEH_TYPES[t]||{};
-      ligne(t,symbType(t),PLAN_DEF[t].nom,compte[t],/^tente_/.test(t) ? 'Barnum '+String(T.L).replace('.',',')+' × '+String(T.W).replace('.',',')+' m' : '');
+      ligne(t,symbType(t),PLAN_DEF[t].nom,compte[t]);
     });
   }
   var fl=['fl_denfert','fl_village','fl_parking','fl_depart'].filter(function(t){ return compte[t]; });
@@ -217451,7 +217450,7 @@ function planMiseEnPage(sel,orient,reg){
 function planBase(cadre,page){
   var info={}, base=zjRetoucheFond(true,cadre,1.75), ref=IMG_REF, r;
   var ch={fRues:true, fBati:true, fVeg:true, fEau:true, fEmprise:false, fRail:true, fNoms:false, plan:false, sat:false,
-    trace:true, halo:false, fleches:true, km:false, da:false, autres:false, jal:false, jalNum:false,
+    trace:false, halo:false, fleches:false, km:false, da:false, autres:false, jal:false, jalNum:false,
     bar:false, rub:false, mat:false, veh:false, pol:false, zones:false, pois:false, piste:false,
     cTitre:false, cChiffres:false, cEchelle:false, cNord:false, clair:true, dessin:true, couleur:'#1D4ED8', cadre:cadre, taille:1,
     retouche:function(c,kk,m){
@@ -217520,6 +217519,20 @@ function planCalque(E){
     g.appendChild(el('path',{d:d, fill:z.couleur, 'fill-opacity':z.zsv ? 0.1 : 0.13, stroke:z.couleur, 'stroke-width':(3.5/kk).toFixed(4),
       'stroke-dasharray':(16/kk).toFixed(4)+' '+(9/kk).toFixed(4), 'stroke-linejoin':'round', 'pointer-events':'none'}));
   });
+  /* tracé : trait bleu et chevrons blancs, exactement comme dans la légende */
+  if(POLY.length>1){
+    var dT='', iT;
+    for(iT=0;iT<POLY.length;iT++) dT+=(iT?'L':'M')+px[POLY[iT]].toFixed(2)+' '+py[POLY[iT]].toFixed(2);
+    g.appendChild(el('path',{d:dT, fill:'none', stroke:'#1D4ED8', 'stroke-width':(12/kk).toFixed(4), 'stroke-linejoin':'round', 'stroke-linecap':'round', 'pointer-events':'none'}));
+    var cad=E.cadre, pasT=80/kk*E.base.m, totT=CUM[POLY.length-1], gc=el('g',{'pointer-events':'none'});
+    for(var dd=pasT*0.5; dd<totT; dd+=pasT){
+      var pT=pointADistance(dd), aT=pointADistance(Math.max(0,dd-1)), bT=pointADistance(Math.min(totT,dd+1));
+      if(pT.x<cad[0] || pT.x>cad[2] || pT.y<cad[1] || pT.y>cad[3]) continue;
+      gc.appendChild(el('path',{d:'M-4 -6L5 0L-4 6', fill:'none', stroke:'#FFFFFF', 'stroke-width':3, 'stroke-linecap':'round', 'stroke-linejoin':'round',
+        transform:'translate('+pT.x.toFixed(3)+' '+pT.y.toFixed(3)+') rotate('+(Math.atan2(bT.y-aT.y,bT.x-aT.x)*180/Math.PI).toFixed(1)+') scale('+(1.2/kk).toFixed(5)+')'}));
+    }
+    g.appendChild(gc);
+  }
   C.rub.forEach(function(r){
     var d=r.pts.map(function(p,i){ return (i?'L':'M')+X(p[1]).toFixed(3)+' '+Y(p[0]).toFixed(3); }).join(''), w=(0.55*reg.B*u).toFixed(4);
     g.appendChild(el('path',{d:d, fill:'none', stroke:'#FFFFFF', 'stroke-width':w, 'stroke-linejoin':'round', 'pointer-events':'none'}));
@@ -217535,30 +217548,39 @@ function planCalque(E){
   g.appendChild(bar);
   var ordre=Object.keys(PLAN_DEF);
   C.veh.slice().sort(function(a,b){ return ordre.indexOf(a.t)-ordre.indexOf(b.t); }).forEach(function(v){
-    var T=VEH_TYPES[v.t]||{L:2,W:1}, droit=(PLAN_DEF[v.t].f==='bulle'), k=planCleEl(v), ang=droit?0:v.ang;
+    var k=planCleEl(v);
+    if((reg.el[k]||{}).cache) return;                 /* retiré du plan seul */
     var w=el('g',{'data-k':k, style:'cursor:move'});
-    var s=planSymbole(v.t,T.L,T.W,ang);
-    s.insertBefore(el('circle',{cx:0, cy:0, r:planRayon(v.t).toFixed(2), fill:'#000000', 'fill-opacity':0, 'class':'pl-prise'}),s.firstChild);
-    w.appendChild(s);
     g.appendChild(w);
-    E.dom.elems[k]={v:v, g:w, ang:ang};
+    E.dom.elems[k]={v:v, g:w, ang:(PLAN_DEF[v.t].f==='bulle') ? 0 : (+v.ang||0), flip:null};
     planPlacer(E,k);
   });
   /* noms de rues déplacés */
   Array.prototype.slice.call(E.dom.carte.querySelectorAll('[data-rue]')).forEach(function(r){
-    var o=reg.rues[r.getAttribute('data-rue')];
-    r.setAttribute('transform',o ? 'translate('+o.dx.toFixed(3)+' '+o.dy.toFixed(3)+')' : '');
+    var o=reg.rues[r.getAttribute('data-rue')]||{};
+    r.setAttribute('transform','translate('+(o.dx||0).toFixed(3)+' '+(o.dy||0).toFixed(3)+')');
+    if(o.cache) r.setAttribute('display','none'); else r.removeAttribute('display');
     r.style.cursor='move';
   });
 }
 function planPlacer(E,k){
   var e=E.dom.elems[k];
   if(!e) return;
-  var o=E.reg.el[k]||{}, u=1/E.base.m, sc=u*E.reg.G*(o.f||1);
-  e.g.setAttribute('transform','translate('+(X(e.v.lo)+(o.dx||0)).toFixed(3)+' '+(Y(e.v.la)+(o.dy||0)).toFixed(3)+') rotate('+e.ang+') scale('+sc.toFixed(5)+')');
+  var o=E.reg.el[k]||{}, u=1/E.base.m, sc=u*E.reg.G*(o.f||1), tot=e.ang+(o.r||0), a=((tot%360)+360)%360, flip=(a>90 && a<270);
+  /* le pictogramme est refait quand son texte passerait tête en bas */
+  if(flip!==e.flip){
+    while(e.g.firstChild) e.g.removeChild(e.g.firstChild);
+    var T=VEH_TYPES[e.v.t]||{L:2,W:1}, s=planSymbole(e.v.t,T.L,T.W,tot);
+    s.insertBefore(el('circle',{cx:0, cy:0, r:planRayon(e.v.t).toFixed(2), fill:'#000000', 'fill-opacity':0, 'class':'pl-prise'}),s.firstChild);
+    e.g.appendChild(s); e.flip=flip;
+  }
+  e.g.setAttribute('transform','translate('+(X(e.v.lo)+(o.dx||0)).toFixed(3)+' '+(Y(e.v.la)+(o.dy||0)).toFixed(3)+') rotate('+tot.toFixed(1)+') scale('+sc.toFixed(5)+')');
 }
 function planLegende(E){
-  var g=E.dom.legende, I=planLegendeItems(E.C,E.reg);
+  var g=E.dom.legende, C2={}, p;
+  for(p in E.C) C2[p]=E.C[p];
+  C2.veh=E.C.veh.filter(function(v){ return !(E.reg.el[planCleEl(v)]||{}).cache; });   /* les retirés ne sont plus comptés */
+  var I=planLegendeItems(C2,E.reg);
   g.innerHTML=planLegendeSVG(I,E.page.leg,E.base.m/E.base.kk);
   E.items=I;
 }
@@ -217591,9 +217613,10 @@ function planExporter(E){
     return planPngDpi(img.blob,A4.dpi).then(function(b){ return {blob:b, l:img.l, h:img.h, svg:txt, orientation:pg.o}; });
   });
 }
+/* le fichier porte le titre donné au plan (ou le titre par défaut) */
 function planNomFichier(E){
-  var n=planNoms(E.C,E.cadre), nom=(n.length ? n.join(', ') : 'zone choisie').replace(/[\\/:*?"<>|]/g,'').slice(0,80);
-  return ((window.PROJET && PROJET.nomFichier) || 'Corrida 2027')+' - plan d’implantation - '+nom+' - parcours '+nomParcours()+'.png';
+  var t=(E.reg.titre || planTitreDefaut()).replace(/\s*·\s*/g,' - ').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().slice(0,150);
+  return (t || 'plan d’implantation')+'.png';
 }
 /* sans éditeur (essais) : plan de la zone avec les réglages retenus */
 CARTE.planImplantation=function(sel,orient){
@@ -217666,13 +217689,13 @@ function construireEditeur(){
       '<label class="pe-c">Orientation<select data-c="orient"><option value="auto">Automatique</option><option value="paysage">A4 paysage</option><option value="portrait">A4 portrait</option></select></label>'+
       '<label class="pe-c">Taille de tous les éléments<span class="pe-l"><input type="range" data-c="G" min="0.6" max="3.5" step="0.05"><output data-o="G"></output></span></label>'+
       '<label class="pe-c">Épaisseur des barrières et de la rubalise<span class="pe-l"><input type="range" data-c="B" min="0.5" max="4" step="0.1"><output data-o="B"></output></span></label>'+
-      '<div class="pe-sel" hidden></div>'+
+      '<div class="pe-sel" hidden></div><div class="pe-ret"></div>'+
       '<h3>Zones</h3><ul class="pe-zones"></ul>'+
       '<label class="pe-l" style="font-size:12px"><input type="checkbox" data-c="zedit"> Modifier les formes des zones</label>'+
       '<small>Formes modifiées : coins à tirer, « + » pour ajouter un coin, double-clic ou clic droit pour en retirer un. La zone change aussi sur la carte (Ctrl+Z sur la carte pour revenir).</small>'+
       '<h3>Légende</h3><ul class="pe-leg"></ul>'+
       '<button data-a="raz">Tout réinitialiser (tailles, positions, intitulés)</button>'+
-      '<p class="pe-aide">Molette : zoom · glisser le fond : se déplacer · glisser un élément, une bulle ou un nom de rue : le déplacer sur le plan seulement (la carte ne change pas) · clic sur un élément : régler sa taille.</p>'+
+      '<p class="pe-aide">Molette : zoom · glisser le fond : se déplacer · glisser un élément, une bulle ou un nom de rue : le déplacer · clic sur un élément : sa taille, la poignée ronde (ou R, Maj+R) pour le faire pivoter, Suppr pour le retirer. Tout cela ne vaut que pour le plan : la carte et la 3D ne changent pas.</p>'+
     '</div>';
   document.body.appendChild(box);
   PE.box=box;
@@ -217715,25 +217738,53 @@ function remplirPanneau(){
     li.innerHTML='<input type="text" data-leg="'+planEsc(it.cle)+'" placeholder="'+planEsc(it.def)+'" value="'+planEsc(v)+'">';
     ul.appendChild(li);
   });
+  /* éléments et noms de rues retirés de ce plan, à remettre */
+  var ret=b.querySelector('.pe-ret'), L=[], ici={};
+  PE.C.veh.forEach(function(v){ ici[planCleEl(v)]=1; });
+  Object.keys(r.el).forEach(function(k){ if(r.el[k].cache && ici[k]){ var t=k.split('@')[0]; L.push({k:k, n:(PLAN_DEF[t]||{nom:t}).nom}); } });
+  Object.keys(r.rues).forEach(function(n){ if(r.rues[n].cache) L.push({k:'rue:'+n, n:'Nom de rue : '+n}); });
+  ret.innerHTML=L.length ? '<h3>Retirés du plan ('+L.length+')</h3><ul class="pe-zones">'+L.map(function(x){
+    return '<li><span style="flex:1">'+planEsc(x.n)+'</span><button data-a="remettre" data-k="'+planEsc(x.k)+'">Remettre</button></li>'; }).join('')+'</ul>' : '';
   majSelection();
+}
+function retirerDuPlan(k){
+  if(k.indexOf('rue:')===0){ var n=k.slice(4); PE.reg.rues[n]=Object.assign({},PE.reg.rues[n]||{},{cache:true}); }
+  else PE.reg.el[k]=Object.assign({},PE.reg.el[k]||{},{cache:true});
+  PE.selK=null;
+  rafraichir({calque:1, legende:1, panneau:1});
+  peDire('Retiré du plan (toujours sur la carte et en 3D). « Remettre » dans la liste pour l’afficher de nouveau.');
+}
+function tourner(k,d,abs){
+  if(!k || k.indexOf('rue:')===0 || !PE.dom.elems[k]) return;
+  var o=PE.reg.el[k]=PE.reg.el[k]||{}, r=abs ? d : (o.r||0)+d;
+  r=((r+180)%360+360)%360-180;
+  o.r=Math.round(r);
+  if(!o.r) delete o.r;
+  planPlacer(PE,k); majEdition();
+  var ip=PE.box.querySelector('.pe-sel [data-c="r"]'), op=PE.box.querySelector('.pe-sel [data-o="r"]');
+  if(ip) ip.value=o.r||0; if(op) op.textContent=(o.r||0)+'°';
+  planRetenir(PE.reg);
 }
 function majSelection(){
   var p=PE.box.querySelector('.pe-sel'), k=PE.selK;
   if(!k){ p.hidden=true; p.innerHTML=''; majEdition(); return; }
   p.hidden=false;
   if(k.indexOf('rue:')===0){
-    p.innerHTML='<b>Nom de rue : '+planEsc(k.slice(4))+'</b><div class="pe-l"><button data-a="sel-place">Remettre à sa place</button><button data-a="sel-x">Fermer</button></div>';
+    p.innerHTML='<b>Nom de rue : '+planEsc(k.slice(4))+'</b><div class="pe-l"><button data-a="sel-place">Remettre à sa place</button><button data-a="sel-suppr">🗑 Retirer du plan</button><button data-a="sel-x">Fermer</button></div>';
   } else {
     var e=PE.dom.elems[k], o=PE.reg.el[k]||{}, f=o.f||1;
     if(!e){ PE.selK=null; p.hidden=true; return; }
     p.innerHTML='<b>'+planEsc(PLAN_DEF[e.v.t].nom)+'</b>'+
       '<label class="pe-c">Taille de cet élément<span class="pe-l"><input type="range" data-c="f" min="0.3" max="3" step="0.05" value="'+f+'"><output data-o="f">×'+f.toFixed(2)+'</output></span></label>'+
-      '<div class="pe-l"><button data-a="sel-place">Remettre à sa place</button><button data-a="sel-taille">Taille d’origine</button><button data-a="sel-x">Fermer</button></div>';
+      '<label class="pe-c">Rotation<span class="pe-l"><button data-a="rot-" title="−15° (Maj+R)">⟲</button><input type="range" data-c="r" min="-180" max="180" step="1" value="'+(o.r||0)+'"><button data-a="rot+" title="+15° (R)">⟳</button><output data-o="r">'+(o.r||0)+'°</output></span></label>'+
+      '<div class="pe-l"><button data-a="sel-place">Remettre à sa place</button><button data-a="sel-taille">Taille d’origine</button><button data-a="sel-rot0">Orientation d’origine</button></div>'+
+      '<div class="pe-l"><button data-a="sel-suppr">🗑 Retirer du plan</button><button data-a="sel-x">Fermer</button></div>'+
+      '<small>Retiré du plan seulement : il reste sur la carte et en 3D.</small>';
   }
   majEdition();
 }
 /* poignées de l'édition (hors de l'image téléchargée) : élément choisi, coins des zones */
-function rayonPx(px){ var r=PE.svg.getBoundingClientRect(); return px*Math.max(PE.vb.w/r.width,PE.vb.h/r.height)/PE.base.kk; }
+function rayonPx(px){ var r=PE.svg.getBoundingClientRect(), w=r.width||1200, h=r.height||850; return px*Math.max(PE.vb.w/w,PE.vb.h/h)/PE.base.kk; }
 function majEdition(){
   if(!PE || !PE.dom) return;
   var g=PE.dom.edit;
@@ -217741,8 +217792,16 @@ function majEdition(){
   var k=PE.selK;
   if(k && k.indexOf('rue:')!==0 && PE.dom.elems[k]){
     var e=PE.dom.elems[k], o=PE.reg.el[k]||{}, R=planRayon(e.v.t)*PE.reg.G*(o.f||1)/PE.base.m+rayonPx(6);
-    g.appendChild(el('circle',{cx:(X(e.v.lo)+(o.dx||0)).toFixed(3), cy:(Y(e.v.la)+(o.dy||0)).toFixed(3), r:R.toFixed(3), fill:'none', stroke:'#6B3FA0',
+    var cx=X(e.v.lo)+(o.dx||0), cy=Y(e.v.la)+(o.dy||0), ar=(e.ang+(o.r||0))*Math.PI/180, L2=R+rayonPx(22);
+    g.appendChild(el('circle',{cx:cx.toFixed(3), cy:cy.toFixed(3), r:R.toFixed(3), fill:'none', stroke:'#6B3FA0',
       'stroke-width':rayonPx(2.5).toFixed(4), 'stroke-dasharray':rayonPx(7).toFixed(3)+' '+rayonPx(5).toFixed(3), 'pointer-events':'none'}));
+    /* poignée ronde à tirer pour faire pivoter */
+    g.appendChild(el('line',{x1:(cx+Math.cos(ar)*R).toFixed(3), y1:(cy+Math.sin(ar)*R).toFixed(3), x2:(cx+Math.cos(ar)*L2).toFixed(3), y2:(cy+Math.sin(ar)*L2).toFixed(3),
+      stroke:'#6B3FA0', 'stroke-width':rayonPx(2.5).toFixed(4), 'pointer-events':'none'}));
+    var hR=el('circle',{'data-rot':k, cx:(cx+Math.cos(ar)*L2).toFixed(3), cy:(cy+Math.sin(ar)*L2).toFixed(3), r:rayonPx(9).toFixed(4), fill:'#6B3FA0',
+      stroke:'#FFFFFF', 'stroke-width':rayonPx(2.5).toFixed(4), style:'cursor:grab'});
+    var tt=el('title',{}); tt.textContent='Tirer pour faire pivoter (par pas de 5°, Alt : libre)'; hR.appendChild(tt);
+    g.appendChild(hR);
   }
   if(k && k.indexOf('rue:')===0){
     var rg=PE.dom.carte.querySelector('[data-rue="'+k.slice(4).replace(/"/g,'\\"')+'"]');
@@ -217813,6 +217872,15 @@ function clicPanneau(ev){
     rafraichir({calque:1});
   }
   else if(a==='sel-taille' && k && PE.reg.el[k]){ delete PE.reg.el[k].f; rafraichir({calque:1}); }
+  else if(a==='sel-rot0' && k){ tourner(k,0,true); }
+  else if((a==='rot+' || a==='rot-') && k){ tourner(k,a==='rot+' ? 15 : -15); }
+  else if(a==='sel-suppr' && k){ retirerDuPlan(k); }
+  else if(a==='remettre'){
+    var kr=b.dataset.k;
+    if(kr.indexOf('rue:')===0){ if(PE.reg.rues[kr.slice(4)]) delete PE.reg.rues[kr.slice(4)].cache; }
+    else if(PE.reg.el[kr]) delete PE.reg.el[kr].cache;
+    rafraichir({calque:1, legende:1, panneau:1});
+  }
   else if(a==='zp' || a==='zm') zoomer(a==='zp' ? 1/1.4 : 1.4, null);
   else if(a==='zt'){ PE.vb={x:0, y:0, w:PE.page.W, h:PE.page.H}; majVue(); }
 }
@@ -217828,6 +217896,7 @@ function saisiePanneau(ev){
     o.f=+t.value; t.parentNode.querySelector('output').textContent='×'+(+t.value).toFixed(2);
     planPlacer(PE,PE.selK); majEdition(); planRetenir(PE.reg);
   }
+  else if(c==='r' && PE.selK){ tourner(PE.selK,+t.value,true); }
   else if(c==='zedit'){ PE.zonesEdit=t.checked; majEdition(); }
   else if(t.dataset.z && ev.type==='change'){
     PE.reg.caches[t.dataset.z]=t.checked ? 0 : 1;
@@ -217861,8 +217930,11 @@ function brancherVue(vue){
   vue.addEventListener('pointerdown',function(ev){
     if(!PE || ev.button!==0 || !svgEl().contains(ev.target)) return;
     ev.preventDefault();
-    var t=ev.target, a=t.closest('[data-anc]'), mi=t.closest('[data-mil]'), e=t.closest('[data-k]'), r=t.closest('[data-rue]');
-    if(a && PE.zonesEdit){
+    var t=ev.target, a=t.closest('[data-anc]'), mi=t.closest('[data-mil]'), e=t.closest('[data-k]'), r=t.closest('[data-rue]'), ro=t.closest('[data-rot]');
+    if(ro){
+      var kr=ro.getAttribute('data-rot'), er=PE.dom.elems[kr], or=PE.reg.el[kr]||{};
+      G={m:'rot', k:kr, c:{x:X(er.v.lo)+(or.dx||0), y:Y(er.v.la)+(or.dy||0)}, ang:er.ang};
+    } else if(a && PE.zonesEdit){
       var z=a.__z, i=+a.getAttribute('data-anc'), now=Date.now();
       if(PE.dbl && PE.dbl.z===z && PE.dbl.i===i && now-PE.dbl.t<420){ PE.dbl=null; retirerCoin(z,i); return; }
       PE.dbl={z:z, i:i, t:now};
@@ -217896,8 +217968,12 @@ function brancherVue(vue){
       var w=versMonde(ev), o=PE.reg.el[G.k]=PE.reg.el[G.k]||{};
       o.dx=G.dx+w.x-G.w0.x; o.dy=G.dy+w.y-G.w0.y;
       planPlacer(PE,G.k); majEdition();
+    } else if(G.m==='rot'){
+      var wr=versMonde(ev), an=Math.atan2(wr.y-G.c.y,wr.x-G.c.x)*180/Math.PI-G.ang;
+      if(!ev.altKey) an=Math.round(an/5)*5;
+      tourner(G.k,an,true);
     } else if(G.m==='rue'){
-      var w2=versMonde(ev), o2=PE.reg.rues[G.n]={dx:G.dx+w2.x-G.w0.x, dy:G.dy+w2.y-G.w0.y};
+      var w2=versMonde(ev), o2=PE.reg.rues[G.n]=Object.assign({},PE.reg.rues[G.n]||{},{dx:G.dx+w2.x-G.w0.x, dy:G.dy+w2.y-G.w0.y});
       G.g.setAttribute('transform','translate('+o2.dx.toFixed(3)+' '+o2.dy.toFixed(3)+')'); majEdition();
     } else if(G.m==='coin'){
       var w3=versMonde(ev);
@@ -217950,6 +218026,10 @@ window.addEventListener('keydown',function(ev){
   if(!PE) return;
   var t=ev.target, champ=t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.tagName==='SELECT');
   if(ev.key==='Escape' && !champ){ ev.preventDefault(); ev.stopImmediatePropagation(); fermerEditeurPlan(); return; }
+  if(!champ && PE.selK){
+    if(ev.key==='Delete' || ev.key==='Backspace'){ ev.preventDefault(); ev.stopImmediatePropagation(); retirerDuPlan(PE.selK); return; }
+    if((ev.key==='r' || ev.key==='R') && !ev.ctrlKey && !ev.metaKey){ ev.preventDefault(); ev.stopImmediatePropagation(); tourner(PE.selK,ev.shiftKey ? -15 : 15); return; }
+  }
   if(!champ) ev.stopImmediatePropagation();
 },true);
 
