@@ -210992,7 +210992,43 @@ function ouvrirExport(){
     (GPX.match(/<trkpt/g)||[]).length+' points de trace. Fichier GPX de '+ko+' Ko.';
   direExport('','');
   modale.hidden=false;
-  sortie.focus(); sortie.select();
+  telechargerGPX();
+}
+/* Téléchargement d'un fichier texte : par la capacité claude.ai quand elle existe,
+   sinon (lien public GitHub Pages, clé USB, téléphone) par un lien de téléchargement local. */
+function nomFichierExport(ext){
+  var f=String((window.PROJET && (PROJET.fichier||PROJET.id)) || 'parcours');
+  var p=(typeof PARC!=='undefined' && PARC && PARC.liste && PARC.liste[PARC.actif]) ? PARC.liste[PARC.actif].nom : '';
+  p=String(p||'').normalize('NFD').replace(/\p{M}/gu,'').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  return f+(p ? '-parcours-'+p : '')+'.'+ext;
+}
+function telechargerLocal(nom,texte,type){
+  var b=new Blob([texte],{type:type});
+  if(window.navigator && navigator.msSaveOrOpenBlob){ navigator.msSaveOrOpenBlob(b,nom); return; }
+  var u=URL.createObjectURL(b), a=document.createElement('a');
+  a.href=u; a.download=nom; a.rel='noopener'; a.style.display='none';
+  document.body.appendChild(a); a.click(); a.parentNode.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(u); },30000);
+}
+function telechargerTexteExport(nom,texte,type){
+  if(CAPS.downloads){
+    return CAPS.downloads.save({filename:nom,data:texte}).catch(function(err){
+      if(err && err.code==='declined') throw err;
+      telechargerLocal(nom,texte,type); return 'local';
+    });
+  }
+  try{ telechargerLocal(nom,texte,type); return Promise.resolve('local'); }
+  catch(e){ return Promise.reject({code:'local'}); }
+}
+function telechargerGPX(){
+  var nom=nomFichierExport('gpx');
+  direExport('Téléchargement de '+nom+'…','');
+  telechargerTexteExport(nom,GPX,'application/gpx+xml')
+    .then(function(){ direExport('Fichier '+nom+' téléchargé (dossier Téléchargements). Importe-le dans Garmin Connect (Entraînement > Parcours > Importer) ou ouvre-le depuis ton téléphone.','ok'); })
+    .catch(function(err){
+      if(err && err.code==='declined') direExport('Téléchargement annulé.','');
+      else direExport('Téléchargement impossible dans ce navigateur. Utilise « Copier le texte » puis colle-le dans un fichier '+nom+'.','err');
+    });
 }
 document.getElementById('b-gpx').onclick=function(){ if(WP.length<2){ dire('Pas encore de tracé à exporter.','err'); return; } ouvrirExport(); };
 document.getElementById('m-fermer').onclick=function(){ modale.hidden=true; };
@@ -211000,7 +211036,7 @@ modale.addEventListener('click',function(ev){ if(ev.target===modale) modale.hidd
 document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') modale.hidden=true; });
 document.getElementById('m-copier').onclick=function(){
   sortie.focus(); sortie.select();
-  var fini=function(ok){ direExport(ok?'GPX copié. Colle-le dans un fichier nommé corrida-2027.gpx.':'Copie automatique refusée par le navigateur : le texte est sélectionné ci-dessous, fais Ctrl+C.', ok?'ok':''); };
+  var fini=function(ok){ direExport(ok?'GPX copié. Colle-le dans un fichier nommé '+nomFichierExport('gpx')+'.':'Copie automatique refusée par le navigateur : le texte est sélectionné ci-dessous, fais Ctrl+C.', ok?'ok':''); };
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(GPX).then(function(){fini(true);},function(){ fini(false); });
   } else {
@@ -211009,24 +211045,11 @@ document.getElementById('m-copier').onclick=function(){
     fini(ok);
   }
 };
-document.getElementById('m-dl').onclick=function(){
-  if(!CAPS.downloads){ direExport('Le téléchargement n’est pas disponible dans cette vue. Utilise la copie ci-dessous.','err'); return; }
-  direExport('Téléchargement…','');
-  CAPS.downloads.save({filename:'corrida-2027-ensoa.gpx',data:GPX})
-    .then(function(){ direExport('Fichier enregistré. Importe-le dans Garmin Connect (Entraînement > Parcours > Importer) ou ouvre-le depuis ton téléphone.','ok'); })
-    .catch(function(err){
-      var c=err&&err.code;
-      if(c==='declined') direExport('Téléchargement annulé.','');
-      else if(c==='rejected_extension'||c==='extension_not_enabled')
-        direExport('Ce navigateur refuse le format .gpx en téléchargement direct. Utilise « Copier » ci-dessous, puis colle dans un fichier corrida-2027.gpx.','err');
-      else direExport('Téléchargement impossible ('+(c||'erreur')+'). Utilise « Copier » ci-dessous.','err');
-    });
-};
+document.getElementById('m-dl').onclick=function(){ telechargerGPX(); };
 document.getElementById('b-dl').onclick=function(){
   if(WP.length<2){ dire('Pas encore de tracé à exporter.','err'); return; }
-  if(!CAPS.downloads){ dire('Le téléchargement n’est pas disponible dans cette vue.','err'); return; }
-  CAPS.downloads.save({filename:'corrida-2027-ensoa.json',data:geojson()})
-    .then(function(){ dire('Fichier GeoJSON enregistré.','ok'); })
+  telechargerTexteExport(nomFichierExport('geojson'),geojson(),'application/geo+json')
+    .then(function(){ dire('Fichier GeoJSON téléchargé.','ok'); })
     .catch(function(err){
       if(err && err.code==='declined') dire('Téléchargement annulé.','');
       else dire('Téléchargement impossible ('+((err&&err.code)||'erreur')+').','err');
