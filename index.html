@@ -217037,10 +217037,13 @@ restaurerEquip=(function(orig){
 
 /* type d'une zone d'aménagement : nom et couleur d'un coup */
 var TYPES_ZONE=[['parking','Parking voitures','#3B82F6'],['village','Village (dossards, infos)','#F97316'],['finishers','Zone finishers','#22C55E'],
-  ['salle','Salle (récompenses, restauration, WC)','#A855F7'],['fermee',ZSV_NOM,ZSV_COUL],['autre','Autre','#64748B']];
+  ['salle','Salle (récompenses, restauration, WC)','#A855F7'],['echauffement','Zone d’échauffement','#EAB308'],
+  ['fermee',ZSV_NOM,ZSV_COUL],['autre','Autre','#64748B']];
 function typeZone(z){
   if(z.zsv) return 'fermee';
   var n=(z.nom||'').toLowerCase();
+  /* avant « parking » : « Échauffement (ancien parking) » reste un échauffement */
+  if(/échauffement|echauffement/.test(n)) return 'echauffement';
   if(/parking/.test(n)) return 'parking';
   if(/village|dossard/.test(n)) return 'village';
   if(/finisher/.test(n)) return 'finishers';
@@ -217063,6 +217066,7 @@ function changerTypeZone(z,t){
   outilsZJ.__z=undefined;
   zjChoisir(nz);
   zjModifiee(); majEquip();
+  return nz;
 }
 var _majOutilsZJ48=majOutilsZJ;
 majOutilsZJ=function(){
@@ -217174,6 +217178,49 @@ function majListeZAM(){
 var _majListeZJ48=majListeZJ;
 majListeZJ=function(){ _majListeZJ48(); majListeZAM(); };
 setTimeout(majListeZAM,200);
+
+/* ================= zones modifiables depuis la 3D (25 nov. 2026) =================
+   La 3D (Poser › Zones) dessine, déforme, déplace, retype, renomme et supprime
+   les zones d'aménagement et les zones fermées à la circulation. Tout passe par
+   ici : même enregistrement, même Ctrl+Z et même dessin que sur la carte. La 3D
+   modifie directement z.pts ([[la,lo],…]) puis appelle CARTE.zoneModifiee(z). */
+CARTE.typesZone=function(){ return TYPES_ZONE.map(function(t){ return {id:t[0], nom:t[1], couleur:t[2]}; }); };
+CARTE.typeZone=function(z){ return z ? typeZone(z) : 'autre'; };
+CARTE.zones=function(){ return ZAM.concat(zsvObjets()); };
+CARTE.nomZone=function(z){ return !z ? '' : (z.zsv ? ZSV_NOM+' '+(ZSVO.indexOf(z)+1) : z.nom); };
+CARTE.surfaceZone=function(z){ return z ? Math.round(zjSurface(z)) : 0; };
+CARTE.zoneModifiee=function(z){
+  dessinerZJ(); zjModifiee();
+  if(z && SELZ===z){ outilsZJ.__z=undefined; majOutilsZJ(); }
+};
+CARTE.ajouterZone=function(t,pts){
+  var T=TYPES_ZONE.filter(function(x){ return x[0]===t; })[0] || TYPES_ZONE[TYPES_ZONE.length-1];
+  var P=(pts||[]).map(function(p){ return [+(+p[0]).toFixed(6), +(+p[1]).toFixed(6)]; }), z;
+  if(P.length<3) return null;
+  if(T[0]==='fermee'){
+    var f=[]; P.forEach(function(p){ f.push(p[0],p[1]); });
+    ZSV.push(f); z=zsvObjets()[ZSVO.length-1];
+  } else {
+    z={nom:(T[0]==='autre' ? 'Zone d’aménagement' : T[1]), couleur:T[2], pts:P, chef:'', tel:'', notes:'', wa:'', mat:[], am:true};
+    ZAM.push(z);
+  }
+  dessinerZJ(); zjModifiee(); majEquip();
+  return z;
+};
+CARTE.supprimerZone=function(z){ if(z) zjSupprimer(z); };
+CARTE.changerTypeZone=function(z,t){ return z ? (changerTypeZone(z,t) || z) : null; };
+CARTE.renommerZone=function(z,nom){
+  nom=String(nom||'').trim();
+  if(!z || z.zsv || !nom || nom===z.nom) return;
+  z.nom=nom; CARTE.zoneModifiee(z);
+};
+CARTE.colorierZone=function(z,c){
+  if(!z || z.zsv || !/^#[0-9a-fA-F]{6}$/.test(c||'') || c===z.couleur) return;
+  z.couleur=c; CARTE.zoneModifiee(z);
+};
+/* toute modification de zone, sur la carte ou en 3D, prévient la 3D (voitures, contours) */
+var _zjModifiee49=zjModifiee;
+zjModifiee=function(){ _zjModifiee49(); signaler3D('zones'); };
 
 /* ================= plan d'implantation ================= */
 var PLAN_DEF={

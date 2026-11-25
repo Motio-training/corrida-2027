@@ -31770,4 +31770,811 @@ function curseurDetail48(){
   r.addEventListener('input',function(){ v.textContent=r.value+' %'; b.disabled=(+r.value===DETAIL48); });
   b.addEventListener('click',function(){ if(window.PROJETS_RECONSTRUIRE3D) window.PROJETS_RECONSTRUIRE3D(+r.value); });
 }
+/* =================================================================
+   49. Zones modifiables dans la 3D (25 nov. 2026), menu Poser › Zones.
+   Les zones d'aménagement (parking, village, finishers, salle,
+   échauffement, autre) et les zones fermées à la circulation se
+   dessinent coin par coin dans la scène, se déforment (coins blancs,
+   « + » pour ajouter un coin), se déplacent (losange central), changent
+   de type, de nom ou de couleur, ou disparaissent. Tout passe par
+   CARTE.zones*, donc la carte, l'enregistrement et Ctrl+Z suivent.
+   Voitures : une zone « parking » se garnit de voitures en épi, refaites
+   dès qu'elle change ; les zones fermées, d'échauffement, village,
+   finishers et salle n'ont ni voiture garée ni circulation ; « autre »
+   laisse la ville comme elle est.
+================================================================= */
+var ZN={actif:false, dessin:null, sel:null, drag:null, bas:null, groupe:null, apercu:null, objs:new Map(),
+  cle:'', poignees:[], tm:0, tc:0, typeNouveau:'echauffement', tex:{}, mats:{}, minut:0, curseur:false};
+var ZN_SANS_VOITURE={fermee:1, echauffement:1, village:1, finishers:1, salle:1};
+function zonesListe49(){ try{ return (window.CARTE && CARTE.zones) ? CARTE.zones() : []; }catch(e){ return []; } }
+function typeZone49(z){
+  if(!z) return 'autre';
+  try{ if(window.CARTE && CARTE.typeZone) return CARTE.typeZone(z); }catch(e){}
+  if(z.zsv) return 'fermee';
+  return /parking/i.test(z.nom||'') ? 'parking' : 'autre';
+}
+function typesZone49(){
+  try{ if(CARTE.typesZone) return CARTE.typesZone(); }catch(e){}
+  return [{id:'parking', nom:'Parking voitures', couleur:'#3B82F6'},{id:'autre', nom:'Autre', couleur:'#64748B'}];
+}
+function nomType49(t){ var T=typesZone49().filter(function(x){ return x.id===t; })[0]; return T ? T.nom : 'Autre'; }
+function nomZone49(z){ try{ return CARTE.nomZone ? CARTE.nomZone(z) : (z.nom||'Zone'); }catch(e){ return (z && z.nom)||'Zone'; } }
+function ptsMonde49(z){ var P=[]; (z.pts||[]).forEach(function(q){ P.push(pX(+q[1]),pZ(+q[0])); }); return P; }
+function aire49(P){ var a=0, n=P.length/2; for(var i=0,j=n-1;i<n;j=i++) a+=P[j*2]*P[i*2+1]-P[i*2]*P[j*2+1]; return a/2; }
+function centre49(P){
+  var n=P.length/2, a=aire49(P), cx=0, cz=0, i, j;
+  if(Math.abs(a)<1){ for(i=0;i<n;i++){ cx+=P[i*2]; cz+=P[i*2+1]; } return [cx/n, cz/n]; }
+  for(i=0,j=n-1;i<n;j=i++){ var f=P[j*2]*P[i*2+1]-P[i*2]*P[j*2+1]; cx+=(P[j*2]+P[i*2])*f; cz+=(P[j*2+1]+P[i*2+1])*f; }
+  return [cx/(6*a), cz/(6*a)];
+}
+function surface49(z){ try{ if(CARTE.surfaceZone) return CARTE.surfaceZone(z); }catch(e){} return Math.round(Math.abs(aire49(ptsMonde49(z)))); }
+function texteSurface49(a){ return a>=10000 ? (a/10000).toFixed(2).replace('.',',')+' ha' : a.toLocaleString('fr-FR')+' m²'; }
+function echap49(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ---------------- zones sans voitures : fermées + types sans voitures ---------------- */
+lireZSV=function(forcer){
+  var L=[];
+  try{ L=(window.CARTE && CARTE.zonesSansVoiture) ? (CARTE.zonesSansVoiture()||[]).slice() : []; }catch(e){}
+  try{
+    (CARTE.zonesAmenagement ? CARTE.zonesAmenagement() : []).forEach(function(z){
+      if(!z || !z.pts || z.pts.length<3 || !ZN_SANS_VOITURE[typeZone49(z)]) return;
+      var f=[]; z.pts.forEach(function(q){ f.push(+q[0],+q[1]); }); L.push(f);
+    });
+  }catch(e){}
+  var cle=JSON.stringify(L);
+  if(!forcer && cle===ZSV3.cle) return false;
+  ZSV3.cle=cle;
+  ZSV3.polys=L.map(function(f){
+    var p=[], x0=1e9, x1=-1e9, z0=1e9, z1=-1e9;
+    for(var i=0;i+1<f.length;i+=2){
+      var x=pX(+f[i+1]), z=pZ(+f[i]);
+      p.push(x,z);
+      if(x<x0) x0=x; if(x>x1) x1=x; if(z<z0) z0=z; if(z>z1) z1=z;
+    }
+    return {p:p, x0:x0, x1:x1, z0:z0, z1:z1};
+  });
+  return true;
+};
+
+/* ---------------- voitures des zones « parking » : posées à part, refaites à chaque changement ---------------- */
+var PK49={ims:[], mods:null, cle:null};
+placerVoitures=_placerVoit47;
+function zonesParking49(){
+  var Z=[];
+  try{ Z=(CARTE.zonesAmenagement ? CARTE.zonesAmenagement() : []).filter(function(z){ return z && z.pts && z.pts.length>=3 && typeZone49(z)==='parking'; }); }catch(e){}
+  return Z;
+}
+/* rangées en épi droit le long du plus grand côté (une rangée au bord, allée de
+   6 m, deux rangées dos à dos, allée…), quatre places sur cinq occupées ; rien
+   sur le parcours, sur les allées de circulation ni contre le matériel posé */
+function slotsParking49(Z,nm){
+  var slots=[], I=IDX_SOL||(IDX_SOL=indexerChaussees(Dvoies)), veh=[], k;
+  for(k=0;k<nm;k++) slots.push([]);
+  try{ veh=(CARTE.vehicules()||[]).map(function(v){ return [pX(v.lo),pZ(v.la)]; }); }catch(e){}
+  Z.forEach(function(z){
+    var P=ptsMonde49(z), n=P.length/2, best=0, ex=1, ez=0, i;
+    var zi=Math.round(Math.abs(P[0]*7+P[1]*3))%997;
+    for(i=0;i<n;i++){
+      var j=(i+1)%n, dx=P[j*2]-P[i*2], dz=P[j*2+1]-P[i*2+1], l=Math.hypot(dx,dz);
+      if(l>best){ best=l; ex=dx/l; ez=dz/l; }
+    }
+    var nx=-ez, nz=ex, s0=1e9, s1=-1e9, t0=1e9, t1=-1e9;
+    for(i=0;i<n;i++){
+      var ps=P[i*2]*ex+P[i*2+1]*ez, pt=P[i*2]*nx+P[i*2+1]*nz;
+      s0=Math.min(s0,ps); s1=Math.max(s1,ps); t0=Math.min(t0,pt); t1=Math.max(t1,pt);
+    }
+    function dedans(x,zz){ return dansPoly(P,x,zz); }
+    var t=t0+2.6, sens=-1, ri=0;
+    while(t<t1-2.4 && ri<400){
+      for(var s=s0+1.3;s<s1-1.2;s+=2.5){
+        var x=ex*s+nx*t, zz=ez*s+nz*t;
+        if(!dedans(x+ex*1.0+nx*2.3,zz+ez*1.0+nz*2.3) || !dedans(x-ex*1.0+nx*2.3,zz-ez*1.0+nz*2.3) ||
+           !dedans(x+ex*1.0-nx*2.3,zz+ez*1.0-nz*2.3) || !dedans(x-ex*1.0-nx*2.3,zz-ez*1.0-nz*2.3)) continue;
+        if(alea(zi*131+ri*37+Math.round(s*2),ri*11+7)>0.8) continue;
+        if(bloquer(x,zz) || (TRACE.length && surLeParcours(x,zz).ecart<3.5)) continue;
+        if(I && (dansChaussee(I,x,zz,-1,0.9) || dansChaussee(I,x+nx*2.1,zz+nz*2.1,-1,0.3) || dansChaussee(I,x-nx*2.1,zz-nz*2.1,-1,0.3))) continue;
+        if(veh.some(function(v){ return Math.hypot(v[0]-x,v[1]-zz)<3.5; })) continue;
+        var a=Math.atan2(nx*sens,nz*sens)+(alea(Math.round(x*5),Math.round(zz*5))-0.5)*0.08;
+        var mi=Math.floor(alea(Math.round(x*3),Math.round(zz*3))*nm*0.9999);
+        slots[mi].push([x,zz,a]);
+      }
+      if(sens<0){ t+=11; sens=1; } else { t+=5; sens=-1; }
+      ri++;
+    }
+  });
+  return slots;
+}
+function refaireParkings49(forcer){
+  if(typeof VOIT==='undefined' || !VOIT.ims) return false;
+  if(!PK49.mods){
+    var base=VOIT.ims.filter(function(im){ return !im.userData.parking49; });
+    if(!base.length) return false;
+    PK49.mods=base.map(function(im){ return {geo:im.geometry, mat:im.material}; });
+  }
+  var Z=zonesParking49(), cle=JSON.stringify(Z.map(function(z){ return z.pts; }));
+  if(!forcer && cle===PK49.cle) return false;
+  PK49.cle=cle;
+  /* un maillage par modèle, gardé d'un changement à l'autre (avec de la marge) :
+     un maillage neuf restait invisible une à trois secondes après chaque retouche */
+  var slots=Z.length ? slotsParking49(Z,PK49.mods.length) : PK49.mods.map(function(){ return []; });
+  var ech=new THREE.Vector3(1,1,1), m4=new THREE.Matrix4(), q4=new THREE.Quaternion(), p4=new THREE.Vector3(), ay=new THREE.Vector3(0,1,0);
+  PK49.mods.forEach(function(m,mi){
+    var S=slots[mi]||[], im=PK49.ims[mi];
+    if(im && im.userData.cap<S.length){
+      monde.remove(im);
+      var i=VOIT.ims.indexOf(im); if(i>=0) VOIT.ims.splice(i,1);
+      try{ im.dispose(); }catch(e){}
+      im=PK49.ims[mi]=null;
+    }
+    if(!im){
+      if(!S.length) return;
+      var cap=Math.max(48,Math.ceil(S.length*1.6));
+      im=new THREE.InstancedMesh(m.geo,m.mat,cap);
+      im.userData.cap=cap; im.userData.parking49=true;
+      im.userData.voies=new Int32Array(cap).fill(-1);
+      im.castShadow=true; im.receiveShadow=true; im.frustumCulled=false; im.count=0;
+      monde.add(im); VOIT.ims.push(im); PK49.ims[mi]=im;
+    }
+    var A=new Float32Array(im.userData.cap*16);
+    S.forEach(function(sl,k){
+      q4.setFromAxisAngle(ay,sl[2]); p4.set(sl[0],hauteur(sl[0],sl[1])+0.16,sl[1]);
+      m4.compose(p4,q4,ech); m4.toArray(A,k*16);
+    });
+    im.userData.toutes=A; im.userData.total=S.length;
+    delete im.userData.toutesZSV;
+    im.instanceMatrix.array.set(A);
+    im.count=0;
+  });
+  VOIT.cx=1e9;
+  return true;
+}
+/* majVoitures ne recopie une voiture que si sa place change dans la liste
+   compactée autour de la caméra : une voiture retirée puis remise (zone
+   modifiée, caméra qui s'éloigne puis revient) laissait une place vide ou
+   en double. On repart de la réserve complète avant chaque recalcul. */
+var _majVoitures49=majVoitures;
+majVoitures=function(cx,cz){
+  if(VOIT.ims.length && VOIT.cx!==undefined && Math.hypot(cx-VOIT.cx,cz-VOIT.cz)>=8){
+    VOIT.ims.forEach(function(im){
+      var A=im.userData.toutes, D=im.instanceMatrix.array;
+      if(A && A.length===D.length) D.set(A);
+    });
+  }
+  return _majVoitures49.apply(this,arguments);
+};
+function voituresDans49(z){
+  var P=ptsMonde49(z), n=0;
+  PK49.ims.forEach(function(im){
+    if(!im) return;
+    var A=im.userData.toutes, t=im.userData.total||0;
+    for(var k=0;k<t;k++){ var x=A[k*16+12], zz=A[k*16+14]; if(x<1e6 && dansPoly(P,x,zz)) n++; }
+  });
+  return n;
+}
+var _majZSV49=majZSV;
+majZSV=function(forcer){
+  var p=false;
+  try{ p=refaireParkings49(forcer); }catch(e){ console.warn('parkings des zones :',e); }
+  _majZSV49(forcer);
+  if(p && !forcer) appliquerZSVGarees();
+};
+var _signaler49=window.ESPACE3D.signaler;
+window.ESPACE3D.signaler=function(t){
+  _signaler49(t);
+  if(t==='zones' || t==='equip'){
+    clearTimeout(ZN.minut);
+    ZN.minut=setTimeout(function(){
+      try{ if(construit) majZSV(false); }catch(e){ console.error('Zones sans voitures',e); }
+      try{ if(construit && ZN.actif) majZones49(false); }catch(e){ console.error('Zones 3D',e); }
+    },120);
+  }
+};
+
+/* ---------------- dessin des zones dans la scène ---------------- */
+function mat49(coul,op,bord){
+  var k=coul+'|'+op+'|'+(bord?1:0);
+  if(ZN.mats[k]) return ZN.mats[k];
+  var m=new THREE.MeshBasicMaterial({color:new THREE.Color(coul), transparent:true, opacity:op, depthWrite:false,
+    side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:bord?-6:-4, polygonOffsetUnits:bord?-6:-4});
+  return (ZN.mats[k]=m);
+}
+function y49(x,z,d){ return hauteur(x,z)+d; }
+/* surface drapée sur le relief : triangulée puis redécoupée en triangles de 3,5 m au plus */
+function geoRemplissage49(P,dy){
+  var n=P.length/2, ctr=[], i, pos=[], M2=3.5*3.5;
+  for(i=0;i<n;i++) ctr.push(new THREE.Vector2(P[i*2],P[i*2+1]));
+  var tris=[];
+  try{ tris=THREE.ShapeUtils.triangulateShape(ctr,[]); }catch(e){}
+  function d2(a,b){ return (a[0]-b[0])*(a[0]-b[0])+(a[1]-b[1])*(a[1]-b[1]); }
+  function mi(a,b){ return [(a[0]+b[0])/2,(a[1]+b[1])/2]; }
+  function poser(a,b,c){ pos.push(a[0],y49(a[0],a[1],dy),a[1], b[0],y49(b[0],b[1],dy),b[1], c[0],y49(c[0],c[1],dy),c[1]); }
+  function sub(a,b,c,d){
+    var lab=d2(a,b), lbc=d2(b,c), lca=d2(c,a), m=Math.max(lab,lbc,lca);
+    if(m<M2 || d>12 || pos.length>540000){ poser(a,b,c); return; }
+    if(m===lab){ var p=mi(a,b); sub(a,p,c,d+1); sub(p,b,c,d+1); }
+    else if(m===lbc){ var q=mi(b,c); sub(a,b,q,d+1); sub(a,q,c,d+1); }
+    else { var r=mi(c,a); sub(a,b,r,d+1); sub(r,b,c,d+1); }
+  }
+  tris.forEach(function(t){ sub([ctr[t[0]].x,ctr[t[0]].y],[ctr[t[1]].x,ctr[t[1]].y],[ctr[t[2]].x,ctr[t[2]].y],0); });
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  return g;
+}
+/* bord : ruban posé sur le relief, fermé ou non */
+function geoRuban49(P,larg,ferme,dy){
+  var n=P.length/2, pos=[], m=ferme?n:n-1;
+  for(var i=0;i<m;i++){
+    var j=(i+1)%n, ax=P[i*2], az=P[i*2+1], bx=P[j*2], bz=P[j*2+1], L=Math.hypot(bx-ax,bz-az);
+    if(L<0.01) continue;
+    var ux=(bx-ax)/L, uz=(bz-az)/L, nx=-uz*larg/2, nz=ux*larg/2, k=Math.max(1,Math.ceil(L/2));
+    for(var s=0;s<k;s++){
+      var x0=ax+(bx-ax)*s/k, z0=az+(bz-az)*s/k, x1=ax+(bx-ax)*(s+1)/k, z1=az+(bz-az)*(s+1)/k;
+      var ya=y49(x0,z0,dy), yb=y49(x1,z1,dy);
+      pos.push(x0-nx,ya,z0-nz, x0+nx,ya,z0+nz, x1+nx,yb,z1+nz, x0-nx,ya,z0-nz, x1+nx,yb,z1+nz, x1-nx,yb,z1-nz);
+    }
+  }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  return g;
+}
+function texPoignee49(genre){
+  if(ZN.tex[genre]) return ZN.tex[genre];
+  var c=document.createElement('canvas'); c.width=c.height=64;
+  var g=c.getContext('2d');
+  g.translate(32,32);
+  if(genre==='coin'){
+    g.beginPath(); g.arc(0,0,23,0,PI*2); g.fillStyle='#0E141F'; g.fill();
+    g.beginPath(); g.arc(0,0,17,0,PI*2); g.fillStyle='#FFFFFF'; g.fill();
+  } else if(genre==='plus'){
+    g.beginPath(); g.arc(0,0,18,0,PI*2); g.fillStyle='rgba(14,20,31,.82)'; g.fill();
+    g.lineWidth=3; g.strokeStyle='#FFFFFF'; g.stroke();
+    g.fillStyle='#FFFFFF'; g.fillRect(-9,-2.5,18,5); g.fillRect(-2.5,-9,5,18);
+  } else if(genre==='point'){
+    g.beginPath(); g.arc(0,0,20,0,PI*2); g.fillStyle='#0E141F'; g.fill();
+    g.beginPath(); g.arc(0,0,14,0,PI*2); g.fillStyle='#F2B33D'; g.fill();
+  } else {
+    g.rotate(PI/4); g.fillStyle='#0E141F'; g.fillRect(-19,-19,38,38);
+    g.fillStyle='#F2B33D'; g.fillRect(-13,-13,26,26);
+  }
+  var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
+  return (ZN.tex[genre]=t);
+}
+function spritePoignee49(genre,px){
+  var s=new THREE.Sprite(new THREE.SpriteMaterial({map:texPoignee49(genre), depthTest:false, depthWrite:false, transparent:true, sizeAttenuation:false, fog:false}));
+  s.renderOrder=13; s.userData.px=px; s.userData.matPropre=true;
+  return s;
+}
+function rr49(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+function etiquette49(texte,coul){
+  texte=String(texte||'Zone'); if(texte.length>44) texte=texte.slice(0,42)+'…';
+  var c=document.createElement('canvas'), g=c.getContext('2d'), F='bold 32px Arial, sans-serif';
+  g.font=F;
+  var w=Math.min(1100,Math.ceil(g.measureText(texte).width)+48);
+  c.width=w; c.height=54; g.font=F;
+  g.fillStyle='rgba(12,17,27,.9)'; rr49(g,1,1,w-2,52,12); g.fill();
+  g.fillStyle=coul; rr49(g,9,10,10,34,4); g.fill();
+  g.fillStyle='#F4F7FB'; g.textBaseline='middle'; g.fillText(texte,30,28);
+  var t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.generateMipmaps=false; t.minFilter=THREE.LinearFilter;
+  var s=new THREE.Sprite(new THREE.SpriteMaterial({map:t, depthTest:false, depthWrite:false, transparent:true, sizeAttenuation:false, fog:false}));
+  s.renderOrder=12; s.center.set(0.5,0); s.userData.px=21; s.userData.ratio=w/54; s.userData.texPropre=true; s.userData.matPropre=true;
+  return s;
+}
+function liberer49(o){
+  o.traverse(function(x){
+    if(x.isSprite){
+      if(x.userData.texPropre && x.material.map) x.material.map.dispose();
+      if(x.userData.matPropre) x.material.dispose();
+    } else if(x.geometry) x.geometry.dispose();
+  });
+}
+function majTailles49(){
+  if(!camera || !renderer) return;
+  var H=renderer.domElement.clientHeight||700, k=2*Math.tan(camera.fov*PI/360)/H;
+  [ZN.groupe,ZN.apercu].forEach(function(gr){
+    if(!gr || !gr.visible) return;
+    gr.traverse(function(s){ if(s.isSprite && s.userData.px){ var h=s.userData.px*k; s.scale.set(h*(s.userData.ratio||1),h,1); } });
+  });
+}
+function groupe49(){
+  if(!ZN.groupe){ ZN.groupe=new THREE.Group(); ZN.groupe.name='zones 49'; monde.add(ZN.groupe); }
+  return ZN.groupe;
+}
+function construireZone49(z){
+  var gr=groupe49(), o=ZN.objs.get(z);
+  if(o){ gr.remove(o.g); liberer49(o.g); }
+  var P=ptsMonde49(z);
+  if(P.length<6){ ZN.objs.delete(z); return null; }
+  var g=new THREE.Group(), coul=z.couleur||'#64748B', sel=(z===ZN.sel);
+  var f=new THREE.Mesh(geoRemplissage49(P,0.34), mat49(coul,sel?0.4:0.24,false)); f.renderOrder=6;
+  var b=new THREE.Mesh(geoRuban49(P,sel?0.9:0.55,true,0.4), mat49(coul,0.96,true)); b.renderOrder=7;
+  var c=centre49(P), lab=etiquette49(nomZone49(z),coul);
+  lab.position.set(c[0],hauteur(c[0],c[1])+(sel?3.4:2.2),c[1]);
+  g.add(f); g.add(b); g.add(lab);
+  gr.add(g);
+  o={g:g, P:P, c:c};
+  ZN.objs.set(z,o);
+  return o;
+}
+/* poignées de la zone choisie : coins, « + » au milieu des côtés, losange au centre */
+function poignees49(){
+  var gr=groupe49();
+  ZN.poignees.forEach(function(h){ gr.remove(h.s); liberer49(h.s); });
+  ZN.poignees=[];
+  var z=ZN.sel, o=z && ZN.objs.get(z);
+  if(!o) return;
+  var P=o.P, n=P.length/2, i;
+  function ajouter(genre,i,x,zz,dy,px){
+    var y=hauteur(x,zz)+dy, s=spritePoignee49(genre,px);
+    s.position.set(x,y,zz); gr.add(s);
+    ZN.poignees.push({s:s, genre:genre, i:i, x:x, y:y, z:zz});
+  }
+  for(i=0;i<n;i++){ var j=(i+1)%n; ajouter('plus',i,(P[i*2]+P[j*2])/2,(P[i*2+1]+P[j*2+1])/2,0.5,18); }
+  for(i=0;i<n;i++) ajouter('coin',i,P[i*2],P[i*2+1],0.5,20);
+  ajouter('centre',-1,o.c[0],o.c[1],1.2,24);
+  majTailles49();
+}
+function cleZones49(L){
+  return JSON.stringify(L.map(function(z){ return [z.nom,z.couleur,z.pts,!!z.zsv,z===ZN.sel]; }));
+}
+function majZones49(forcer){
+  var L=zonesListe49(), gr=groupe49();
+  if(ZN.sel && L.indexOf(ZN.sel)<0) ZN.sel=null;
+  var cle=cleZones49(L);
+  if(forcer || cle!==ZN.cle){
+    ZN.cle=cle;
+    ZN.objs.forEach(function(o,z){ if(L.indexOf(z)<0 || forcer){ gr.remove(o.g); liberer49(o.g); ZN.objs.delete(z); } });
+    L.forEach(function(z){ construireZone49(z); });
+    poignees49();
+  }
+  gr.visible=ZN.actif;
+  majTailles49();
+  majPanneauZones49();
+}
+function viderZones49(){
+  var gr=ZN.groupe;
+  if(!gr) return;
+  ZN.objs.forEach(function(o){ gr.remove(o.g); liberer49(o.g); });
+  ZN.objs.clear();
+  ZN.poignees.forEach(function(h){ gr.remove(h.s); liberer49(h.s); });
+  ZN.poignees=[];
+  ZN.cle='';
+  gr.visible=false;
+}
+
+/* ---------------- aperçu d'une zone en cours de dessin ---------------- */
+function apercu49(){
+  if(!ZN.apercu){ ZN.apercu=new THREE.Group(); ZN.apercu.name='zone en dessin'; monde.add(ZN.apercu); }
+  var A=ZN.apercu;
+  while(A.children.length){ var c=A.children[0]; A.remove(c); liberer49(c); }
+  var D=ZN.dessin;
+  A.visible=!!D;
+  if(!D) return;
+  var T=typesZone49().filter(function(x){ return x.id===D.type; })[0], coul=T ? T.couleur : '#F2B33D';
+  var P=[];
+  D.pts.forEach(function(p){ P.push(p[0],p[1]); });
+  if(D.survol) P.push(D.survol.x,D.survol.z);
+  if(P.length>=6){ var f=new THREE.Mesh(geoRemplissage49(P,0.34),mat49(coul,0.3,false)); f.renderOrder=6; A.add(f); }
+  if(P.length>=4){ var b=new THREE.Mesh(geoRuban49(P,0.7,P.length>=6,0.42),mat49(coul,0.96,true)); b.renderOrder=7; A.add(b); }
+  D.pts.forEach(function(p,i){
+    var s=spritePoignee49(i===0 && D.pts.length>=3 ? 'centre' : 'point', i===0 && D.pts.length>=3 ? 22 : 17);
+    s.position.set(p[0],hauteur(p[0],p[1])+0.5,p[1]); A.add(s);
+  });
+  majTailles49();
+}
+
+/* ---------------- viser ---------------- */
+function ecranDe49(x,y,z,r){
+  var v=new THREE.Vector3(x,y,z).project(camera);
+  if(v.z>1 || v.z<-1) return null;
+  return [r.left+(v.x+1)/2*r.width, r.top+(1-v.y)/2*r.height];
+}
+function poigneeSous49(e){
+  if(!ZN.poignees.length || !camera) return null;
+  var r=renderer.domElement.getBoundingClientRect(), best=null, bd=1e9;
+  ZN.poignees.forEach(function(h){
+    var s=ecranDe49(h.x,h.y,h.z,r);
+    if(!s) return;
+    var d=Math.hypot(s[0]-e.clientX,s[1]-e.clientY), lim=h.genre==='plus'?11:(h.genre==='centre'?15:14);
+    if(d>lim) return;
+    d-=(h.genre==='coin'?5:0);
+    if(d<bd){ bd=d; best=h; }
+  });
+  return best;
+}
+function zoneSous49(e){
+  var p=solSousPointeur(e);
+  if(!p) return null;
+  var best=null, ba=1e12;
+  zonesListe49().forEach(function(z){
+    var o=ZN.objs.get(z), P=o ? o.P : ptsMonde49(z);
+    if(P.length<6 || !dansPoly(P,p.x,p.z)) return;
+    var a=Math.abs(aire49(P));
+    if(a<ba){ ba=a; best=z; }
+  });
+  return best;
+}
+function dansVue49(e){ var v=$e('e3-vue'); return !!(v && e.target && (e.target===v || v.contains(e.target))); }
+
+/* ---------------- actions ---------------- */
+function selectionnerZone49(z){
+  ZN.sel=z||null;
+  majZones49(true);
+}
+function entrerZones49(){
+  if(window.CONSULTATION) return;
+  if(EQ.mode) sortirMode();
+  if(VM.mode) sortirModeVeh();
+  if(VUE==='jal') sortirVueJal();
+  if(SELECTION) deselectionner();
+  if(EQ.sel) deselectionnerEquip();
+  if(VM.sel) deselectionnerVeh();
+  ZN.actif=true; ZN.sel=null; ZN.dessin=null;
+  var b=$e('e3-b-zones'); if(b) b.classList.add('on');
+  majZones49(true);
+  dire('Zones : clique une zone dans la scène pour la modifier, ou « Dessiner une zone ». Tout est reporté sur la carte.');
+}
+function quitterZones49(){
+  if(!ZN.actif) return;
+  ZN.actif=false; ZN.sel=null; ZN.dessin=null; ZN.drag=null; ZN.bas=null;
+  viderZones49(); apercu49();
+  var b=$e('e3-b-zones'); if(b) b.classList.remove('on');
+  var v=$e('e3-vue'); if(v) v.style.cursor='';
+  majPanneauZones49();
+}
+function commencerDessin49(type){
+  ZN.sel=null;
+  ZN.dessin={type:type||ZN.typeNouveau, pts:[], survol:null};
+  ZN.typeNouveau=ZN.dessin.type;
+  majZones49(true); apercu49();
+  var v=$e('e3-vue'); if(v) v.style.cursor='crosshair';
+  dire('Clique au sol pour poser chaque coin de la zone. Entrée, double-clic ou clic sur le premier coin pour la fermer.');
+}
+function annulerDessin49(){
+  ZN.dessin=null; apercu49();
+  var v=$e('e3-vue'); if(v) v.style.cursor='';
+  majPanneauZones49();
+  dire('Dessin de la zone annulé.');
+}
+function retirerDernierPoint49(){
+  var D=ZN.dessin;
+  if(!D) return;
+  if(D.pts.length){ D.pts.pop(); dire('Dernier coin retiré.'); }
+  apercu49(); majPanneauZones49();
+}
+function terminerDessin49(){
+  var D=ZN.dessin;
+  if(!D) return;
+  if(D.pts.length<3){ dire('Il faut au moins trois coins pour fermer une zone.'); return; }
+  var pts=D.pts.map(function(p){ return [laDeZ(p[1]),loDeX(p[0])]; });
+  ZN.dessin=null; apercu49();
+  var v=$e('e3-vue'); if(v) v.style.cursor='';
+  var z=null;
+  try{ z=CARTE.ajouterZone(D.type,pts); }catch(e){ console.error('Zone',e); }
+  if(!z){ dire('La zone n’a pas pu être ajoutée.'); majPanneauZones49(); return; }
+  selectionnerZone49(z);
+  dire(nomZone49(z)+' ajoutée ('+texteSurface49(surface49(z))+'). Tire ses coins pour l’ajuster. Ctrl+Z pour annuler.');
+}
+function clicDessin49(e){
+  var D=ZN.dessin, p=solSousPointeur(e);
+  if(!D || !p) return;
+  if(D.pts.length>=3){
+    var r=renderer.domElement.getBoundingClientRect(), q=D.pts[0], s=ecranDe49(q[0],hauteur(q[0],q[1])+0.5,q[1],r);
+    if(s && Math.hypot(s[0]-e.clientX,s[1]-e.clientY)<16){ terminerDessin49(); return; }
+  }
+  var der=D.pts[D.pts.length-1];
+  if(der && Math.hypot(der[0]-p.x,der[1]-p.z)<0.5) return;
+  D.pts.push([p.x,p.z]);
+  apercu49(); majPanneauZones49();
+}
+function retirerCoin49(z,i){
+  if(!z || i<0) return;
+  if(z.pts.length<=3){ dire('Une zone garde au moins trois coins : supprime-la plutôt.'); return; }
+  z.pts.splice(i,1);
+  construireZone49(z); poignees49();
+  CARTE.zoneModifiee(z);
+  dire('Coin retiré. Ctrl+Z pour annuler.');
+}
+function supprimerZone49(){
+  var z=ZN.sel;
+  if(!z) return;
+  var nom=nomZone49(z);
+  ZN.sel=null;
+  CARTE.supprimerZone(z);
+  majZones49(true);
+  dire(nom+' supprimée, sur la carte aussi. Ctrl+Z pour annuler.');
+}
+function allerZone49(z){
+  var o=ZN.objs.get(z), P=o ? o.P : ptsMonde49(z), c=o ? o.c : centre49(P), x0=1e9, x1=-1e9, z0=1e9, z1=-1e9;
+  for(var i=0;i<P.length;i+=2){ x0=Math.min(x0,P[i]); x1=Math.max(x1,P[i]); z0=Math.min(z0,P[i+1]); z1=Math.max(z1,P[i+1]); }
+  if(VUE==='jal') sortirVueJal();
+  if(VUE==='fp') basculerVue();
+  try{ auto=false; $e('e3-auto').classList.remove('on'); }catch(e){}
+  J.x=c[0]; J.z=c[1]; J.v=0;
+  try{ CAMV.mode='suivi'; }catch(e){}
+  CAM.dist=Math.max(45,Math.min(170,Math.hypot(x1-x0,z1-z0)*1.25)); CAM.pitch=0.95;
+  CAM.libre=0; CAM.vYaw=0; CAM.vPitch=0;
+}
+
+/* ---------------- panneau ---------------- */
+function panneauZones49(){
+  var p=$e('e3-zones');
+  if(p) return p;
+  var s=document.createElement('style');
+  s.textContent=[
+    '#e3-zones{position:absolute;left:12px;top:74px;width:330px;max-height:calc(100% - 150px);overflow:auto;z-index:7;background:rgba(14,20,31,.94);border:1px solid #3a4a63;border-radius:14px;padding:12px 13px 10px;box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:8px;color:#dfe6f0}',
+    '#e3-zones p{margin:0;font-size:12.5px;line-height:1.45}',
+    '#e3-zones .zn-tete{display:flex;align-items:center;justify-content:space-between;gap:8px}',
+    '#e3-zones .zn-tete b{display:flex;align-items:center;gap:7px;font-size:14px}',
+    '#e3-zones .zn-ligne{display:flex;gap:6px;flex-wrap:wrap;align-items:center}',
+    '#e3-zones .zn-ligne select{flex:1;min-width:120px}',
+    '#e3-zones select,#e3-zones input[type=text]{font:inherit;font-size:12.5px;background:#0B1019;color:#E8EDF5;border:1px solid #34425a;border-radius:7px;padding:5px 7px}',
+    '#e3-zones input[type=color]{width:44px;height:28px;padding:0 2px;border:1px solid #34425a;border-radius:7px;background:#0B1019}',
+    '#e3-zones .zn-champ{display:flex;align-items:center;gap:8px;font-size:12px}',
+    '#e3-zones .zn-champ>span{min-width:58px;opacity:.75}',
+    '#e3-zones .zn-champ>select,#e3-zones .zn-champ>input[type=text]{flex:1}',
+    '#e3-zones .zn-pastille{display:inline-block;width:12px;height:12px;border-radius:3px;flex:none}',
+    '#e3-zones ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}',
+    '#e3-zones li{display:flex;align-items:center;gap:9px;padding:6px 7px;border-radius:8px;cursor:pointer;border:1px solid transparent}',
+    '#e3-zones li:hover{background:rgba(242,179,61,.08);border-color:#3a4a63}',
+    '#e3-zones li span{display:flex;flex-direction:column;min-width:0}',
+    '#e3-zones li b{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '#e3-zones li small{font-size:11px;opacity:.7}',
+    '#e3-zones .zn-stats{font-size:12px;opacity:.85}',
+    '#e3-zones .zn-discret{font-size:11.5px;opacity:.68}',
+    '#e3-zones .zn-vide{font-size:12px;opacity:.7;padding:4px 2px}',
+    '#e3 #e3-zones button.zn-danger{color:#ff9a8f;border-color:#7a3a35}',
+    '#e3 #e3-zones button:disabled{opacity:.45;cursor:default}',
+    '#e3 #e3-b-zones.on{border-color:#F2B33D;color:#F2B33D}',
+    '@media (max-width:760px){#e3-zones{top:auto;bottom:66px;width:calc(100vw - 24px);max-height:45vh}}'
+  ].join('\n');
+  document.head.appendChild(s);
+  p=document.createElement('div');
+  p.id='e3-zones'; p.hidden=true;
+  $e('e3').appendChild(p);
+  ['pointerdown','wheel','dblclick'].forEach(function(t){ p.addEventListener(t,function(ev){ ev.stopPropagation(); }); });
+  p.addEventListener('click',function(ev){
+    var li=ev.target.closest ? ev.target.closest('li[data-i]') : null;
+    if(li){
+      var z=zonesListe49()[+li.dataset.i];
+      if(z){ selectionnerZone49(z); allerZone49(z); dire(nomZone49(z)+' : tire ses coins, ses « + » ou son losange central.'); }
+      return;
+    }
+    var b=ev.target.closest ? ev.target.closest('button') : null;
+    if(!b) return;
+    var a=b.dataset.a;
+    b.blur();
+    if(a==='fermer') quitterZones49();
+    else if(a==='liste') selectionnerZone49(null);
+    else if(a==='dessiner'){ var t=$e('e3-zn-nouv'); commencerDessin49(t ? t.value : ZN.typeNouveau); }
+    else if(a==='terminer') terminerDessin49();
+    else if(a==='retirer') retirerDernierPoint49();
+    else if(a==='annuler') annulerDessin49();
+    else if(a==='voir' && ZN.sel) allerZone49(ZN.sel);
+    else if(a==='suppr'){
+      if(!b.dataset.ok){ b.dataset.ok='1'; b.textContent='Confirmer la suppression'; return; }
+      supprimerZone49();
+    }
+  });
+  p.addEventListener('change',function(ev){
+    var t=ev.target, z=ZN.sel;
+    if(t.id==='e3-zn-nouv'){ ZN.typeNouveau=t.value; return; }
+    if(!z) return;
+    if(t.id==='e3-zn-type'){
+      var nz=CARTE.changerTypeZone(z,t.value);
+      ZN.sel=nz||z;
+      selectionnerZone49(ZN.sel);
+      dire('Type : '+nomType49(t.value)+'. '+texteVoitures49(ZN.sel));
+    } else if(t.id==='e3-zn-nom'){ CARTE.renommerZone(z,t.value); majZones49(true); t.blur(); }
+    else if(t.id==='e3-zn-coul'){ CARTE.colorierZone(z,t.value); majZones49(true); }
+  });
+  p.addEventListener('keydown',function(ev){ if(ev.key==='Enter' && ev.target.id==='e3-zn-nom') ev.target.blur(); });
+  return p;
+}
+function texteVoitures49(z){
+  var t=typeZone49(z);
+  if(t==='parking'){ var n=voituresDans49(z); return 'Voitures garées en épi dans la zone'+(n ? ' ('+n+')' : '')+', refaites à chaque changement.'; }
+  if(ZN_SANS_VOITURE[t]) return 'Ni voiture garée ni circulation dans la zone.';
+  return 'Voitures garées et circulation restent comme dans la ville.';
+}
+function optionsTypes49(choisi){
+  return typesZone49().map(function(T){ return '<option value="'+T.id+'"'+(T.id===choisi?' selected':'')+'>'+echap49(T.nom)+'</option>'; }).join('');
+}
+function majPanneauZones49(){
+  var p=panneauZones49(), h='';
+  if(!ZN.actif){ p.hidden=true; p.__h=''; return; }
+  var croix=function(a,t){ return '<button class="e3-x" data-a="'+a+'" title="'+t+'">✕</button>'; };
+  if(ZN.dessin){
+    var D=ZN.dessin, n=D.pts.length;
+    h='<div class="zn-tete"><b>✏️ Nouvelle zone : '+echap49(nomType49(D.type).toLowerCase())+'</b>'+croix('annuler','Annuler (Échap)')+'</div>'+
+      '<p>Clique au sol pour poser chaque coin (<b>'+n+'</b> posé'+(n>1?'s':'')+'). Pour fermer la zone : <b>Entrée</b>, double-clic, ou clic sur le premier coin.</p>'+
+      '<div class="zn-ligne"><button data-a="terminer"'+(n<3?' disabled':'')+'>✔ Terminer la zone</button><button data-a="retirer"'+(n?'':' disabled')+'>↶ Dernier coin</button><button data-a="annuler">Annuler</button></div>'+
+      '<p class="zn-discret">Clic droit ou Ctrl+Z : retirer le dernier coin. Glisser tourne toujours la caméra, la molette zoome.</p>';
+  } else if(ZN.sel){
+    var z=ZN.sel, t=typeZone49(z), a=surface49(z);
+    h='<div class="zn-tete"><b><i class="zn-pastille" style="background:'+echap49(z.couleur||'#64748B')+'"></i>'+echap49(nomZone49(z))+'</b>'+croix('liste','Retour à la liste (Échap)')+'</div>'+
+      '<label class="zn-champ"><span>Type</span><select id="e3-zn-type">'+optionsTypes49(t)+'</select></label>'+
+      (z.zsv ? '' : '<label class="zn-champ"><span>Nom</span><input id="e3-zn-nom" type="text" maxlength="60" value="'+echap49(z.nom||'')+'"></label>'+
+        '<label class="zn-champ"><span>Couleur</span><input id="e3-zn-coul" type="color" value="'+echap49(z.couleur||'#64748B')+'"></label>')+
+      '<p class="zn-stats">'+texteSurface49(a)+' · '+z.pts.length+' coins. '+echap49(texteVoitures49(z))+'</p>'+
+      '<div class="zn-ligne"><button data-a="voir">🎯 Voir la zone</button><button data-a="suppr" class="zn-danger">Supprimer</button></div>'+
+      '<p class="zn-discret">Tire un coin blanc pour déformer la zone, un « + » pour ajouter un coin, le losange pour la déplacer. Clic droit ou double-clic sur un coin : le retirer. Ctrl+Z annule. Tout est reporté sur la carte.</p>';
+  } else {
+    var L=zonesListe49();
+    h='<div class="zn-tete"><b>🟧 Zones</b>'+croix('fermer','Fermer (Échap)')+'</div>'+
+      '<div class="zn-ligne"><select id="e3-zn-nouv" aria-label="Type de la nouvelle zone">'+optionsTypes49(ZN.typeNouveau)+'</select><button data-a="dessiner">✏️ Dessiner une zone</button></div>'+
+      (L.length ? '<ul>'+L.map(function(z,i){
+        return '<li data-i="'+i+'"><i class="zn-pastille" style="background:'+echap49(z.couleur||'#64748B')+'"></i><span><b>'+echap49(nomZone49(z))+'</b><small>'+
+          echap49(nomType49(typeZone49(z)))+' · '+texteSurface49(surface49(z))+'</small></span></li>';
+      }).join('')+'</ul>' : '<div class="zn-vide">Aucune zone pour l’instant.</div>')+
+      '<p class="zn-discret">Clique une zone dans la scène ou dans la liste pour la modifier. Parking : voitures garées en épi. Fermée, échauffement, village, finishers, salle : ni voiture garée ni circulation.</p>';
+  }
+  if(p.__h!==h){ p.innerHTML=h; p.__h=h; }
+  p.hidden=false;
+}
+
+/* ---------------- souris, clavier ---------------- */
+function brancherZones49(){
+  var e3=$e('e3'), vue=$e('e3-vue');
+  if(!e3 || !vue || e3.__zones49) return;
+  e3.__zones49=true;
+  /* écouté sur #e3 à la capture : passe avant la caméra, les jalonneurs, le matériel et les véhicules */
+  e3.addEventListener('pointerdown',function(e){
+    if(!ZN.actif || !dansVue49(e)) return;
+    if(ZN.dessin){
+      if(e.button===2){ e.preventDefault(); e.stopImmediatePropagation(); retirerDernierPoint49(); return; }
+      if(e.button!==0) return;
+      ZN.bas={x:e.clientX, y:e.clientY, id:e.pointerId};
+      /* un clic sur un jalonneur, une barrière ou un véhicule pose quand même un coin, sans le saisir */
+      if(viser(e) || viserVeh(e) || viserEquip(e)) e.stopImmediatePropagation();
+      return;
+    }
+    var h=poigneeSous49(e);
+    if(e.button===2){
+      if(h && h.genre==='coin'){ e.preventDefault(); e.stopImmediatePropagation(); retirerCoin49(ZN.sel,h.i); }
+      return;
+    }
+    if(e.button!==0) return;
+    if(h && ZN.sel){
+      e.preventDefault(); e.stopImmediatePropagation();
+      var z=ZN.sel, D={z:z, genre:h.genre, i:h.i, id:e.pointerId, x0:e.clientX, y0:e.clientY, bouge:false, t:0, ajout:false,
+        pts0:z.pts.map(function(q){ return [+q[0],+q[1]]; })};
+      if(h.genre==='plus'){
+        var a=z.pts[h.i], b=z.pts[(h.i+1)%z.pts.length];
+        z.pts.splice(h.i+1,0,[(+a[0]+ +b[0])/2,(+a[1]+ +b[1])/2]);
+        D.genre='coin'; D.i=h.i+1; D.ajout=true;
+        construireZone49(z); poignees49();
+      } else if(h.genre==='centre') D.p0=solSousPointeur(e) || {x:h.x, z:h.z};
+      ZN.drag=D;
+      try{ vue.setPointerCapture(e.pointerId); }catch(er){}
+      return;
+    }
+    ZN.bas={x:e.clientX, y:e.clientY, id:e.pointerId};
+  },true);
+  e3.addEventListener('pointermove',function(e){
+    if(!ZN.actif) return;
+    var D=ZN.drag;
+    if(D && D.id===e.pointerId){
+      e.stopImmediatePropagation();
+      if(!D.bouge && Math.hypot(e.clientX-D.x0,e.clientY-D.y0)<4) return;
+      D.bouge=true; vue.style.cursor='grabbing';
+      var t=performance.now();
+      if(t-D.t<35) return;
+      D.t=t;
+      var q=solSousPointeur(e);
+      if(!q) return;
+      if(D.genre==='coin') D.z.pts[D.i]=[laDeZ(q.z),loDeX(q.x)];
+      else {
+        var dx=q.x-D.p0.x, dz=q.z-D.p0.z;
+        D.pts0.forEach(function(p,k){ D.z.pts[k]=[p[0]-dz/MLAT, p[1]+dx/MLON]; });
+      }
+      construireZone49(D.z); poignees49();
+      return;
+    }
+    if(!dansVue49(e)) return;
+    var now=performance.now();
+    if(ZN.dessin){
+      if(now-ZN.tm<40) return;
+      ZN.tm=now;
+      ZN.dessin.survol=solSousPointeur(e);
+      apercu49();
+      vue.style.cursor='crosshair';
+      return;
+    }
+    if(e.buttons || e.pointerType==='touch' || now-ZN.tc<80) return;
+    ZN.tc=now;
+    var h=poigneeSous49(e);
+    if(h){ vue.style.cursor=h.genre==='plus' ? 'copy' : (h.genre==='centre' ? 'move' : 'grab'); ZN.curseur=true; }
+    else if(ZN.curseur){ vue.style.cursor=''; ZN.curseur=false; }
+  },true);
+  function finDrag(e){
+    var D=ZN.drag;
+    if(!D || D.id!==e.pointerId) return false;
+    ZN.drag=null; vue.style.cursor='';
+    if((D.bouge || D.ajout) && e.type==='pointerup'){
+      CARTE.zoneModifiee(D.z);
+      dire(D.ajout ? 'Coin ajouté. La carte est déjà à jour.' : (D.genre==='centre' ? 'Zone déplacée. La carte est déjà à jour.' : 'Coin déplacé. La carte est déjà à jour.'));
+    } else if(D.bouge || D.ajout){
+      /* geste interrompu : la zone reprend sa forme d'avant */
+      D.z.pts.length=0;
+      D.pts0.forEach(function(p){ D.z.pts.push(p); });
+      majZones49(true);
+    }
+    majPanneauZones49();
+    return true;
+  }
+  e3.addEventListener('pointercancel',function(e){ if(ZN.actif && finDrag(e)) e.stopImmediatePropagation(); },true);
+  e3.addEventListener('pointerup',function(e){
+    if(!ZN.actif) return;
+    if(finDrag(e)){ e.stopImmediatePropagation(); return; }
+    var B=ZN.bas; ZN.bas=null;
+    if(!B || B.id!==e.pointerId || !dansVue49(e)) return;
+    if(Math.hypot(e.clientX-B.x,e.clientY-B.y)>=5) return;
+    /* pas d'arrêt de l'événement : la caméra doit recevoir la fin du geste commencé à l'appui */
+    if(ZN.dessin){ clicDessin49(e); return; }
+    if(viser(e) || viserVeh(e) || viserEquip(e)) return;
+    var z=zoneSous49(e);
+    if(z){ if(z!==ZN.sel){ selectionnerZone49(z); dire(nomZone49(z)+' : tire ses coins, ses « + » ou son losange central.'); } }
+    else if(ZN.sel) selectionnerZone49(null);
+  },true);
+  e3.addEventListener('dblclick',function(e){
+    if(!ZN.actif || !dansVue49(e)) return;
+    if(ZN.dessin){ e.preventDefault(); e.stopImmediatePropagation(); terminerDessin49(); return; }
+    var h=poigneeSous49(e);
+    if(h && h.genre==='coin'){ e.preventDefault(); e.stopImmediatePropagation(); retirerCoin49(ZN.sel,h.i); }
+  },true);
+  e3.addEventListener('contextmenu',function(e){ if(ZN.actif && dansVue49(e)) e.preventDefault(); },true);
+  addEventListener('keydown',function(e){
+    if(!ouvert || !ZN.actif || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tg=e.target;
+    if(tg && ((tg.tagName==='INPUT' && tg.type!=='range' && tg.type!=='color') || tg.tagName==='TEXTAREA' || tg.tagName==='SELECT')) return;
+    var k=e.key, fait=true;
+    if(ZN.dessin){
+      if(k==='Escape') annulerDessin49();
+      else if(k==='Enter') terminerDessin49();
+      else if(k==='Backspace') retirerDernierPoint49();
+      else fait=false;
+    } else if(k==='Escape'){ if(ZN.sel) selectionnerZone49(null); else quitterZones49(); }
+    else if((k==='Delete' || k==='Backspace') && ZN.sel) supprimerZone49();
+    else fait=false;
+    if(fait){ e.preventDefault(); e.stopImmediatePropagation(); }
+  },true);
+}
+/* un seul outil à la fois : poser ou choisir autre chose referme les zones */
+var _basculerMode49=basculerMode;
+basculerMode=function(m){ if(ZN.actif) quitterZones49(); return _basculerMode49(m); };
+var _basculerModeVeh49=basculerModeVeh;
+basculerModeVeh=function(t){ if(ZN.actif) quitterZones49(); return _basculerModeVeh49(t); };
+var _selectionner49=selectionner;
+selectionner=function(o){ if(ZN.actif) quitterZones49(); return _selectionner49(o); };
+var _selectionnerEquip49=selectionnerEquip;
+selectionnerEquip=function(t){ if(ZN.actif) quitterZones49(); return _selectionnerEquip49(t); };
+var _selectionnerVeh49=selectionnerVeh;
+selectionnerVeh=function(v){ if(ZN.actif) quitterZones49(); return _selectionnerVeh49(v); };
+/* Ctrl+Z pendant un dessin : retire le dernier coin ; sinon l'historique commun (zones comprises) */
+var _annuler3D49=annuler3D;
+annuler3D=function(refaire){
+  if(ZN.dessin && !refaire){ retirerDernierPoint49(); return; }
+  if(ZN.drag) return;
+  _annuler3D49(refaire);
+};
+var _animerDecor49=animerDecor;
+animerDecor=function(dt,cx,cz){
+  _animerDecor49(dt,cx,cz);
+  if(ZN.actif || ZN.dessin) majTailles49();
+};
+function boutonZones49(){
+  if(window.CONSULTATION || $e('e3-b-zones') || !(window.CARTE && CARTE.zones)) return;
+  var pa=trouverPop(/Poser|➕/);
+  if(!pa) return;
+  var t=document.createElement('div'); t.className='e3-pop-titre'; t.textContent='Zones';
+  var b=document.createElement('button'); b.type='button'; b.id='e3-b-zones'; b.textContent='🟧 Zones (parking, échauffement…)';
+  b.title='Dessiner et modifier les zones : parking, échauffement, village, fermée à la circulation…';
+  b.addEventListener('click',function(){ if(ZN.actif) quitterZones49(); else entrerZones49(); });
+  pa.appendChild(t); pa.appendChild(b);
+}
+var _brancherInterface49=brancherInterface;
+brancherInterface=function(){
+  _brancherInterface49();
+  try{ boutonZones49(); brancherZones49(); }catch(e){ console.warn('zones :',e); }
+};
 })();
