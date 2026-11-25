@@ -210937,11 +210937,7 @@ function gpx(){
   var a=WP[0], b=WP[WP.length-1];
   s+='<wpt lat="'+lat[a].toFixed(6)+'" lon="'+lon[a].toFixed(6)+'"><ele>'+ele[a].toFixed(1)+'</ele><name>DEPART</name><sym>Flag, Green</sym></wpt>\n';
   s+='<wpt lat="'+lat[b].toFixed(6)+'" lon="'+lon[b].toFixed(6)+'"><ele>'+ele[b].toFixed(1)+'</ele><name>ARRIVEE</name><sym>Flag, Red</sym></wpt>\n';
-  POIS.forEach(function(p){
-    var r=kmDuPoi(p);
-    if(r.ecart>SEUIL_SUR) return;
-    s+='<wpt lat="'+p.la.toFixed(6)+'" lon="'+p.lo.toFixed(6)+'"><name>'+esc(p.n+' - '+p.t)+'</name><desc>km '+r.km.toFixed(2)+' - '+esc(p.d)+'</desc><sym>Flag</sym></wpt>\n';
-  });
+  /* seulement départ, arrivée et bornes kilométriques : ni points de la ville ni jalonneurs */
   var nk=Math.floor(total/1000), last=0;
   for(var km=1;km<=nk;km++){
     var cible=km*1000, idx=last;
@@ -210949,10 +210945,6 @@ function gpx(){
     last=idx; var n=POLY[idx];
     s+='<wpt lat="'+lat[n].toFixed(6)+'" lon="'+lon[n].toFixed(6)+'"><ele>'+ele[n].toFixed(1)+'</ele><name>KM '+km+'</name><sym>Pin, Blue</sym></wpt>\n';
   }
-  JAL.forEach(function(j,idx){
-    var r=kmDuJalon(j);
-    s+='<wpt lat="'+j.la.toFixed(6)+'" lon="'+j.lo.toFixed(6)+'"><name>JAL '+(idx+1)+(j.niv==='r'?' (indispensable)':' (facultatif)')+'</name><desc>Jalonneur, km '+r.km.toFixed(2)+'</desc><sym>'+(j.niv==='r'?'Navaid, Red':'Navaid, Orange')+'</sym></wpt>\n';
-  });
   s+='<trk><name>'+PROJET.xml(PROJET.titre)+' '+(total/1000).toFixed(1).replace('.',',')+' km</name><type>running</type><trkseg>\n';
   for(var i=0;i<pts.length;i++){
     s+='<trkpt lat="'+pts[i].la.toFixed(6)+'" lon="'+pts[i].lo.toFixed(6)+'"><ele>'+pts[i].el.toFixed(1)+'</ele></trkpt>\n';
