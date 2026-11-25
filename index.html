@@ -217222,6 +217222,22 @@ CARTE.colorierZone=function(z,c){
 var _zjModifiee49=zjModifiee;
 zjModifiee=function(){ _zjModifiee49(); signaler3D('zones'); };
 
+/* Ctrl+Y (rétablir) : la restauration de base lève HISTEQ.restauration avant
+   que les surcouches aient fini (consignes p2 des jalonneurs remises puis
+   majJalons, qui mémorise) ; l'état mémorisé différait alors de l'état
+   restauré et la pile « rétablir » était vidée. On tient la restauration
+   jusqu'au bout de toutes les surcouches et on mémorise l'état final. */
+var RESTAU49=0;
+var _memoriserEquip49=memoriserEquip;
+memoriserEquip=function(){ if(RESTAU49) return; return _memoriserEquip49(); };
+restaurerEquip=(function(orig){
+  return function(s){
+    RESTAU49++;
+    try{ orig(s); } finally { RESTAU49--; }
+    if(!RESTAU49){ HISTEQ.dernier=etatEquip(); HISTEQ.t=0; }
+  };
+})(restaurerEquip);
+
 /* ================= plan d'implantation ================= */
 var PLAN_DEF={
   arche_depart:{nom:'Emplacement de l’arche de départ', f:'bulle', txt:'DÉPART', coul:'#16264A', encre:'#4ADE80'},
